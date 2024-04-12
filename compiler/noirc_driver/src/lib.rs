@@ -103,6 +103,10 @@ pub struct CompileOptions {
     /// Force Brillig output (for step debugging)
     #[arg(long, hide = true)]
     pub force_brillig: bool,
+
+    /// Force Brillig output (for step debugging)
+    #[arg(long, hide = true)]
+    pub use_plonky2_backend_experimental: bool,
 }
 
 fn parse_expression_width(input: &str) -> Result<ExpressionWidth, std::io::Error> {
