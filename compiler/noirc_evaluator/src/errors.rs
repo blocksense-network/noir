@@ -52,6 +52,21 @@ pub enum RuntimeError {
     UnconstrainedOracleReturnToConstrained { call_stack: CallStack },
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Error)]
+pub enum Plonky2GenError {
+    #[error("PLONKY2 backend does not support {}", .name)]
+    UnsupportedFeature { name: String },
+}
+
+impl From<Plonky2GenError> for RuntimeError {
+    fn from(error: Plonky2GenError) -> RuntimeError {
+        RuntimeError::InternalError(InternalError::General {
+            message: error.to_string(),
+            call_stack: CallStack::new(),
+        })
+    }
+}
+
 // We avoid showing the actual lhs and rhs since most of the time they are just 0
 // and 1 respectively. This would confuse users if a constraint such as
 // assert(foo < bar) fails with "failed constraint: 0 = 1."
