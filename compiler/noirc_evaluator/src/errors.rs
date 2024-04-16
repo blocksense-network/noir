@@ -56,6 +56,9 @@ pub enum RuntimeError {
 pub enum Plonky2GenError {
     #[error("PLONKY2 backend does not support {}", .name)]
     UnsupportedFeature { name: String },
+
+    #[error("PLONKY2 backend ICE error: {}", .message)]
+    ICE { message: String },
 }
 
 impl From<Plonky2GenError> for RuntimeError {
