@@ -12,6 +12,9 @@ in
       # Replace llvmPackages with llvmPackages_X, where X is the latest LLVM version (at the time of writing, 16)
       llvmPackages.bintools
       rustup
+    ]
+    ++ lib.optionals stdenv.isDarwin [
+      libiconv
     ];
     RUSTC_VERSION = overrides.toolchain.channel;
     # https://github.com/rust-lang/rust-bindgen#environment-variables
@@ -28,7 +31,7 @@ in
     # Add glibc, clang, glib, and other headers to bindgen search path
     BINDGEN_EXTRA_CLANG_ARGS =
       # Includes normal include path
-      (builtins.map (a: ''-I"${a}/include"'') [
+      pkgs.lib.optionals pkgs.stdenv.isLinux (builtins.map (a: ''-I"${a}/include"'') [
         # add dev libraries here (e.g. pkgs.libvmi.dev)
         pkgs.glibc.dev
       ])
