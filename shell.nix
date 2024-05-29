@@ -4,16 +4,23 @@
   inputs',
   ...
 }: let
+  frameworks = pkgs.darwin.apple_sdk.frameworks;
   rust = with inputs'.fenix.packages;
+  with pkgs;
   with latest;
-    combine [
+    combine ([
       cargo
       clippy
       rust-analyzer
       rust-src
       rustc
       rustfmt
-    ];
+      libiconv
+    ]
+    ++ lib.optionals stdenv.isDarwin [
+      libiconv
+      frameworks.CoreServices
+    ]);
 in
   pkgs.mkShell {
     packages = [
