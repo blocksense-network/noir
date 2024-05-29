@@ -9,18 +9,19 @@
   with pkgs;
   with latest;
     combine ([
-      cargo
-      clippy
-      rust-analyzer
-      rust-src
-      rustc
-      rustfmt
-      libiconv
-    ]
-    ++ lib.optionals stdenv.isDarwin [
-      libiconv
-      frameworks.CoreServices
-    ]);
+        cargo
+        clippy
+        rust-analyzer
+        rust-src
+        rustc
+        rustfmt
+        libiconv
+        alejandra
+      ]
+      ++ lib.optionals stdenv.isDarwin [
+        libiconv
+        frameworks.CoreServices
+      ]);
 in
   pkgs.mkShell {
     packages = [
