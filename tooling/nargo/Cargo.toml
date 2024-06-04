@@ -19,6 +19,7 @@ noirc_frontend.workspace = true
 noirc_printable_type.workspace = true
 iter-extended.workspace = true
 serde.workspace = true
+serde_with.workspace = true
 thiserror.workspace = true
 codespan-reporting.workspace = true
 tracing.workspace = true

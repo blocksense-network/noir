@@ -9,7 +9,7 @@ use acvm::pwg::{
 use acvm::{BlackBoxFunctionSolver, FieldElement};
 
 use codespan_reporting::files::{Files, SimpleFile};
-use fm::FileId;
+use fm::{FileId, PathString};
 use nargo::artifacts::debug::{DebugArtifact, StackFrame};
 use nargo::errors::{ExecutionError, Location};
 use nargo::NargoError;
@@ -100,7 +100,7 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
         }
     }
 
-    pub(super) fn get_call_stack(&self) -> Vec<OpcodeLocation> {
+    pub fn get_call_stack(&self) -> Vec<OpcodeLocation> {
         let instruction_pointer = self.acvm.instruction_pointer();
         if instruction_pointer >= self.get_opcodes().len() {
             vec![]
@@ -178,13 +178,27 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
             .filter(|v: &Vec<Location>| !v.is_empty())
     }
 
+    pub fn get_line_for_location(&self, location: Location) -> usize {
+        match self.debug_artifact.location_line_index(location) {
+            Ok(location) => location,
+            Err(_) => todo!("stanm: missing line for location"),
+        }
+    }
+
+    pub fn get_filepath_for_location(&self, location: Location) -> PathString {
+        match self.debug_artifact.name(location.file) {
+            Ok(filepath) => filepath,
+            Err(_) => todo!("stanm: missing line for location"),
+        }
+    }
+
     /// Returns the (possible) stack of source locations corresponding to the
     /// given opcode location. Due to compiler inlining it's possible for this
     /// function to return multiple source locations. An empty vector means that
     /// the given opcode location cannot be mapped back to a source location
     /// (eg. it may be pure debug instrumentation code or other synthetically
     /// produced opcode by the compiler)
-    pub(super) fn get_source_location_for_opcode_location(
+    pub fn get_source_location_for_opcode_location(
         &self,
         opcode_location: &OpcodeLocation,
     ) -> Vec<Location> {
@@ -482,7 +496,7 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> DebugContext<'a, B> {
         }
     }
 
-    pub(super) fn get_variables(&self) -> Vec<StackFrame> {
+    pub fn get_variables(&self) -> Vec<StackFrame> {
         return self.foreign_call_executor.get_variables();
     }
 
