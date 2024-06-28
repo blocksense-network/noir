@@ -153,7 +153,6 @@ pub fn trace_circuit<B: BlackBoxFunctionSolver<FieldElement>>(
         return Ok(());
     }
 
-    let mut steps = 0;
     tracer.start(&PathBuf::from(""), Line(-1));
     loop {
         match tracing_context.step_debugger() {
@@ -170,7 +169,6 @@ pub fn trace_circuit<B: BlackBoxFunctionSolver<FieldElement>>(
 
         tracing_context.update_record(tracer);
     }
-    println!("Total tracing steps: {steps}");
 
     Ok(())
 }
