@@ -8,7 +8,7 @@ mod debugger_glue;
 use debugger_glue::{get_current_source_locations, get_stack_frames};
 
 pub mod tracer_glue;
-use tracer_glue::{register_call, register_return, register_step, register_variables};
+use tracer_glue::TracerGlue;
 
 pub mod tail_diff_vecs;
 use tail_diff_vecs::tail_diff_vecs;
@@ -104,26 +104,30 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> TracingContext<'a, B> {
     }
 
     /// Propagates information about the current execution state to `tracer`.
-    fn update_record(&mut self, tracer: &mut Tracer, source_locations: &Vec<SourceLocation>) {
+    fn update_record(
+        &mut self,
+        tracer_glue: &mut TracerGlue,
+        source_locations: &Vec<SourceLocation>,
+    ) {
         let stack_frames = get_stack_frames(&self.debug_context);
         let (first_nomatch, dropped_frames, new_frames) =
             tail_diff_vecs(&self.stack_frames, &stack_frames);
 
         for _ in dropped_frames {
-            register_return(tracer);
+            tracer_glue.register_return();
         }
 
         for i in 0..new_frames.len() {
-            register_call(tracer, &source_locations[first_nomatch + i], new_frames[i]);
+            tracer_glue.register_call(&source_locations[first_nomatch + i], new_frames[i]);
         }
 
         self.stack_frames = stack_frames;
 
         let (_, _, new_source_locations) = tail_diff_vecs(&self.source_locations, source_locations);
         for location in new_source_locations {
-            register_step(tracer, location);
+            tracer_glue.register_step(location);
             if let Some(last_frame) = &self.stack_frames.last() {
-                register_variables(tracer, last_frame);
+                tracer_glue.register_variables(last_frame);
             }
         }
     }
@@ -152,6 +156,7 @@ pub fn trace_circuit<B: BlackBoxFunctionSolver<FieldElement>>(
 
     let SourceLocation { filepath, line_number } = SourceLocation::create_unknown();
     tracer.start(&PathBuf::from(filepath.to_string()), Line(line_number as i64));
+    let mut tracer_glue = TracerGlue::new(tracer);
     loop {
         let source_locations = match tracing_context.step_debugger() {
             DebugStepResult::Finished => break,
@@ -162,7 +167,7 @@ pub fn trace_circuit<B: BlackBoxFunctionSolver<FieldElement>>(
             DebugStepResult::Paused(source_location) => source_location,
         };
 
-        tracing_context.update_record(tracer, &source_locations);
+        tracing_context.update_record(&mut tracer_glue, &source_locations);
 
         // This update is intentionally explicit here, to show what drives the loop.
         tracing_context.source_locations = source_locations;
