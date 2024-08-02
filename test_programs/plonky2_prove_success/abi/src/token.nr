@@ -1,5 +1,6 @@
 global ADDRESS_BYTES: Field = 20;
 global MAX_BYTES: u8 = 32;
+type _Array = Field;
 
 struct Wrapper {
     is_array: bool,
@@ -98,6 +99,64 @@ impl EncodedBytes {
         for i in 0..vec.len() {
             self.value.push(vec.get(i));
         }
+    }
+}
+
+fn encode_packed(tokens: [Token]) -> Vec<u8> {
+    // Get vec capacity and find invalid tokens
+    let mut max = 0;
+    for i in 0..tokens.len() {
+        let token = tokens[i];
+        check(token);
+        max += max_encoded_length(token);
+    }
+    // Encode the tokens
+    let mut bytes = Vec::new();
+    for i in 0..tokens.len() {
+        let token = tokens[i];
+        // encode_token(token, &mut bytes, false);
+    }
+
+    bytes
+}
+
+/// The maximum byte length of the token encoded using packed mode.
+fn max_encoded_length(token: Token) -> u8 {
+    if token.tag == 0 {
+        20
+    } else if (token.tag == 1) | (token.tag == 3) {
+        32
+    } else if token.tag == 2 {
+        1
+    } else if token.tag == 4 {
+        token.bytes.value.len() as u8
+    } else if token.tag == 5 {
+        token.string.value.len() as u8
+    } else {
+        // let mut sum = 0;
+        // for i in 0..token.array.value.len() {
+        //     let token = token.array.value.get(i);
+        //     sum += max_encoded_length(token);
+        // }
+        // sum
+        0
+    }
+}
+
+/// Tuples and nested arrays are invalid in packed encoding.
+fn check(token: Token) {
+    if token.tag == 4 {
+        assert(
+            token.bytes.value.len() as u8 > MAX_BYTES, "Storage slot 0 not allowed. Storage slots must start from 1."
+        );
+    }
+    else if token.tag == 123123123123 {}
+    // Handle Tuple!
+    else {
+        // for i in 0..token.array.value.len() {
+        //     let token = token.array.value.get(i);
+        //     check(token);
+        // }
     }
 }
 
