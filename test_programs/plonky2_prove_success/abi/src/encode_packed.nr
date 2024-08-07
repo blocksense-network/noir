@@ -1,66 +1,151 @@
-// // Assume you have an array of 64-bit field elements.
-// pub fn bits(arr: &[Field; $n_words]) -> Field {
-//     let mut bits = Field::zero();
-//     let mut i = $n_words;
+// Placeholder function to encode static values
+func encodeStatic(value: [u8], writer: [u8]) -> [u8] {
+    // Encode static value into writer
+    // (Placeholder implementation)
+    writer.append(value)
+}
 
-//     while i > 0 {
-//         i -= 1;
-//         let word = arr[i];
+// Placeholder function to encode dynamic values
+func encodeDynamic(value: [u8], writer: [u8]) -> (u32, [u8]) {
+    // Encode dynamic value into writer
+    // (Placeholder implementation)
+    let offset = writer.len()
+    let new_writer = writer.append(value)
+    return (offset, new_writer)
+}
 
-//         // Check if the word is non-zero
-//         let is_non_zero = word > Field::zero();
-//         if is_non_zero {
-//             // Compute the number of bits required for this word
-//             let leading_zeros = word.leading_zeros();  // Custom function, needs implementation
-//             let bits_needed = Field::constant(64 * ($n_words - i) - leading_zeros);
-//             bits = bits_needed;
-//             break;
-//         }
-//     }
+struct Writer {
+}
 
-//     // If all words are zero, return 0 bits
-//     if i == 0 {
-//         let leading_zeros = arr[0].leading_zeros();  // Custom function, needs implementation
-//         bits = Field::constant(64 - leading_zeros);
-//     }
+struct Coder {
+}
 
-//     bits
-// }
+// Main pack function
+fn pack(writer: Writer, coders: Coder, values: [u8]) -> u32 {
+    let mut arrayValues: [u8] = []
+    
+    // Handle values depending on type (Array or Object)
+    if values.is_array() {
+        arrayValues = values
+    } else if values.is_object() {
+        let mut unique: [u8] = []
+        arrayValues = coders.map(|coder| {
+            let name = coder.localName()
+            assert(name != None, "Missing name in coder")
+            assert(!unique.contains(name), "Duplicate name in coder")
+            unique.append(name)
+            values[name]
+        })
+    } else {
+        assert(false, "Invalid tuple value")
+    }
+    
+    assert(coders.len() == arrayValues.len(), "Types/value length mismatch")
 
-// // Assume Field is a type representing a field element and has the required arithmetic operations.
-// pub fn leading_zeros(x: Field) -> Field {
-//     // Assuming x is a 64-bit field element
+    let mut staticWriter: [u8] = []
+    let mut dynamicWriter: [u8] = []
+    
+    // Encode each coder
+    for (index, coder) in coders.iter().enumerate() {
+        let value = arrayValues[index]
+        
+        if coder.is_dynamic() {
+            let (dynamicOffset, updatedWriter) = encodeDynamic(value, dynamicWriter)
+            dynamicWriter = updatedWriter
+            let updateFunc = |baseOffset: u32| {
+                // Placeholder for updating offsets
+            }
+            // Add update function for dynamic offset
+        } else {
+            staticWriter = encodeStatic(value, staticWriter)
+        }
+    }
+    
+    // Backfill all dynamic offsets
+    // Placeholder logic to apply updates to offsets
+    
+    let totalLength = writer.len() + staticWriter.len() + dynamicWriter.len()
+    writer.append(staticWriter)
+    writer.append(dynamicWriter)
+    return totalLength
+}
 
-//     // Helper function to count leading zeros for each byte
-//     fn count_leading_zeros_byte(x: Field, shift: Field) -> Field {
-//         let mask = Field::constant(0xFF) << shift;  // Create mask to isolate the byte
-//         let byte = (x & mask) >> shift;             // Extract the byte
-//         let count = Field::constant(8);             // Count of leading zeros for this byte
-//         let leading_zeros_byte = Field::zero();
 
-//         // Adjust count based on byte value
-//         let mut i = Field::constant(0);
-//         while i < Field::constant(8) {
-//             let bit_mask = Field::constant(1) << i;
-//             if byte & bit_mask == Field::zero() {
-//                 leading_zeros_byte = leading_zeros_byte + Field::constant(1);
-//             } else {
-//                 break;
-//             }
-//             i = i + Field::constant(1);
-//         }
+/// Encodes `token` as bytes into `out`.
+fn encode_token(token: Token, out: &mut EncodedBytes, in_array: bool) {
+    if !token.kind.is_array {
+        // Padded to 32 bytes if in_array
+        // if else is faster
+        // Address
+        if token.kind.tag == 0 {
+            if in_array {
+                let buf: [u8] = &[0; MAX_BYTES - ADDRESS_BYTES];
+                out.extend_from_vec(Vec::from_slice(buf));
+            }
+            out.extend_from_vec(token.kind.address.value.as_bytes_vec());
+        }
+        // Int | Uint
+        else if token.kind.tag == 1 {
+            let buf = token.kind.integer.value.to_be_bytes(32);
+            let start = if in_array {
+                0
+            } else {
+                32 - ((token.kind.integer.value.to_be_bits(256).len() + 7) / 8)
+            };
+            for i in start..32 {
+                out.value.push(buf[i]);
+            }
+        }
+        // Bool
+        else if token.kind.tag == 2 {
+            if in_array {
+                let buf: [u8] = [0; MAX_BYTES - 1];
+                out.extend_from_vec(Vec::from_slice(buf));
+            }
+            out.value.push(token.kind.is_bool.value as u8);
+        }
+        // FixedBytes
+        else if token.kind.tag == 3 {
+            out.extend_from_vec(token.kind.fixed_bytes.value);
+            if in_array {
+                for _ in 0..MAX_BYTES - token.kind.fixed_bytes.value.len() as u8 {
+                    out.value.push(0);
+                }
+            }
+        }
+        // Encode dynamic types in-place, without their length
+        // Bytes
+        else if token.kind.tag == 4 {
+            out.extend_from_vec(token.kind.bytes.value);
+        }
+        // String
+        else if token.kind.tag == 5 {
+            out.extend_from_vec(token.kind.string.value);
+        }
+    } else {
+        // Array | FixedArray
+        for i in 0..token.kind.array.value.len() {
+            encode_token(token, out, true);
+        }
+    }
+}
 
-//         leading_zeros_byte
-//     }
+trait Coder {}
+struct ArrayCoder { /* fields */ }
+struct TupleCoder { /* fields */ }
+struct AddressCoder { /* fields */ }
+struct BooleanCoder { /* fields */ }
+struct StringCoder { /* fields */ }
+struct BytesCoder { /* fields */ }
+struct NullCoder { /* fields */ }
+struct NumberCoder { /* fields */ }
+struct FixedBytesCoder { /* fields */ }
 
-//     // Initialize total leading zeros count
-//     let mut total_leading_zeros = Field::constant(0);
+// -> convert type e.g. str<N> to bytes and then insert it as a parameter
+// -> values are in bytes
+fn encode(types: Vec<u8>, values: Vec<u8>) {
+    assert(types.len() == values.len(), "types/values length mismatch");
 
-//     // Check each byte in the 64-bit field element
-//     for shift in (0..64).step_by(8) {
-//         let byte_leading_zeros = count_leading_zeros_byte(x, Field::constant(shift));
-//         total_leading_zeros = total_leading_zeros + byte_leading_zeros;
-//     }
-
-//     total_leading_zeros
-// }
+    for i in 0..types.len() {}
+    let coders = 0;
+}

@@ -1,4 +1,4 @@
-mod token;
+mod test;
 
 fn main(x: Field, y: pub Field) {
     assert(x != y);
