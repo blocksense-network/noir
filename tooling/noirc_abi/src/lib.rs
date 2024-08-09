@@ -306,19 +306,41 @@ impl Abi {
         }
         Ok(encoded_value)
     }
+    fn calculate_index_params(main_parameters: &Option<Vec<AbiParameter>>) -> Option<Vec<(String, u32)>> {
+        match main_parameters {
+            Some(params) => {
+                let params_sizes: Vec<(String, u32)> = params.iter().map(|param| (param.name.clone(), param.typ.field_count())).collect();
+                let mut params_indexes: Vec<(String, u32)> = params.iter().map(|param| (param.name.clone(), 0)).collect();
 
+                for i in 1..params_sizes.len() {
+                    for j in i..params_indexes.len() {
+                        params_indexes[j].1 += params_sizes[i - 1].1;  
+                    }
+                }
+                Some(params_indexes)
+            },
+            None => None            
+        }
+    }
     /// Decode a `WitnessMap` into the types specified in the ABI.
     pub fn decode(
         &self,
         witness_map: &WitnessMap<FieldElement>,
         main_parameters: Option<Vec<AbiParameter>>,
     ) -> Result<(InputMap, Option<InputValue>), AbiError> {
+        let var_indexes = Self::calculate_index_params(&main_parameters);
         let mut pointer: u32 = 0;
         let public_inputs_map =
             try_btree_map(self.parameters.clone(), |AbiParameter { name, typ, .. }| {
                 let num_fields = typ.field_count();
-                let param_witness_values = try_vecmap(0..num_fields, |index| {
-                    let witness_index = Witness(pointer + index);
+                let starting_index = match &var_indexes {
+                    Some(main_params) => main_params.iter().find(|var| var.0 == name).unwrap_or(&("".to_string(),0)).1 as u32,
+                    None => 0
+                };
+                pointer = starting_index;
+
+                let param_witness_values = try_vecmap(starting_index..num_fields + starting_index, |index| {
+                    let witness_index = Witness(index);
                     witness_map
                         .get(&witness_index)
                         .ok_or_else(|| AbiError::MissingParamWitnessValue {
@@ -327,7 +349,6 @@ impl Abi {
                         })
                         .copied()
                 })?;
-                pointer += num_fields;
 
                 decode_value(&mut param_witness_values.into_iter(), &typ)
                     .map(|input_value| (name.clone(), input_value))
