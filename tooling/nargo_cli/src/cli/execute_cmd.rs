@@ -100,7 +100,7 @@ fn execute_program_and_decode(
     // Get the entry point witness for the ABI
     let main_witness =
         &witness_stack.peek().expect("Should have at least one witness on the stack").witness;
-    let (_, return_value) = program.abi.decode(main_witness)?;
+    let (_, return_value) = program.abi.decode(main_witness, None)?;
 
     Ok((return_value, witness_stack))
 }

@@ -103,7 +103,7 @@ pub fn abi_decode(abi: JsAbi, witness_map: JsWitnessMap) -> Result<JsValue, JsAb
 
     let witness_map = WitnessMap::from(witness_map);
 
-    let (inputs, return_value) = abi.decode(&witness_map)?;
+    let (inputs, return_value) = abi.decode(&witness_map, None)?;
 
     let abi_types = abi.to_btree_map();
     let inputs_map: BTreeMap<String, JsonTypes> = try_btree_map(inputs, |(key, value)| {

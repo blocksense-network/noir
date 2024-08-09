@@ -222,7 +222,7 @@ fn debug_program_and_decode(
                 .peek()
                 .expect("Should have at least one witness on the stack")
                 .witness;
-            let (_, return_value) = program_abi.decode(main_witness)?;
+            let (_, return_value) = program_abi.decode(main_witness, None)?;
             Ok((return_value, Some(witness_stack)))
         }
         None => Ok((None, None)),

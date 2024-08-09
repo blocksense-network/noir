@@ -135,7 +135,7 @@ pub(crate) fn prove_package(
     let main_witness =
         &witness_stack.peek().expect("Should have at least one witness on the stack").witness;
     let public_abi = compiled_program.abi.public_abi();
-    let (public_inputs, return_value) = public_abi.decode(main_witness)?;
+    let (public_inputs, return_value) = public_abi.decode(main_witness, Some(main_parameters))?;
 
     write_inputs_to_file(
         &public_inputs,

@@ -311,6 +311,7 @@ impl Abi {
     pub fn decode(
         &self,
         witness_map: &WitnessMap<FieldElement>,
+        main_parameters: Option<Vec<AbiParameter>>,
     ) -> Result<(InputMap, Option<InputValue>), AbiError> {
         let mut pointer: u32 = 0;
         let public_inputs_map =
