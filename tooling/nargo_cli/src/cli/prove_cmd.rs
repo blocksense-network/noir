@@ -4,14 +4,16 @@ use nargo::constants::{PROVER_INPUT_FILE, VERIFIER_INPUT_FILE};
 use nargo::ops::{compile_program, report_errors};
 use nargo::package::Package;
 use nargo::workspace::Workspace;
-use nargo::{insert_all_files_for_workspace_into_file_manager, parse_all};
+use nargo::{insert_all_files_for_workspace_into_file_manager, parse_all, prepare_package};
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml, PackageSelection};
 use noirc_abi::input_parser::Format;
+use noirc_abi::AbiParameter;
 use noirc_driver::{
-    file_manager_with_stdlib, CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING,
+    compute_function_abi, file_manager_with_stdlib, CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING
 };
 use noirc_frontend::graph::CrateName;
 
+use super::check_cmd::check_crate_and_report_errors;
 use super::fs::{
     inputs::{read_inputs_from_file, write_inputs_to_file},
     proof::save_proof_to_dir,
@@ -92,6 +94,11 @@ pub(crate) fn run(args: ProveCommand, config: NargoConfig) -> Result<(), CliErro
             get_target_width(package.expression_width, args.compile_options.expression_width);
         let compiled_program = nargo::ops::transform_program(compiled_program, target_width);
 
+        let (mut context, crate_id) =
+            prepare_package(&workspace_file_manager, &parsed_files, package);
+        check_crate_and_report_errors(&mut context, crate_id, &args.compile_options)?;
+        let (parameters, _) = compute_function_abi(&context, &crate_id).unwrap();
+
         prove_package(
             &workspace,
             package,
@@ -100,6 +107,7 @@ pub(crate) fn run(args: ProveCommand, config: NargoConfig) -> Result<(), CliErro
             &args.verifier_name,
             args.verify,
             args.oracle_resolver.as_deref(),
+            parameters
         )?;
     }
 
@@ -115,6 +123,7 @@ pub(crate) fn prove_package(
     verifier_name: &str,
     check_proof: bool,
     foreign_call_resolver_url: Option<&str>,
+    main_parameters: Vec<AbiParameter>,
 ) -> Result<(), CliError> {
     // Parse the initial witness values from Prover.toml
     let (inputs_map, _) =
