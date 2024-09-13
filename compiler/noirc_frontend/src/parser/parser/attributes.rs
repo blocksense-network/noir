@@ -96,7 +96,7 @@ pub(super) fn validate_attributes(
                             secondary.push(attr)   
                         } else {
                             emit(ParserError::with_reason(
-                                ParserErrorReason::ReservedAttributeName,
+                                ParserErrorReason::InvalidCustomAttribute,
                                 span,
                             ));
                         }
