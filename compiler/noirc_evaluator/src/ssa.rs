@@ -49,6 +49,7 @@ pub mod ir;
 mod opt;
 pub mod plonky2_gen;
 pub mod ssa_gen;
+pub mod verus_vir_gen;
 
 pub struct SsaEvaluatorOptions {
     /// Emit debug information for the intermediate SSA IR
