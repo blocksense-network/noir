@@ -33,6 +33,7 @@ plonky2_u32 = { git = "https://github.com/metacraft-labs/plonky2-u32" }
 rayon.workspace = true
 cfg-if.workspace = true
 codespan-reporting.workspace = true
+vir.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
