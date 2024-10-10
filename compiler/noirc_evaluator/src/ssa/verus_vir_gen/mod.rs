@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fmt::format, sync::Arc};
 
 use acvm::{AcirField, FieldElement};
 use num_bigint::{BigInt, BigUint};
@@ -6,15 +6,17 @@ use plonky2::field::types::PrimeField;
 use serde::de::value;
 use vir::{
     ast::{
-        Expr, ExprX, Fun, FunX, FunctionAttrs, FunctionAttrsX, FunctionKind, FunctionX,
-        GenericBounds, Idents, IntRange, ItemKind, Krate, KrateX, Mode, Param, ParamX, Params,
-        Path, PathX, Pattern, Primitive, SpannedTyped, Stmt, StmtX, Typ, TypDecoration, TypX,
-        UnwindSpec, VarIdent, VirErr, Visibility,
+        ArithOp, BitwiseOp, Constant, Dt, Expr, ExprX, Fun, FunX, FunctionAttrs, FunctionAttrsX,
+        FunctionKind, FunctionX, GenericBounds, Idents, InequalityOp, IntRange, ItemKind, Krate,
+        KrateX, Mode, Param, ParamX, Params, Path, PathX, Pattern, Primitive, SpannedTyped, Stmt,
+        StmtX, Typ, TypDecoration, TypX, UnwindSpec, VarIdent, VirErr, Visibility,
     },
     ast_util::air_unique_var,
     def::Spanned,
     messages::Span,
 };
+
+use vir::ast::BinaryOp as VirBinaryOp;
 
 use crate::ssa::ir::instruction;
 
@@ -23,7 +25,10 @@ use super::{
         basic_block::BasicBlock,
         dfg::DataFlowGraph,
         function::{Function, FunctionId},
-        instruction::{Instruction, TerminatorInstruction},
+        instruction::{
+            Binary, BinaryOp, Instruction, InstructionId, InstructionResultType,
+            TerminatorInstruction,
+        },
         map::Id,
         types::{CompositeType, NumericType, Type},
         value::{Value, ValueId},
@@ -52,7 +57,21 @@ fn get_func_kind(_func: &Function) -> FunctionKind {
 }
 /// In Verus VIR to represent a "no type" you have to return an empty tuple
 fn get_empty_vir_type() -> Typ {
-    Arc::new(TypX::Tuple(Arc::new(Vec::new())))
+    Arc::new(TypX::Datatype(Dt::Tuple(0), Arc::new(Vec::new()), Arc::new(Vec::new())))
+}
+
+/// This function is technical debt. Its use should be minimized
+fn empty_span() -> Span {
+    Span { raw_span: Arc::new(()), id: 0, data: vec![], as_string: String::new() }
+}
+
+fn build_span<A>(ast_id: &Id<A>, debug_string: String) -> Span {
+    Span {
+        raw_span: Arc::new(()),       // No idea
+        id: ast_id.to_usize() as u64, // AST id
+        data: Vec::new(),             // No idea
+        as_string: debug_string, // It's used as backup if there is no other way to show where the error comes from.
+    }
 }
 
 fn empty_vec_idents() -> Idents {
@@ -66,13 +85,49 @@ fn empty_vec_generic_bounds() -> GenericBounds {
 fn from_numeric_type(numeric_type: NumericType) -> Typ {
     match numeric_type {
         NumericType::Signed { bit_size } => Arc::new(TypX::Int(IntRange::I(bit_size))),
-        NumericType::Unsigned { bit_size } => Arc::new(TypX::Int(IntRange::U(bit_size))),
-        NumericType::NativeField => Arc::new(TypX::Int(IntRange::U(FieldElement::max_num_bits()))), // TODO(totel) Decide to what exactly to map Noir Fields to
+        NumericType::Unsigned { bit_size } => {
+            if bit_size == 1 {
+                Arc::new(TypX::Bool)
+            } else {
+                Arc::new(TypX::Int(IntRange::U(bit_size)))
+            }
+        }
+        NumericType::NativeField => Arc::new(TypX::Int(IntRange::U(FieldElement::max_num_bits()))), // TODO(totel) Document mapping Noir Fields
     }
 }
 
 fn into_vir_const_int(number: usize) -> Typ {
-    Arc::new(TypX::ConstInt(num_bigint::BigInt::from(number)))
+    Arc::new(TypX::ConstInt(BigInt::from(number)))
+}
+
+fn is_function_type(val: &Value) -> bool {
+    match val {
+        Value::Function(_) | Value::Intrinsic(_) | Value::ForeignFunction(_) => true,
+        _ => false,
+    }
+}
+
+fn get_func_id(val: &Value) -> FunctionId {
+    match val {
+        Value::Function(func_id) => func_id.clone(),
+        _ => unreachable!(),
+    }
+}
+
+/// Maps the Noir type of the result of an instruction to Verus VIR type
+fn instr_res_type_to_vir_type(instr_res_type: InstructionResultType, dfg: &DataFlowGraph) -> Typ {
+    match instr_res_type {
+        InstructionResultType::Operand(val_id) => {
+            if is_function_type(&dfg[val_id]) {
+                from_noir_type(dfg[val_id].get_type().clone(), Some(get_func_id(&dfg[val_id])))
+            } else {
+                from_noir_type(dfg[val_id].get_type().clone(), None)
+            }
+        }
+        InstructionResultType::Known(noir_type) => from_noir_type(noir_type, None),
+        InstructionResultType::None => get_empty_vir_type(),
+        InstructionResultType::Unknown => unreachable!(), //TODO(totel/Kamen) See when it appears in SSA
+    }
 }
 
 /// Maps a Noir composite type to either a Verus VIR Tuple type
@@ -84,7 +139,11 @@ fn from_composite_type(composite_type: Arc<CompositeType>) -> Typ {
     } else {
         let typs: Vec<Typ> =
             composite_types.into_iter().map(|noir_type| from_noir_type(noir_type, None)).collect();
-        return Arc::new(TypX::Tuple(Arc::new(typs)));
+        return Arc::new(TypX::Datatype(
+            Dt::Tuple(typs.len()),
+            Arc::new(typs),
+            Arc::new(Vec::new()),
+        ));
     }
 }
 
@@ -117,9 +176,17 @@ fn from_noir_type(noir_typ: Type, func_id: Option<FunctionId>) -> Typ {
 }
 
 fn id_into_var_ident(value_id: ValueId) -> VarIdent {
-    VarIdent(Arc::new(value_id.to_string()), vir::ast::VarIdentDisambiguate::NoBodyParam)
+    VarIdent(
+        Arc::new(value_id.to_string()),
+        vir::ast::VarIdentDisambiguate::RustcId(value_id.to_usize()),
+    )
 }
 
+/// I believe that in Verus VIR this the way they represent return var identifiers
+fn return_var_ident() -> VarIdent {
+    VarIdent(Arc::new(vir::def::RETURN_VALUE.to_owned()), vir::ast::VarIdentDisambiguate::AirLocal)
+}
+/// Probably need to be swapped with the return_var_ident function
 fn empty_var_ident() -> VarIdent {
     VarIdent(Arc::new("empty var ident".to_string()), vir::ast::VarIdentDisambiguate::NoBodyParam)
 }
@@ -141,12 +208,7 @@ fn build_param(
         unwrapped_info: unwrapped_info, // Only if the parameter uses Ghost(x)/Tracked(x) pattern
     };
     Spanned::new(
-        Span {
-            raw_span: Arc::new(()),         // No idea
-            id: value_id.to_usize() as u64, // AST id
-            data: Vec::new(),               // No idea
-            as_string: "param position ".to_owned() + &position.unwrap_or(0).to_string(), // It's used as backup if no other way to show where the error comes from.
-        },
+        build_span(&value_id, "param position ".to_owned() + &position.unwrap_or(0).to_string()),
         paramx,
     )
 }
@@ -160,13 +222,10 @@ fn build_empty_param(basic_block_id: Id<BasicBlock>) -> Param {
         unwrapped_info: None, // Only if the parameter uses Ghost(x)/Tracked(x) pattern
     };
     Spanned::new(
-        Span {
-            raw_span: Arc::new(()),               // No idea
-            id: basic_block_id.to_usize() as u64, // AST id
-            data: Vec::new(),                     // No idea
-            as_string: "empty param from basic block ".to_owned()
-                + &basic_block_id.to_usize().to_string(), // It's used as backup if no other way to show where the error comes from.
-        },
+        build_span(
+            &basic_block_id,
+            "empty param from basic block ".to_owned() + &basic_block_id.to_usize().to_string(),
+        ),
         paramx,
     )
 }
@@ -236,7 +295,7 @@ fn get_function_return_param(func: &Function) -> Result<Param, BuildingKrateErro
                             None,
                             Some(position),
                         ));
-                    } //TODO Why is an instruction a return value?
+                    }
                     Value::Param { block: _, position, typ } => {
                         let vir_type = from_noir_type(typ, None);
                         return Ok(build_param(
@@ -275,7 +334,7 @@ fn get_function_return_param(func: &Function) -> Result<Param, BuildingKrateErro
                         return Ok(build_param(value_id, vir_type, Mode::Exec, false, None, None));
                     }
                     // TODO(totel) I don't know if those last two ever appear as a return value
-                    Value::Intrinsic(intrinsic) => todo!(),
+                    Value::Intrinsic(_intrinsic) => todo!(),
                     Value::ForeignFunction(_) => todo!(),
                 }
             }
@@ -319,16 +378,120 @@ fn build_default_funx_attrs(zero_args: bool) -> FunctionAttrs {
     })
 }
 
+// TODO MOVE into a separate file all expr mapping logic
+fn array_to_expr(
+    array_id: &ValueId,
+    array_values: &im::Vector<ValueId>,
+    noir_type: &Type,
+    dfg: &DataFlowGraph,
+) -> Expr {
+    let vals_to_expr: Vec<Expr> =
+        array_values.iter().map(|val_id| ssa_value_to_expr(val_id, dfg)).collect();
+    SpannedTyped::new(
+        &build_span(
+            array_id,
+            format!(
+                "Array({}) with values[{}]",
+                array_id.to_string(),
+                array_values.iter().map(|x| x.to_string()).collect::<Vec<String>>().join(", ")
+            ),
+        ),
+        &from_noir_type(noir_type.clone(), None),
+        ExprX::ArrayLiteral(Arc::new(vals_to_expr)),
+    )
+}
+
+fn param_to_expr(value_id: &ValueId, position: usize, noir_type: &Type) -> Expr {
+    SpannedTyped::new(
+        &build_span(value_id, "param position ".to_owned() + &position.to_string()),
+        &from_noir_type(noir_type.clone(), None),
+        ExprX::Var(id_into_var_ident(value_id.clone())),
+    )
+}
+
+fn numeric_const_to_expr(numeric_const: &FieldElement, noir_type: &Type) -> Expr {
+    if noir_type.bit_size() == 1 {
+        // Numeric const is a bool
+        if numeric_const.is_zero() {
+            return SpannedTyped::new(
+                &empty_span(), //TODO get rid of empty span, maybe pass val_id here
+                &from_noir_type(noir_type.clone(), None),
+                ExprX::Const(Constant::Bool(false)),
+            );
+        } else {
+            return SpannedTyped::new(
+                &empty_span(), //TODO get rid of empty span, maybe pass val_id here
+                &from_noir_type(noir_type.clone(), None),
+                ExprX::Const(Constant::Bool(true)),
+            );
+        }
+    }
+    // It's an actual numeric constant
+    let const_big_uint: BigUint = numeric_const.into_repr().into();
+    let const_big_int: BigInt = BigInt::from_biguint(num_bigint::Sign::Plus, const_big_uint); //Sign::NoSign??
+
+    SpannedTyped::new(
+        &empty_span(), //TODO maybe dont use empty span
+        &from_noir_type(noir_type.clone(), None),
+        ExprX::Const(Constant::Int(const_big_int)),
+    )
+}
+
+fn ssa_value_to_expr(value_id: &ValueId, dfg: &DataFlowGraph) -> Expr {
+    let value = &dfg[*value_id];
+    match value {
+        Value::Instruction { instruction, position: _, typ: _ } => {
+            instruction_to_expr(*instruction, &dfg[*instruction], dfg)
+        }
+        Value::Param { block: _, position, typ } => param_to_expr(value_id, *position, typ),
+        Value::NumericConstant { constant, typ } => numeric_const_to_expr(constant, typ),
+        Value::Array { array, typ } => array_to_expr(value_id, array, typ, dfg), //TODO(totel) See if there is an other way to represent arrays
+        Value::Function(_) => unreachable!(), // The only possible way to have a Value::Function is through Instruction::Call
+        Value::Intrinsic(_) => todo!(),       // Not planned for the prototype
+        Value::ForeignFunction(_) => todo!(), // Not planned for the prototype
+    }
+}
+
+fn binary_op_to_vir_binary_op(binary: &BinaryOp) -> VirBinaryOp {
+    match binary {
+        BinaryOp::Add => VirBinaryOp::Arith(ArithOp::Add, Mode::Exec), // It would be of Mode::Spec only if it is a part of a fv attribute or a ghost block
+        BinaryOp::Sub => VirBinaryOp::Arith(ArithOp::Sub, Mode::Exec),
+        BinaryOp::Mul => VirBinaryOp::Arith(ArithOp::Mul, Mode::Exec),
+        BinaryOp::Div => VirBinaryOp::Arith(ArithOp::EuclideanDiv, Mode::Exec),
+        BinaryOp::Mod => VirBinaryOp::Arith(ArithOp::EuclideanMod, Mode::Exec),
+        BinaryOp::Eq => VirBinaryOp::Eq(Mode::Exec),
+        BinaryOp::Lt => VirBinaryOp::Inequality(InequalityOp::Lt),
+        BinaryOp::And => VirBinaryOp::Bitwise(BitwiseOp::BitAnd, Mode::Exec),
+        BinaryOp::Or => VirBinaryOp::Bitwise(BitwiseOp::BitOr, Mode::Exec),
+        BinaryOp::Xor => VirBinaryOp::Bitwise(BitwiseOp::BitXor, Mode::Exec),
+        BinaryOp::Shl => todo!(), // Needs argument bitwidth. Get it here as Optional arg, perhaps
+        BinaryOp::Shr => todo!(), // Needs argument bitwidth. Get it here as Optional arg, perhaps
+    }
+}
+
+fn binary_instruction_to_expr(
+    instruction_id: InstructionId,
+    binary: &Binary,
+    dfg: &DataFlowGraph,
+) -> Expr {
+    let Binary { lhs, rhs, operator } = binary;
+
+    let binary_exprx = ExprX::Binary(
+        binary_op_to_vir_binary_op(operator),
+        ssa_value_to_expr(lhs, dfg),
+        ssa_value_to_expr(rhs, dfg),
+    );
+    SpannedTyped::new(
+        &build_span(&instruction_id, format!("lhs({}) binary_op({}) rhs({})", lhs, rhs, operator)),
+        &instr_res_type_to_vir_type(binary.result_type(), dfg),
+        binary_exprx,
+    )
+}
+
 fn terminating_instruction_to_expr(terminating_instruction: &TerminatorInstruction) -> Expr {
     match terminating_instruction {
-        TerminatorInstruction::JmpIf {
-            condition,
-            then_destination,
-            else_destination,
-            call_stack,
-        } => todo!(),
-        TerminatorInstruction::Jmp { destination, arguments, call_stack } => todo!(),
         TerminatorInstruction::Return { return_values, call_stack } => todo!(),
+        _ => unreachable!(), // See why Jmp and JmpIf are unreachable here https://coda.io/d/_d6vM0kjfQP6#Blocksense-Table-View_tuvTVcZS/r1381&view=center
     }
 }
 
@@ -336,9 +499,13 @@ fn instruction_to_pattern(instruction: &Instruction, dfg: &DataFlowGraph) -> Pat
     todo!()
 }
 
-fn instruction_to_expr(instruction: &Instruction, dfg: &DataFlowGraph) -> Expr {
+fn instruction_to_expr(
+    instruction_id: InstructionId,
+    instruction: &Instruction,
+    dfg: &DataFlowGraph,
+) -> Expr {
     match instruction {
-        Instruction::Binary(binary) => todo!(),
+        Instruction::Binary(binary) => binary_instruction_to_expr(instruction_id, binary, dfg),
         Instruction::Cast(id, _) => todo!(),
         Instruction::Not(id) => todo!(),
         Instruction::Truncate { value, bit_size, max_bit_size } => todo!(),
@@ -378,7 +545,7 @@ fn instruction_to_stmt(
             StmtX::Decl {
                 pattern: instruction_to_pattern(instruction, dfg),
                 mode: Some(Mode::Exec),
-                init: Some(instruction_to_expr(instruction, dfg)),
+                init: Some(instruction_to_expr(instruction_id, instruction, dfg)),
             },
         ),
     }
