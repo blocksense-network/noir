@@ -7,9 +7,10 @@ use serde::de::value;
 use vir::{
     ast::{
         ArithOp, BitwiseOp, Constant, Dt, Expr, ExprX, Fun, FunX, FunctionAttrs, FunctionAttrsX,
-        FunctionKind, FunctionX, GenericBounds, Idents, InequalityOp, IntRange, ItemKind, Krate,
-        KrateX, Mode, Param, ParamX, Params, Path, PathX, Pattern, Primitive, SpannedTyped, Stmt,
-        StmtX, Typ, TypDecoration, TypX, UnwindSpec, VarIdent, VirErr, Visibility,
+        FunctionKind, FunctionX, GenericBounds, Idents, InequalityOp, IntRange,
+        IntegerTypeBitwidth, ItemKind, Krate, KrateX, Mode, Param, ParamX, Params, Path, PathX,
+        Pattern, Primitive, SpannedTyped, Stmt, StmtX, Typ, TypDecoration, TypX, UnaryOp,
+        UnwindSpec, VarIdent, VirErr, Visibility,
     },
     ast_util::air_unique_var,
     def::Spanned,
@@ -80,6 +81,22 @@ fn empty_vec_idents() -> Idents {
 
 fn empty_vec_generic_bounds() -> GenericBounds {
     Arc::new(vec![])
+}
+
+fn get_integer_bit_width(numeric_type: NumericType) -> Option<IntegerTypeBitwidth> {
+    match numeric_type {
+        NumericType::Signed { bit_size: _ } => None, // Expected behavior in Verus VIR
+        NumericType::Unsigned { bit_size } => Some(IntegerTypeBitwidth::Width(bit_size)),
+        NumericType::NativeField => Some(IntegerTypeBitwidth::Width(FieldElement::max_num_bits())),
+    }
+}
+
+fn get_int_range(numeric_type: NumericType) -> IntRange {
+    match numeric_type {
+        NumericType::Signed { bit_size } => IntRange::I(bit_size),
+        NumericType::Unsigned { bit_size } => IntRange::U(bit_size),
+        NumericType::NativeField => IntRange::U(FieldElement::max_num_bits()), // TODO(totel) Document mapping Noir Fields
+    }
 }
 
 fn from_numeric_type(numeric_type: NumericType) -> Typ {
@@ -488,6 +505,35 @@ fn binary_instruction_to_expr(
     )
 }
 
+fn bitwise_not_instr_to_expr(value_id: &ValueId, dfg: &DataFlowGraph) -> Expr {
+    let value = &dfg[*value_id];
+    let bit_width: Option<IntegerTypeBitwidth> = match value.get_type() {
+        Type::Numeric(numeric_type) => get_integer_bit_width(*numeric_type),
+        _ => panic!("Bitwise not on a non numeric type"),
+    };
+    let bitnot_exprx = ExprX::Unary(UnaryOp::BitNot(bit_width), ssa_value_to_expr(value_id, dfg));
+    SpannedTyped::new(
+        &build_span(value_id, format!("Bitwise not on({})", value_id.to_string())),
+        &from_noir_type(value.get_type().clone(), None),
+        bitnot_exprx,
+    )
+}
+
+fn cast_instruction_to_expr(value_id: &ValueId, noir_type: &Type, dfg: &DataFlowGraph) -> Expr {
+    let cast_exprx = match noir_type {
+        Type::Numeric(numeric_type) => ExprX::Unary(
+            UnaryOp::Clip { range: get_int_range(*numeric_type), truncate: false },
+            ssa_value_to_expr(value_id, dfg),
+        ),
+        _ => panic!("Expected that all SSA casts have numeric targets"),
+    };
+    SpannedTyped::new(
+        &build_span(value_id, format!("Cast({}) to type({})", value_id, noir_type)),
+        &from_noir_type(noir_type.clone(), None),
+        cast_exprx,
+    )
+}
+
 fn terminating_instruction_to_expr(terminating_instruction: &TerminatorInstruction) -> Expr {
     match terminating_instruction {
         TerminatorInstruction::Return { return_values, call_stack } => todo!(),
@@ -506,8 +552,8 @@ fn instruction_to_expr(
 ) -> Expr {
     match instruction {
         Instruction::Binary(binary) => binary_instruction_to_expr(instruction_id, binary, dfg),
-        Instruction::Cast(id, _) => todo!(),
-        Instruction::Not(id) => todo!(),
+        Instruction::Cast(val_id, noir_type) => cast_instruction_to_expr(val_id, noir_type, dfg),
+        Instruction::Not(val_id) => bitwise_not_instr_to_expr(val_id, dfg),
         Instruction::Truncate { value, bit_size, max_bit_size } => todo!(),
         Instruction::Constrain(id, id1, constrain_error) => todo!(),
         Instruction::RangeCheck { value, max_bit_size, assert_message } => todo!(),
