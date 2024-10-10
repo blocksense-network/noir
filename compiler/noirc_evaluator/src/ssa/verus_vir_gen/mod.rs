@@ -1,9 +1,7 @@
-use std::{fmt::format, sync::Arc};
+use std::sync::Arc;
 
 use acvm::{AcirField, FieldElement};
 use num_bigint::{BigInt, BigUint};
-use plonky2::field::types::PrimeField;
-use serde::de::value;
 use vir::{
     ast::{
         ArithOp, BitwiseOp, Constant, Dt, Expr, ExprX, Fun, FunX, FunctionAttrs, FunctionAttrsX,
@@ -18,8 +16,6 @@ use vir::{
 };
 
 use vir::ast::BinaryOp as VirBinaryOp;
-
-use crate::ssa::ir::instruction;
 
 use super::{
     ir::{
@@ -96,6 +92,14 @@ fn get_int_range(numeric_type: NumericType) -> IntRange {
         NumericType::Signed { bit_size } => IntRange::I(bit_size),
         NumericType::Unsigned { bit_size } => IntRange::U(bit_size),
         NumericType::NativeField => IntRange::U(FieldElement::max_num_bits()), // TODO(totel) Document mapping Noir Fields
+    }
+}
+
+fn trunc_target_int_range(numeric_type: &NumericType, target_bit_size: u32) -> IntRange {
+    match numeric_type {
+        NumericType::Signed { bit_size: _ } => IntRange::I(target_bit_size),
+        NumericType::Unsigned { bit_size: _ } => IntRange::U(target_bit_size),
+        NumericType::NativeField => IntRange::U(target_bit_size),
     }
 }
 
@@ -519,6 +523,25 @@ fn bitwise_not_instr_to_expr(value_id: &ValueId, dfg: &DataFlowGraph) -> Expr {
     )
 }
 
+fn truncate_instr_to_expr(value_id: &ValueId, target_bit_size: u32, dfg: &DataFlowGraph) -> Expr {
+    let value_type = dfg[*value_id].get_type();
+    let truncate_exprx = match value_type {
+        Type::Numeric(numeric_type) => ExprX::Unary(
+            UnaryOp::Clip {
+                range: trunc_target_int_range(numeric_type, target_bit_size),
+                truncate: true,
+            },
+            ssa_value_to_expr(value_id, dfg),
+        ),
+        _ => panic!("Can truncate only numeric values"),
+    };
+    SpannedTyped::new(
+        &build_span(value_id, format!("Truncate({}) to bit size({})", value_id, target_bit_size)),
+        &from_noir_type(value_type.clone(), None),
+        truncate_exprx,
+    )
+}
+
 fn cast_instruction_to_expr(value_id: &ValueId, noir_type: &Type, dfg: &DataFlowGraph) -> Expr {
     let cast_exprx = match noir_type {
         Type::Numeric(numeric_type) => ExprX::Unary(
@@ -554,7 +577,9 @@ fn instruction_to_expr(
         Instruction::Binary(binary) => binary_instruction_to_expr(instruction_id, binary, dfg),
         Instruction::Cast(val_id, noir_type) => cast_instruction_to_expr(val_id, noir_type, dfg),
         Instruction::Not(val_id) => bitwise_not_instr_to_expr(val_id, dfg),
-        Instruction::Truncate { value, bit_size, max_bit_size } => todo!(),
+        Instruction::Truncate { value: val_id, bit_size, max_bit_size: _ } => {
+            truncate_instr_to_expr(val_id, *bit_size, dfg)
+        }
         Instruction::Constrain(id, id1, constrain_error) => todo!(),
         Instruction::RangeCheck { value, max_bit_size, assert_message } => todo!(),
         Instruction::Call { func, arguments } => todo!(),
