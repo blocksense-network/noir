@@ -557,6 +557,36 @@ fn cast_instruction_to_expr(value_id: &ValueId, noir_type: &Type, dfg: &DataFlow
     )
 }
 
+fn range_limit_to_expr(
+    value_id: &ValueId,
+    target_bit_size: u32,
+    truncate: bool,
+    dfg: &DataFlowGraph,
+) -> Expr {
+    let value_type = dfg[*value_id].get_type();
+    let clip_exprx = match value_type {
+        Type::Numeric(numeric_type) => ExprX::Unary(
+            UnaryOp::Clip {
+                range: trunc_target_int_range(numeric_type, target_bit_size),
+                truncate,
+            },
+            ssa_value_to_expr(value_id, dfg),
+        ),
+        _ => panic!("Can range limit/truncate only numeric values"),
+    };
+
+    let debug_string = if truncate {
+        format!("Truncate var({}) to bit size({})", value_id, target_bit_size)
+    } else {
+        format!("Range check var({}) to bit size({})", value_id, target_bit_size)
+    };
+    SpannedTyped::new(
+        &build_span(value_id, debug_string),
+        &from_noir_type(value_type.clone(), None),
+        clip_exprx,
+    )
+}
+
 fn constrain_instruction_to_expr(
     instruction_id: Id<Instruction>,
     lhs: &ValueId,
@@ -604,10 +634,14 @@ fn instruction_to_expr(
         Instruction::Cast(val_id, noir_type) => cast_instruction_to_expr(val_id, noir_type, dfg),
         Instruction::Not(val_id) => bitwise_not_instr_to_expr(val_id, dfg),
         Instruction::Truncate { value: val_id, bit_size, max_bit_size: _ } => {
-            truncate_instr_to_expr(val_id, *bit_size, dfg)
+            range_limit_to_expr(val_id, *bit_size, true, dfg)
         }
-        Instruction::Constrain(lhs, rhs, _) => constrain_instruction_to_expr(instruction_id, lhs, rhs, dfg),
-        Instruction::RangeCheck { value, max_bit_size, assert_message } => todo!(),
+        Instruction::Constrain(lhs, rhs, _) => {
+            constrain_instruction_to_expr(instruction_id, lhs, rhs, dfg)
+        }
+        Instruction::RangeCheck { value: val_id, max_bit_size, assert_message: _ } => {
+            range_limit_to_expr(val_id, *max_bit_size, false, dfg)
+        }
         Instruction::Call { func, arguments } => todo!(),
         Instruction::Allocate => todo!(),
         Instruction::Load { address } => unreachable!(),
