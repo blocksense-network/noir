@@ -1,20 +1,25 @@
 use std::{
     borrow::Borrow,
+    collections::HashMap,
     fmt::Display,
     fs::File,
     io::{BufWriter, Write},
 };
 
 use codespan_reporting::files::Files;
-use fm::{FileId, FileMap};
+use fm::{FileId, FileMap, PathString};
 use plonky2::iop::{
     target::{BoolTarget, Target},
     wire::Wire,
 };
 use plonky2_u32::gadgets::arithmetic_u32::{CircuitBuilderU32, U32Target};
+use serde::{Deserialize, Serialize};
 use tracing::Instrument;
 
-use crate::ssa::ir::dfg::CallStack;
+use crate::{
+    debug_trace::{AsmListIndexRange, DebugTraceList, SourcePoint},
+    ssa::ir::dfg::CallStack,
+};
 
 use super::config::P2Builder;
 use super::config::P2Field;
@@ -181,11 +186,14 @@ pub struct AsmWriter {
     last_line_number_begin: usize,
     last_line_number_end: usize,
     file_map: FileMap,
+    // information, stored, for use with the 'nargo trace --trace-plonky2' feature
+    pub debug_trace_list: Option<DebugTraceList>,
+    prev_source_point: Option<SourcePoint>,
 }
 
 impl AsmWriter {
     fn output_enabled(&self) -> bool {
-        self.show_plonky2 || self.file.is_some()
+        self.show_plonky2 || self.file.is_some() || self.debug_trace_list.is_some()
     }
 
     fn handle_output(&mut self, s: String) {
@@ -195,6 +203,10 @@ impl AsmWriter {
 
         if let Some(f) = &mut self.file {
             writeln!(f, "{}", s).expect("Unable to write PLONKY2 data to file");
+        }
+
+        if let Some(l) = &mut self.debug_trace_list {
+            l.list.push(s);
         }
     }
 
@@ -213,6 +225,7 @@ impl AsmWriter {
         show_plonky2: bool,
         plonky2_print_file: Option<String>,
         file_map: FileMap,
+        create_debug_trace_list: bool,
     ) -> Self {
         AsmWriter {
             builder,
@@ -229,6 +242,12 @@ impl AsmWriter {
             last_line_number_begin: 0,
             last_line_number_end: 0,
             file_map,
+            debug_trace_list: if create_debug_trace_list {
+                Some(DebugTraceList::new())
+            } else {
+                None
+            },
+            prev_source_point: None,
         }
     }
 
@@ -576,6 +595,44 @@ impl AsmWriter {
         self.comment(format!("lessthan end (result = {})", BoolTargetDisplay { t: result }));
     }
 
+    fn add_debug_trace_source_file_line(&mut self, name: String, line_number: usize) {
+        let dtlist = self.debug_trace_list.as_mut().unwrap();
+
+        if let Some(prev_dsp) = &self.prev_source_point {
+            if let Some(last_range_vec) = dtlist.source_map.get_mut(prev_dsp) {
+                last_range_vec.last_mut().unwrap().end = Some(dtlist.list.len() - 1);
+            } else {
+                panic!("No entry found for the previous plonky2 asm list index range");
+            }
+        }
+
+        let dsp = SourcePoint { file: name, line_number };
+        if let Some(line_list) = dtlist.source_map.get_mut(&dsp) {
+            line_list.push(AsmListIndexRange { start: dtlist.list.len(), end: None });
+        } else {
+            dtlist.source_map.insert(
+                dsp.clone(),
+                vec![AsmListIndexRange { start: dtlist.list.len(), end: None }],
+            );
+        }
+        self.prev_source_point = Some(dsp);
+    }
+
+    fn comment_source_file_name(&mut self, name: PathString) {
+        if self.debug_trace_list.is_none() {
+            self.comment(format!("[{}]", name));
+        }
+    }
+
+    fn comment_source_line(&mut self, line_number: usize, s: &str) {
+        if self.debug_trace_list.is_some() {
+            let last_file_name = self.file_map.name(self.last_file).unwrap();
+            self.add_debug_trace_source_file_line(last_file_name.to_string(), line_number);
+        } else {
+            self.comment(format!("[{}] {}", line_number, s));
+        }
+    }
+
     pub fn comment_update_call_stack(&mut self, call_stack: CallStack) {
         if call_stack != self.last_call_stack {
             if let Some(last_loc) = call_stack.last() {
@@ -585,7 +642,7 @@ impl AsmWriter {
                     self.file_map.location(last_loc.file, last_loc.span.end() as usize).unwrap();
 
                 if last_loc.file != self.last_file {
-                    self.comment(format!("[{}]", self.file_map.name(last_loc.file).unwrap()));
+                    self.comment_source_file_name(self.file_map.name(last_loc.file).unwrap());
                     self.last_file = last_loc.file;
                     self.last_line_number_begin = 0;
                     self.last_line_number_end = 0;
@@ -597,13 +654,12 @@ impl AsmWriter {
                     self.last_line_number_end = span_end.line_number;
                     for ln in span_begin.line_number..span_end.line_number + 1 {
                         let lr = self.file_map.line_range(last_loc.file, ln - 1).unwrap();
-                        self.comment(format!(
-                            "[{}] {}",
+                        self.comment_source_line(
                             ln,
                             &self.file_map.source(last_loc.file).unwrap()[lr.start..lr.end]
                                 .to_string()
-                                .trim()
-                        ));
+                                .trim(),
+                        );
                     }
                 }
             }

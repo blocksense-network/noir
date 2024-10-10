@@ -1,5 +1,6 @@
 use super::config::{P2CircuitData, P2Field, P2ProofWithPublicInputs};
 use super::noir_to_plonky2_field;
+use crate::debug_trace::DebugTraceList;
 use crate::errors::{Plonky2GenError, Plonky2VerifyError};
 use acvm::acir::native_types::WitnessMap;
 use acvm::FieldElement;
@@ -15,6 +16,7 @@ pub struct Plonky2Circuit {
     pub data: P2CircuitData,
     pub parameters: Vec<Target>,
     pub parameter_names: Vec<String>,
+    pub debug_trace_list: Option<DebugTraceList>,
 }
 
 impl Clone for Plonky2Circuit {
