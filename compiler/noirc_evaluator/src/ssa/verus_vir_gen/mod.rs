@@ -557,6 +557,32 @@ fn cast_instruction_to_expr(value_id: &ValueId, noir_type: &Type, dfg: &DataFlow
     )
 }
 
+fn constrain_instruction_to_expr(
+    instruction_id: Id<Instruction>,
+    lhs: &ValueId,
+    rhs: &ValueId,
+    dfg: &DataFlowGraph,
+) -> Expr {
+    let binary_equals_expr = SpannedTyped::new(
+        &build_span(&instruction_id, format!("lhs({}) == rhs({})", lhs, rhs)),
+        &Arc::new(TypX::Bool),
+        ExprX::Binary(
+            VirBinaryOp::Eq(Mode::Exec), // I assume that mode Exec is the correct one
+            ssa_value_to_expr(lhs, dfg),
+            ssa_value_to_expr(rhs, dfg),
+        ),
+    );
+    let assert_exprx = ExprX::AssertAssume { is_assume: false, expr: binary_equals_expr };
+    SpannedTyped::new(
+        &build_span(
+            &instruction_id,
+            format!("Constrain({}) lhs({}) == rhs({})", instruction_id, lhs, rhs),
+        ),
+        &get_empty_vir_type(),
+        assert_exprx,
+    )
+}
+
 fn terminating_instruction_to_expr(terminating_instruction: &TerminatorInstruction) -> Expr {
     match terminating_instruction {
         TerminatorInstruction::Return { return_values, call_stack } => todo!(),
@@ -580,7 +606,7 @@ fn instruction_to_expr(
         Instruction::Truncate { value: val_id, bit_size, max_bit_size: _ } => {
             truncate_instr_to_expr(val_id, *bit_size, dfg)
         }
-        Instruction::Constrain(id, id1, constrain_error) => todo!(),
+        Instruction::Constrain(lhs, rhs, _) => constrain_instruction_to_expr(instruction_id, lhs, rhs, dfg),
         Instruction::RangeCheck { value, max_bit_size, assert_message } => todo!(),
         Instruction::Call { func, arguments } => todo!(),
         Instruction::Allocate => todo!(),
