@@ -523,25 +523,6 @@ fn bitwise_not_instr_to_expr(value_id: &ValueId, dfg: &DataFlowGraph) -> Expr {
     )
 }
 
-fn truncate_instr_to_expr(value_id: &ValueId, target_bit_size: u32, dfg: &DataFlowGraph) -> Expr {
-    let value_type = dfg[*value_id].get_type();
-    let truncate_exprx = match value_type {
-        Type::Numeric(numeric_type) => ExprX::Unary(
-            UnaryOp::Clip {
-                range: trunc_target_int_range(numeric_type, target_bit_size),
-                truncate: true,
-            },
-            ssa_value_to_expr(value_id, dfg),
-        ),
-        _ => panic!("Can truncate only numeric values"),
-    };
-    SpannedTyped::new(
-        &build_span(value_id, format!("Truncate({}) to bit size({})", value_id, target_bit_size)),
-        &from_noir_type(value_type.clone(), None),
-        truncate_exprx,
-    )
-}
-
 fn cast_instruction_to_expr(value_id: &ValueId, noir_type: &Type, dfg: &DataFlowGraph) -> Expr {
     let cast_exprx = match noir_type {
         Type::Numeric(numeric_type) => ExprX::Unary(
