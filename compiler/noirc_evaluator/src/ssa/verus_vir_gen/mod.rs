@@ -4,11 +4,11 @@ use acvm::{AcirField, FieldElement};
 use num_bigint::{BigInt, BigUint};
 use vir::{
     ast::{
-        ArithOp, BitwiseOp, Constant, Dt, Expr, ExprX, Fun, FunX, FunctionAttrs, FunctionAttrsX,
-        FunctionKind, FunctionX, GenericBounds, Idents, InequalityOp, IntRange,
-        IntegerTypeBitwidth, ItemKind, Krate, KrateX, Mode, Param, ParamX, Params, Path, PathX,
-        Pattern, Primitive, SpannedTyped, Stmt, StmtX, Typ, TypDecoration, TypX, UnaryOp,
-        UnwindSpec, VarIdent, VirErr, Visibility,
+        ArithOp, AutospecUsage, BitwiseOp, CallTarget, CallTargetKind, Constant, Dt, Expr, ExprX,
+        Exprs, Fun, FunX, FunctionAttrs, FunctionAttrsX, FunctionKind, FunctionX, GenericBounds,
+        Idents, InequalityOp, IntRange, IntegerTypeBitwidth, ItemKind, Krate, KrateX, Mode, Param,
+        ParamX, Params, Path, PathX, Pattern, Primitive, SpannedTyped, Stmt, StmtX, Typ,
+        TypDecoration, TypX, Typs, UnaryOp, UnwindSpec, VarIdent, VirErr, Visibility,
     },
     ast_util::air_unique_var,
     def::Spanned,
@@ -168,8 +168,8 @@ fn from_composite_type(composite_type: Arc<CompositeType>) -> Typ {
     }
 }
 
-/// Maps a Noir type to a Verus VIR type
-/// The func_id should be available when the Noir type is Function
+/// Maps a Noir type to a Verus VIR type.
+/// The `func_id` should be available when the Noir type is Function
 fn from_noir_type(noir_typ: Type, func_id: Option<FunctionId>) -> Typ {
     match noir_typ {
         Type::Numeric(numeric_type) => from_numeric_type(numeric_type),
@@ -193,6 +193,23 @@ fn from_noir_type(noir_typ: Type, func_id: Option<FunctionId>) -> Typ {
             Arc::new(Vec::new()),
             None,
         )),
+    }
+}
+
+fn build_tuple_type(values: &Vec<ValueId>, dfg: &DataFlowGraph) -> Typ {
+    let datatype: Dt = Dt::Tuple(values.len());
+    let tuple_types: Typs = Arc::new(
+        values.iter().map(|val_id| from_noir_type(dfg[*val_id].get_type().clone(), None)).collect(),
+    );
+    Arc::new(TypX::Datatype(datatype, tuple_types, Arc::new(vec![])))
+}
+
+fn get_function_ret_type(call_id: InstructionId, dfg: &DataFlowGraph) -> Typ {
+    let results = dfg.instruction_results(call_id);
+    match results.len() {
+        0 => get_empty_vir_type(),
+        1 => from_noir_type(dfg[results[0]].get_type().clone(), None),
+        _ => build_tuple_type(&results.to_vec(), dfg),
     }
 }
 
@@ -359,7 +376,7 @@ fn get_function_return_param(func: &Function) -> Result<Param, BuildingKrateErro
                     Value::ForeignFunction(_) => todo!(),
                 }
             }
-            _ => return Ok(build_empty_param(entry_block_id)),
+            _ => unreachable!(), // Only Brillig functions have a non Return Terminating instruction
         },
         None => {
             return Err(BuildingKrateError::SomeError(
@@ -605,6 +622,54 @@ fn instruction_to_pattern(instruction: &Instruction, dfg: &DataFlowGraph) -> Pat
     todo!()
 }
 
+fn call_instruction_to_expr(
+    call_id: InstructionId,
+    value_id: &ValueId,
+    arguments: &Vec<ValueId>,
+    dfg: &DataFlowGraph,
+) -> Expr {
+    let value = &dfg[*value_id];
+    let func_id = match value {
+        Value::Function(func_id) => func_id,
+        _ => unreachable!("You can only call functions in SSA"),
+    };
+
+    let name = func_id_into_funx_name(*func_id);
+    let argument_types: Arc<Vec<Typ>> = Arc::new(
+        arguments
+            .iter()
+            .map(|val_id| from_noir_type(dfg[*val_id].get_type().clone(), None))
+            .collect(),
+    );
+    let arguments_as_expr: Exprs =
+        Arc::new(arguments.iter().map(|val_id| ssa_value_to_expr(val_id, dfg)).collect());
+    let call_exprx: ExprX = ExprX::Call(
+        CallTarget::Fun(
+            CallTargetKind::Static,
+            name,
+            argument_types,
+            Arc::new(vec![]),
+            AutospecUsage::Final, // In Verus for non ghost calls they mark them as Final
+        ),
+        arguments_as_expr,
+    );
+    let function_return_type: Typ = get_function_ret_type(call_id, dfg);
+
+    SpannedTyped::new(
+        &build_span(
+            value_id,
+            format!(
+                "Call({}) function({}) with args[{}]",
+                value_id,
+                func_id,
+                arguments.iter().map(|x| x.to_string()).collect::<Vec<String>>().join(", ")
+            ),
+        ),
+        &function_return_type,
+        call_exprx,
+    )
+}
+
 fn instruction_to_expr(
     instruction_id: InstructionId,
     instruction: &Instruction,
@@ -623,15 +688,15 @@ fn instruction_to_expr(
         Instruction::RangeCheck { value: val_id, max_bit_size, assert_message: _ } => {
             range_limit_to_expr(val_id, *max_bit_size, false, dfg)
         }
-        Instruction::Call { func, arguments } => todo!(),
-        Instruction::Allocate => todo!(),
+        Instruction::Call { func, arguments } => call_instruction_to_expr(instruction_id, func, arguments, dfg),
+        Instruction::Allocate => unreachable!(),
         Instruction::Load { address } => unreachable!(),
         Instruction::Store { address, value } => unreachable!(),
-        Instruction::EnableSideEffectsIf { condition } => todo!(),
+        Instruction::EnableSideEffectsIf { condition } => todo!(), //TODO(totel) Support for mutability
         Instruction::ArrayGet { array, index } => todo!(),
         Instruction::ArraySet { array, index, value, mutable } => todo!(),
-        Instruction::IncrementRc { value } => todo!(),
-        Instruction::DecrementRc { value } => todo!(),
+        Instruction::IncrementRc { value: _ } => unreachable!(), // Only in Brillig
+        Instruction::DecrementRc { value: _ } => unreachable!(), // Only in Brillig
         Instruction::IfElse { then_condition, then_value, else_condition, else_value } => todo!(),
     }
 }
@@ -718,6 +783,7 @@ fn build_funx(func_id: FunctionId, func: &Function) -> Result<FunctionX, Buildin
         body: todo!(),
         extra_dependencies: todo!(),
         ens_has_return: true, // Semantic analysis saves us if the ensures is referencing a unit type
+        returns: None, // SSA functions always (I believe) return values and never expressions. They could also return zero values.
     };
     todo!()
 }
