@@ -611,17 +611,6 @@ fn constrain_instruction_to_expr(
     )
 }
 
-fn terminating_instruction_to_expr(terminating_instruction: &TerminatorInstruction) -> Expr {
-    match terminating_instruction {
-        TerminatorInstruction::Return { return_values, call_stack } => todo!(),
-        _ => unreachable!(), // See why Jmp and JmpIf are unreachable here https://coda.io/d/_d6vM0kjfQP6#Blocksense-Table-View_tuvTVcZS/r1381&view=center
-    }
-}
-
-fn instruction_to_pattern(instruction: &Instruction, dfg: &DataFlowGraph) -> Pattern {
-    todo!()
-}
-
 fn call_instruction_to_expr(
     call_id: InstructionId,
     value_id: &ValueId,
@@ -688,7 +677,9 @@ fn instruction_to_expr(
         Instruction::RangeCheck { value: val_id, max_bit_size, assert_message: _ } => {
             range_limit_to_expr(val_id, *max_bit_size, false, dfg)
         }
-        Instruction::Call { func, arguments } => call_instruction_to_expr(instruction_id, func, arguments, dfg),
+        Instruction::Call { func, arguments } => {
+            call_instruction_to_expr(instruction_id, func, arguments, dfg)
+        }
         Instruction::Allocate => unreachable!(),
         Instruction::Load { address } => unreachable!(),
         Instruction::Store { address, value } => unreachable!(),
@@ -699,6 +690,17 @@ fn instruction_to_expr(
         Instruction::DecrementRc { value: _ } => unreachable!(), // Only in Brillig
         Instruction::IfElse { then_condition, then_value, else_condition, else_value } => todo!(),
     }
+}
+
+fn terminating_instruction_to_expr(terminating_instruction: &TerminatorInstruction) -> Expr {
+    match terminating_instruction {
+        TerminatorInstruction::Return { return_values, call_stack } => todo!(),
+        _ => unreachable!(), // See why Jmp and JmpIf are unreachable here https://coda.io/d/_d6vM0kjfQP6#Blocksense-Table-View_tuvTVcZS/r1381&view=center
+    }
+}
+
+fn instruction_to_pattern(instruction: &Instruction, dfg: &DataFlowGraph) -> Pattern {
+    todo!()
 }
 
 fn instruction_to_stmt(
@@ -739,19 +741,17 @@ fn basic_block_to_exprx(basic_block_id: Id<BasicBlock>, dfg: &DataFlowGraph) -> 
 
     assert!(
         basic_block.terminator().is_some(),
-        "All finished SSA blocks have a terminating instruction"
+        "All finished SSA blocks must have a terminating instruction"
     );
 
     let terminating_instruction = basic_block.terminator().unwrap();
     let block_ending_expr = terminating_instruction_to_expr(terminating_instruction);
     ExprX::Block(Arc::new(vir_statements), Some(block_ending_expr))
-    // todo!()
 }
 
 fn func_body_to_vir_expr(func: &Function) -> Expr {
     let block_exprx = basic_block_to_exprx(func.entry_block(), &func.dfg);
     SpannedTyped::new(todo!(), todo!(), block_exprx)
-    // todo!()
 }
 
 fn build_funx(func_id: FunctionId, func: &Function) -> Result<FunctionX, BuildingKrateError> {
@@ -783,7 +783,7 @@ fn build_funx(func_id: FunctionId, func: &Function) -> Result<FunctionX, Buildin
         body: todo!(),
         extra_dependencies: todo!(),
         ens_has_return: true, // Semantic analysis saves us if the ensures is referencing a unit type
-        returns: None, // SSA functions always (I believe) return values and never expressions. They could also return zero values.
+        returns: None, // SSA functions (I believe) always return values and never expressions. They could also return zero values.
     };
     todo!()
 }
