@@ -10,7 +10,7 @@ use vir::{
         ParamX, Params, Path, PathX, Pattern, Primitive, SpannedTyped, Stmt, StmtX, Typ,
         TypDecoration, TypX, Typs, UnaryOp, UnwindSpec, VarIdent, VirErr, Visibility,
     },
-    ast_util::air_unique_var,
+    ast_util::{air_unique_var, mk_tuple},
     def::Spanned,
     messages::Span,
 };
@@ -204,8 +204,7 @@ fn build_tuple_type(values: &Vec<ValueId>, dfg: &DataFlowGraph) -> Typ {
     Arc::new(TypX::Datatype(datatype, tuple_types, Arc::new(vec![])))
 }
 
-fn get_function_ret_type(call_id: InstructionId, dfg: &DataFlowGraph) -> Typ {
-    let results = dfg.instruction_results(call_id);
+fn get_function_ret_type(results: &[Id<Value>], dfg: &DataFlowGraph) -> Typ {
     match results.len() {
         0 => get_empty_vir_type(),
         1 => from_noir_type(dfg[results[0]].get_type().clone(), None),
@@ -490,6 +489,29 @@ fn ssa_value_to_expr(value_id: &ValueId, dfg: &DataFlowGraph) -> Expr {
     }
 }
 
+fn return_values_to_expr(
+    return_values_ids: &Vec<ValueId>,
+    dfg: &DataFlowGraph,
+    basic_block_id: Id<BasicBlock>,
+) -> Option<Expr> {
+    match return_values_ids.len() {
+        0 => None,
+        1 => Some(ssa_value_to_expr(&return_values_ids[0], dfg)),
+        _ => {
+            let tuple_exprs: Exprs = Arc::new(
+                return_values_ids.iter().map(|val_id| ssa_value_to_expr(val_id, dfg)).collect(),
+            );
+            Some(mk_tuple(
+                &build_span(
+                    &basic_block_id,
+                    format!("Tuple of terminating instr of block({})", basic_block_id),
+                ),
+                &tuple_exprs,
+            ))
+        }
+    }
+}
+
 fn binary_op_to_vir_binary_op(binary: &BinaryOp) -> VirBinaryOp {
     match binary {
         BinaryOp::Add => VirBinaryOp::Arith(ArithOp::Add, Mode::Exec), // It would be of Mode::Spec only if it is a part of a fv attribute or a ghost block
@@ -642,7 +664,7 @@ fn call_instruction_to_expr(
         ),
         arguments_as_expr,
     );
-    let function_return_type: Typ = get_function_ret_type(call_id, dfg);
+    let function_return_type: Typ = get_function_ret_type(dfg.instruction_results(call_id), dfg);
 
     SpannedTyped::new(
         &build_span(
@@ -692,9 +714,25 @@ fn instruction_to_expr(
     }
 }
 
-fn terminating_instruction_to_expr(terminating_instruction: &TerminatorInstruction) -> Expr {
+fn terminating_instruction_to_expr(
+    basic_block_id: Id<BasicBlock>, // The id of the block where the terminating instr is located
+    terminating_instruction: &TerminatorInstruction,
+    dfg: &DataFlowGraph,
+) -> Expr {
     match terminating_instruction {
-        TerminatorInstruction::Return { return_values, call_stack } => todo!(),
+        TerminatorInstruction::Return { return_values, call_stack: _ } => {
+            let return_type = get_function_ret_type(&return_values, dfg);
+            let return_exprx =
+                ExprX::Return(return_values_to_expr(return_values, dfg, basic_block_id));
+            SpannedTyped::new(
+                &build_span(
+                    &basic_block_id,
+                    format!("Terminating instruction of block({}) return vals", basic_block_id),
+                ),
+                &return_type,
+                return_exprx,
+            )
+        }
         _ => unreachable!(), // See why Jmp and JmpIf are unreachable here https://coda.io/d/_d6vM0kjfQP6#Blocksense-Table-View_tuvTVcZS/r1381&view=center
     }
 }
@@ -715,10 +753,11 @@ fn instruction_to_stmt(
         as_string: "expr for instruction ".to_owned() + &instruction_id.to_usize().to_string(),
     };
 
-    match instruction {
-        Instruction::Constrain(id, id1, constrain_error) => {
-            Spanned::new(todo!(), StmtX::Expr(todo!()))
-        }
+    match dfg.instruction_results(instruction_id).len() {
+        0 => Spanned::new(
+            build_span(&instruction_id, format!("Instruction({})", instruction_id)),
+            StmtX::Expr(instruction_to_expr(instruction_id, instruction, dfg)),
+        ),
         _ => Spanned::new(
             instruction_span,
             StmtX::Decl {
@@ -730,7 +769,7 @@ fn instruction_to_stmt(
     }
 }
 
-fn basic_block_to_exprx(basic_block_id: Id<BasicBlock>, dfg: &DataFlowGraph) -> ExprX {
+fn basic_block_to_exprx(basic_block_id: Id<BasicBlock>, dfg: &DataFlowGraph) -> (ExprX, Typ) {
     let basic_block = dfg[basic_block_id].clone();
     let mut vir_statements: Vec<Stmt> = Vec::new();
 
@@ -745,13 +784,21 @@ fn basic_block_to_exprx(basic_block_id: Id<BasicBlock>, dfg: &DataFlowGraph) -> 
     );
 
     let terminating_instruction = basic_block.terminator().unwrap();
-    let block_ending_expr = terminating_instruction_to_expr(terminating_instruction);
-    ExprX::Block(Arc::new(vir_statements), Some(block_ending_expr))
+    let block_ending_expr =
+        terminating_instruction_to_expr(basic_block_id, terminating_instruction, dfg);
+    (
+        ExprX::Block(Arc::new(vir_statements), Some(block_ending_expr.clone())),
+        block_ending_expr.typ.clone(),
+    )
 }
 
 fn func_body_to_vir_expr(func: &Function) -> Expr {
-    let block_exprx = basic_block_to_exprx(func.entry_block(), &func.dfg);
-    SpannedTyped::new(todo!(), todo!(), block_exprx)
+    let (block_exprx, block_type) = basic_block_to_exprx(func.entry_block(), &func.dfg);
+    SpannedTyped::new(
+        &build_span(&func.id(), format!("Function's({}) basic block body", func.id())),
+        &block_type,
+        block_exprx,
+    )
 }
 
 fn build_funx(func_id: FunctionId, func: &Function) -> Result<FunctionX, BuildingKrateError> {
