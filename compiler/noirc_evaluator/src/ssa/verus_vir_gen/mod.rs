@@ -4,14 +4,15 @@ use acvm::{AcirField, FieldElement};
 use num_bigint::{BigInt, BigUint};
 use vir::{
     ast::{
-        ArithOp, AutospecUsage, BitwiseOp, CallTarget, CallTargetKind, Constant, Dt, Expr, ExprX,
-        Exprs, Fun, FunX, FunctionAttrs, FunctionAttrsX, FunctionKind, FunctionX, GenericBounds,
-        Idents, InequalityOp, IntRange, IntegerTypeBitwidth, ItemKind, Krate, KrateX, Mode, Param,
-        ParamX, Params, Path, PathX, Pattern, Primitive, SpannedTyped, Stmt, StmtX, Typ,
-        TypDecoration, TypX, Typs, UnaryOp, UnwindSpec, VarIdent, VirErr, Visibility,
+        ArithOp, AutospecUsage, Binders, BitwiseOp, CallTarget, CallTargetKind, Constant, Dt, Expr,
+        ExprX, Exprs, Fun, FunX, FunctionAttrs, FunctionAttrsX, FunctionKind, FunctionX,
+        GenericBounds, Idents, InequalityOp, IntRange, IntegerTypeBitwidth, ItemKind, Krate,
+        KrateX, Mode, Param, ParamX, Params, Path, PathX, Pattern, PatternX, Primitive,
+        SpannedTyped, Stmt, StmtX, Typ, TypDecoration, TypX, Typs, UnaryOp, UnwindSpec, VarIdent,
+        VirErr, Visibility,
     },
     ast_util::{air_unique_var, mk_tuple},
-    def::Spanned,
+    def::{prefix_tuple_variant, Spanned},
     messages::Span,
 };
 
@@ -737,8 +738,52 @@ fn terminating_instruction_to_expr(
     }
 }
 
-fn instruction_to_pattern(instruction: &Instruction, dfg: &DataFlowGraph) -> Pattern {
-    todo!()
+fn lhs_value_to_pattern(value_id: &ValueId, dfg: &DataFlowGraph) -> Pattern {
+    let value_patternx = PatternX::Var { name: id_into_var_ident(*value_id), mutable: false }; // Mutability not supported for the prototype
+    SpannedTyped::new(
+        &build_span(value_id, format!("Lhs value({})", value_id)),
+        &from_noir_type(dfg[*value_id].get_type().clone(), None),
+        value_patternx,
+    )
+}
+
+/// Perhaps needed for tuples. Must be tested explicitly
+fn lhs_values_to_pattern(
+    lhs_values: &[Id<Value>],
+    dfg: &DataFlowGraph,
+    instruction_id: Id<Instruction>,
+) -> Pattern {
+    // I am not sure if the code below works
+    // TODO(totel) Test if we ever reach multiple return values
+    let tuple_count = lhs_values.len();
+    // TODO(totel) I have no idea what binders are
+    let binders: Binders<Pattern> = Arc::new(vec![]);
+    let tuple_patternx =
+        PatternX::Constructor(Dt::Tuple(tuple_count), prefix_tuple_variant(tuple_count), binders);
+    SpannedTyped::new(
+        &build_span(
+            &instruction_id,
+            format!(
+                "Instruction({}) lhs values[{}]",
+                instruction_id,
+                lhs_values.iter().map(|x| x.to_string()).collect::<Vec<String>>().join(", ")
+            ),
+        ),
+        &get_function_ret_type(lhs_values, dfg),
+        tuple_patternx,
+    )
+}
+
+/// Fetch the instruction results from the dfg. Those results are the
+/// left hand side of the SSA. This can be observed in the function
+/// `display_instructions()` in the printer.rs file.
+fn instruction_to_pattern(instruction_id: InstructionId, dfg: &DataFlowGraph) -> Pattern {
+    let lhs_ids = dfg.instruction_results(instruction_id);
+    match lhs_ids.len() {
+        0 => panic!("Instructions with no results can not be turned to a pattern"),
+        1 => lhs_value_to_pattern(&lhs_ids[0], dfg),
+        _ => lhs_values_to_pattern(lhs_ids, dfg, instruction_id),
+    }
 }
 
 fn instruction_to_stmt(
@@ -746,12 +791,8 @@ fn instruction_to_stmt(
     dfg: &DataFlowGraph,
     instruction_id: Id<Instruction>,
 ) -> Stmt {
-    let instruction_span = Span {
-        raw_span: Arc::new(()),
-        id: instruction_id.to_usize() as u64,
-        data: Vec::new(),
-        as_string: "expr for instruction ".to_owned() + &instruction_id.to_usize().to_string(),
-    };
+    let instruction_span =
+        build_span(&instruction_id, format!("Instruction({}) statement", instruction_id));
 
     match dfg.instruction_results(instruction_id).len() {
         0 => Spanned::new(
@@ -761,7 +802,7 @@ fn instruction_to_stmt(
         _ => Spanned::new(
             instruction_span,
             StmtX::Decl {
-                pattern: instruction_to_pattern(instruction, dfg),
+                pattern: instruction_to_pattern(instruction_id, dfg),
                 mode: Some(Mode::Exec),
                 init: Some(instruction_to_expr(instruction_id, instruction, dfg)),
             },
