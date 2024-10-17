@@ -7,7 +7,7 @@ use vir::{
         ArithOp, AutospecUsage, Binders, BitwiseOp, CallTarget, CallTargetKind, Constant, Dt, Expr,
         ExprX, Exprs, Fun, FunX, FunctionAttrs, FunctionAttrsX, FunctionKind, FunctionX,
         GenericBounds, Idents, InequalityOp, IntRange, IntegerTypeBitwidth, ItemKind, Krate,
-        KrateX, Mode, Param, ParamX, Params, Path, PathX, Pattern, PatternX, Primitive,
+        KrateX, Mode, ModuleX, Param, ParamX, Params, Path, PathX, Pattern, PatternX, Primitive,
         SpannedTyped, Stmt, StmtX, Typ, TypDecoration, TypX, Typs, UnaryOp, UnwindSpec, VarIdent,
         VirErr, Visibility,
     },
@@ -868,12 +868,12 @@ fn build_funx(func_id: FunctionId, func: &Function) -> Result<FunctionX, Buildin
         item_kind: ItemKind::Function,
         publish: Some(false), // TODO I am not sure if it should be opaque(false) or visible(true)
         attrs: build_default_funx_attrs(function_params.is_empty()),
-        body: todo!(),
-        extra_dependencies: todo!(),
+        body: Some(func_body_to_vir_expr(func)), // Functions in SSA always have a boyd
+        extra_dependencies: vec![],              // Not needed for the prototype
         ens_has_return: true, // Semantic analysis saves us if the ensures is referencing a unit type
         returns: None, // SSA functions (I believe) always return values and never expressions. They could also return zero values.
     };
-    todo!()
+    Ok(funx)
 }
 
 pub(crate) fn build_krate(ssa: Ssa) -> Result<Krate, BuildingKrateError> {
@@ -894,56 +894,25 @@ pub(crate) fn build_krate(ssa: Ssa) -> Result<Krate, BuildingKrateError> {
     for (id, func) in &ssa.functions {
         let func_x = build_funx(*id, func)?;
         let function = Spanned::new(
-            Span {
-                raw_span: Arc::new(()),                     // No idea
-                id: id.to_usize() as u64,                   // AST id
-                data: Vec::new(),                           // No idea
-                as_string: func.name().to_string().clone(), // It's used as backup if no other way to show where the error comes from.
-            },
+            build_span(id, format!("Function({}) with name {}", id, func.name())),
             func_x,
         );
-        vir.functions.push(function); // Note: I assume that functions with no fv attributes will be removed in the SST, AIR or Z3.
-                                      // This could be done here if needed.
+        vir.functions.push(function);
     }
 
-    let main_function = ssa.functions.into_values().find(|value| value.name() == "main").unwrap();
-    let entry_block_id = main_function.entry_block();
-    let entry_block = main_function.dfg[entry_block_id].clone();
+    vir.modules.push(Spanned::new(
+        build_span(&Id::<Value>::new(0), format!("SSA module")),
+        ModuleX {
+            path: Arc::new(PathX {
+                krate: None,
+                segments: Arc::new(vec![Arc::new(String::from("SSA"))]),
+            }),
+            reveals: Some(Spanned::new(
+                build_span(&Id::<Value>::new(0), format!("SSA module reveals")),
+                vir.functions.iter().map(|function| function.x.name.clone()).collect(),
+            )),
+        },
+    ));
 
-    // let mut parameters = Vec::new();
-    // for value_id in entry_block.parameters().iter() {
-    //     self.add_parameter(*value_id)?;
-    //     let p2value = self.get(*value_id).unwrap();
-    //     match p2value.target.extend_parameter_list(&mut parameters) {
-    //         Ok(_) => {}
-    //         Err(error) => {
-    //             return Err(error.into_runtime_error("parameter list".to_owned(), CallStack::new()));
-    //         }
-    //     }
-    // }
-    // for instruction_id in entry_block.instructions() {
-    //     match self.add_instruction(*instruction_id) {
-    //         Err(error) => {
-    //             let instruction = format!("{:?}", self.dfg[*instruction_id].clone());
-    //             return Err(
-    //                 error.into_runtime_error(instruction, self.dfg.get_call_stack(*instruction_id))
-    //             );
-    //         }
-    //         Ok(_) => (),
-    //     }
-    // }
-    // let mut next_param_idx: usize = 0;
-    // for (_, typ, vis) in main_function_signature.0 {
-    //     let fields_for_param = typ.field_count() as usize;
-    //     if vis == Visibility::Public {
-    //         self.asm_writer.register_public_inputs(
-    //             &parameters[next_param_idx..next_param_idx + fields_for_param],
-    //         );
-    //     }
-    //     next_param_idx += fields_for_param;
-    // }
-    // let data = self.asm_writer.move_builder().build::<P2Config>();
-
-    // return Ok(Arc::new(vir));
-    todo!()
+    Ok(Arc::new(vir))
 }
