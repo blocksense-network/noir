@@ -3158,6 +3158,7 @@ dependencies = [
  "rust-embed",
  "serde",
  "tracing",
+ "vir",
 ]
 
 [[package]]
