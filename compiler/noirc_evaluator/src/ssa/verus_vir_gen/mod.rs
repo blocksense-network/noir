@@ -544,7 +544,7 @@ fn binary_instruction_to_expr(
         ssa_value_to_expr(rhs, dfg),
     );
     SpannedTyped::new(
-        &build_span(&instruction_id, format!("lhs({}) binary_op({}) rhs({})", lhs, rhs, operator)),
+        &build_span(&instruction_id, format!("lhs({}) binary_op({}) rhs({})", lhs, operator, rhs)),
         &instr_res_type_to_vir_type(binary.result_type(), dfg),
         binary_exprx,
     )
