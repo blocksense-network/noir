@@ -12,7 +12,7 @@ use noirc_abi::{AbiParameter, AbiType, AbiValue};
 use noirc_errors::{CustomDiagnostic, FileDiagnostic};
 use noirc_evaluator::create_program;
 use noirc_evaluator::errors::RuntimeError;
-use noirc_evaluator::ssa::{create_plonky2_circuit, SsaProgramArtifact};
+use noirc_evaluator::ssa::{create_plonky2_circuit, create_verus_vir, SsaProgramArtifact};
 use noirc_frontend::debug::build_debug_crate_file;
 use noirc_frontend::hir::def_map::{Contract, CrateDefMap};
 use noirc_frontend::hir::Context;
@@ -612,11 +612,17 @@ pub fn compile_no_check(
     let plonky2_circuit = if compile_plonky2_circuit {
         let parameter_names = abi.parameters.iter().map(|param| param.name.clone()).collect();
         Some(create_plonky2_circuit(
-            monomorph,
+            monomorph.clone(),
             &ssa_evaluator_options,
             parameter_names,
             context.file_manager.as_file_map(),
         )?)
+    } else {
+        None
+    };
+
+    let verus_vir = if context.perform_formal_verification {
+        Some(create_verus_vir(monomorph, &ssa_evaluator_options)?)
     } else {
         None
     };
@@ -632,5 +638,6 @@ pub fn compile_no_check(
         warnings,
         names,
         brillig_names,
+        verus_vir,
     })
 }

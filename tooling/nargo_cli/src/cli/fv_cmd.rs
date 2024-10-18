@@ -63,7 +63,7 @@ pub(crate) fn run(args: FormalVerifyCommand, config: NargoConfig) -> Result<(), 
             None,
             false,
         );
-
+        println!("{:#?}", formal_verification_result.clone().unwrap().0.verus_vir.unwrap().functions);
         report_errors(
             formal_verification_result,
             &workspace_file_manager,

@@ -35,6 +35,7 @@ use super::{
 };
 
 /// Should be named differently
+#[derive(Debug)]
 pub enum BuildingKrateError {
     SomeError(String),
 }

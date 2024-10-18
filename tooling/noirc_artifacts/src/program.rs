@@ -69,6 +69,7 @@ impl From<ProgramArtifact> for CompiledProgram {
             warnings: vec![],
             names: program.names,
             brillig_names: program.brillig_names,
+            verus_vir: None,
         }
     }
 }

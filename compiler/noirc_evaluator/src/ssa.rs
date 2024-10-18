@@ -35,6 +35,8 @@ use noirc_frontend::{
     monomorphization::ast::Program,
 };
 use tracing::{span, Level};
+use verus_vir_gen::build_krate;
+use vir::ast::Krate;
 
 use self::{
     acir_gen::{Artifacts, GeneratedAcir},
@@ -163,7 +165,7 @@ pub(crate) fn optimize_into_plonky2(
     parameter_names: Vec<String>,
     file_map: &FileMap,
 ) -> Result<Plonky2Circuit, RuntimeError> {
-    let ssa_gen_span = span!(Level::TRACE, "ssa_generation");
+    let ssa_gen_span = span!(Level::TRACE, "ss+a_generation");
     let ssa_gen_span_guard = ssa_gen_span.enter();
     let main_function_signature: FunctionSignature = program.function_signatures[0].clone();
     let ssa = SsaBuilder::new(
@@ -211,6 +213,57 @@ pub(crate) fn optimize_into_plonky2(
         parameter_names,
         main_function_signature,
     )
+}
+
+/// Optimize the given program by converting it into SSA
+/// form and performing optimizations there. When finished,
+/// convert the final SSA into a Verus VIR and return it.
+pub(crate) fn optimize_into_verus_vir(
+    program: Program,
+    options: &SsaEvaluatorOptions,
+) -> Result<Krate, RuntimeError> {
+    let ssa_gen_span = span!(Level::TRACE, "ssa_generation");
+    let ssa_gen_span_guard = ssa_gen_span.enter();
+    let ssa = SsaBuilder::new(
+        program,
+        options.enable_ssa_logging,
+        false,
+        options.print_codegen_timings,
+        &options.emit_ssa,
+    )?
+    .run_pass(Ssa::defunctionalize, "After Defunctionalization:")
+    .run_pass(Ssa::remove_paired_rc, "After Removing Paired rc_inc & rc_decs:")
+    .run_pass(Ssa::separate_runtime, "After Runtime Separation:")
+    .run_pass(Ssa::resolve_is_unconstrained, "After Resolving IsUnconstrained:")
+    // Run mem2reg with the CFG separated into blocks
+    .run_pass(Ssa::mem2reg, "After Mem2Reg:")
+    .run_pass(Ssa::as_slice_optimization, "After `as_slice` optimization")
+    .try_run_pass(
+        Ssa::evaluate_static_assert_and_assert_constant,
+        "After `static_assert` and `assert_constant`:",
+    )?
+    .try_run_pass(Ssa::unroll_loops_iteratively, "After Unrolling:")?
+    .run_pass(Ssa::simplify_cfg, "After Simplifying:")
+    .run_pass(Ssa::flatten_cfg, "After Flattening:")
+    .run_pass(Ssa::remove_bit_shifts, "After Removing Bit Shifts:")
+    // Run mem2reg once more with the flattened CFG to catch any remaining loads/stores
+    .run_pass(Ssa::mem2reg, "After Mem2Reg:")
+    // Run the inlining pass again to handle functions with `InlineType::NoPredicates`.
+    // Before flattening is run, we treat functions marked with the `InlineType::NoPredicates` as an entry point.
+    // This pass must come immediately following `mem2reg` as the succeeding passes
+    // may create an SSA which inlining fails to handle.
+    .run_pass(Ssa::remove_if_else, "After Remove IfElse:")
+    .run_pass(Ssa::fold_constants, "After Constant Folding:")
+    .run_pass(Ssa::remove_enable_side_effects, "After EnableSideEffects removal:")
+    .run_pass(Ssa::fold_constants_using_constraints, "After Constraint Folding:")
+    .run_pass(Ssa::dead_instruction_elimination, "After Dead Instruction Elimination:")
+    .run_pass(Ssa::array_set_optimization, "After Array Set Optimizations:")
+    .finish();
+
+    drop(ssa_gen_span_guard);
+
+    let vir_krate = build_krate(ssa).unwrap(); //TODO(totel) Improve error propagation
+    Ok(vir_krate)
 }
 
 // Helper to time SSA passes
@@ -450,6 +503,13 @@ pub fn create_plonky2_circuit(
     file_map: &FileMap,
 ) -> Result<Plonky2Circuit, RuntimeError> {
     optimize_into_plonky2(program, options, parameter_names, file_map)
+}
+
+pub fn create_verus_vir(
+    program: Program,
+    options: &SsaEvaluatorOptions,
+) -> Result<Krate, RuntimeError> {
+    optimize_into_verus_vir(program, options)
 }
 
 // This is just a convenience object to bundle the ssa with `print_ssa_passes` for debug printing.

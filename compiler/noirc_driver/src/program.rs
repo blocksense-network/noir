@@ -7,6 +7,7 @@ use noirc_errors::debug_info::DebugInfo;
 use noirc_evaluator::errors::SsaReport;
 use noirc_evaluator::ssa::plonky2_gen::Plonky2Circuit;
 use serde::{Deserialize, Serialize};
+use vir::ast::Krate;
 
 use super::debug::DebugFile;
 
@@ -33,4 +34,6 @@ pub struct CompiledProgram {
     pub names: Vec<String>,
     /// Names of the unconstrained functions in the program.
     pub brillig_names: Vec<String>,
+    /// Verus verifier intermediate representation
+    pub verus_vir: Option<Krate>,
 }
