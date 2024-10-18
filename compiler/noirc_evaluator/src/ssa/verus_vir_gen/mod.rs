@@ -7,11 +7,11 @@ use vir::{
         ArithOp, AutospecUsage, Binders, BitwiseOp, CallTarget, CallTargetKind, Constant, Dt, Expr,
         ExprX, Exprs, Fun, FunX, FunctionAttrs, FunctionAttrsX, FunctionKind, FunctionX,
         GenericBounds, Idents, InequalityOp, IntRange, IntegerTypeBitwidth, ItemKind, Krate,
-        KrateX, Mode, ModuleX, Param, ParamX, Params, Path, PathX, Pattern, PatternX, Primitive,
+        KrateX, Mode, ModuleX, Param, ParamX, Params, PathX, Pattern, PatternX, Primitive,
         SpannedTyped, Stmt, StmtX, Typ, TypDecoration, TypX, Typs, UnaryOp, UnwindSpec, VarIdent,
-        VirErr, Visibility,
+        Visibility,
     },
-    ast_util::{air_unique_var, mk_tuple},
+    ast_util::mk_tuple,
     def::{prefix_tuple_variant, Spanned},
     messages::Span,
 };
@@ -269,7 +269,7 @@ fn build_empty_param(basic_block_id: Id<BasicBlock>) -> Param {
     )
 }
 
-fn build_tuple_param_from_values(values: &Vec<ValueId>) -> Param {
+fn build_tuple_param_from_values(_values: &Vec<ValueId>) -> Param {
     todo!()
 }
 
@@ -705,14 +705,19 @@ fn instruction_to_expr(
             call_instruction_to_expr(instruction_id, func, arguments, dfg)
         }
         Instruction::Allocate => unreachable!(),
-        Instruction::Load { address } => unreachable!(),
-        Instruction::Store { address, value } => unreachable!(),
-        Instruction::EnableSideEffectsIf { condition } => todo!(), //TODO(totel) Support for mutability
-        Instruction::ArrayGet { array, index } => todo!(),
-        Instruction::ArraySet { array, index, value, mutable } => todo!(),
+        Instruction::Load { address: _ } => unreachable!(),
+        Instruction::Store { address: _, value: _ } => unreachable!(),
+        Instruction::EnableSideEffectsIf { condition: _ } => todo!(), //TODO(totel) Support for mutability
+        Instruction::ArrayGet { array: _, index: _ } => todo!(),
+        Instruction::ArraySet { array: _, index: _, value: _, mutable: _ } => todo!(),
         Instruction::IncrementRc { value: _ } => unreachable!(), // Only in Brillig
         Instruction::DecrementRc { value: _ } => unreachable!(), // Only in Brillig
-        Instruction::IfElse { then_condition, then_value, else_condition, else_value } => todo!(),
+        Instruction::IfElse {
+            then_condition: _,
+            then_value: _,
+            else_condition: _,
+            else_value: _,
+        } => todo!(),
     }
 }
 

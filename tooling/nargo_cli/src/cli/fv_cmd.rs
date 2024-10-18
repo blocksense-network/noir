@@ -56,14 +56,12 @@ pub(crate) fn run(args: FormalVerifyCommand, config: NargoConfig) -> Result<(), 
         // (Except saving the result in a file.)
         context.perform_formal_verification = true;
 
-        let formal_verification_result = noirc_driver::compile_main(
-            &mut context,
-            crate_id,
-            &args.compile_options,
-            None,
-            false,
+        let formal_verification_result =
+            noirc_driver::compile_main(&mut context, crate_id, &args.compile_options, None, false);
+        println!(
+            "{:#?}",
+            formal_verification_result.clone().unwrap().0.verus_vir.unwrap().functions
         );
-        println!("{:#?}", formal_verification_result.clone().unwrap().0.verus_vir.unwrap().functions);
         report_errors(
             formal_verification_result,
             &workspace_file_manager,
