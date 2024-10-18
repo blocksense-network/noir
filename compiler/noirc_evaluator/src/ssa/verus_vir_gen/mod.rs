@@ -310,13 +310,15 @@ fn get_function_return_param(func: &Function) -> Result<Param, BuildingKrateErro
     match terminating_instruction {
         Some(instruction) => match instruction {
             TerminatorInstruction::Return { return_values, call_stack: _ } => {
+                let return_values: Vec<ValueId> =
+                    return_values.iter().map(|val_id| func.dfg.resolve(*val_id)).collect();
                 if return_values.len() > 1 {
                     // this means that the function either returns a tuple or a struct
                     // this is problematic because tuples and structs are being flatten into
                     // a tuple. What I mean is if we have (A, B, (i32, i32)) where A is a struct
                     // with two Fields and B is a struct with two bools, we will get this as a return value
                     // (Field, Field, bool, bool, i32, i32). A lot of information is lost!!
-                    return Ok(build_tuple_param_from_values(return_values));
+                    return Ok(build_tuple_param_from_values(&return_values));
                 }
                 if return_values.len() == 0 {
                     return Ok(build_empty_param(entry_block_id));
@@ -479,8 +481,8 @@ fn numeric_const_to_expr(numeric_const: &FieldElement, noir_type: &Type) -> Expr
 fn ssa_value_to_expr(value_id: &ValueId, dfg: &DataFlowGraph) -> Expr {
     let value = &dfg[*value_id];
     match value {
-        Value::Instruction { instruction, position: _, typ: _ } => {
-            instruction_to_expr(*instruction, &dfg[*instruction], dfg)
+        Value::Instruction { instruction: _, position, typ } => {
+            param_to_expr(value_id, *position, typ)
         }
         Value::Param { block: _, position, typ } => param_to_expr(value_id, *position, typ),
         Value::NumericConstant { constant, typ } => numeric_const_to_expr(constant, typ),
@@ -496,6 +498,9 @@ fn return_values_to_expr(
     dfg: &DataFlowGraph,
     basic_block_id: Id<BasicBlock>,
 ) -> Option<Expr> {
+    let return_values_ids: Vec<ValueId> =
+        return_values_ids.iter().map(|val_id| dfg.resolve(*val_id)).collect();
+
     match return_values_ids.len() {
         0 => None,
         1 => Some(ssa_value_to_expr(&return_values_ids[0], dfg)),
