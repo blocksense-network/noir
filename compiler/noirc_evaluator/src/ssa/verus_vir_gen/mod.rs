@@ -7,7 +7,7 @@ use vir::{
         ArithOp, AutospecUsage, Binders, BitwiseOp, CallTarget, CallTargetKind, Constant, Dt, Expr,
         ExprX, Exprs, Fun, FunX, FunctionAttrs, FunctionAttrsX, FunctionKind, FunctionX,
         GenericBounds, Idents, InequalityOp, IntRange, IntegerTypeBitwidth, ItemKind, Krate,
-        KrateX, Mode, ModuleX, Param, ParamX, Params, PathX, Pattern, PatternX, Primitive,
+        KrateX, Mode, Module, ModuleX, Param, ParamX, Params, PathX, Pattern, PatternX, Primitive,
         SpannedTyped, Stmt, StmtX, Typ, TypDecoration, TypX, Typs, UnaryOp, UnwindSpec, VarIdent,
         Visibility,
     },
@@ -853,7 +853,11 @@ fn func_body_to_vir_expr(func: &Function) -> Expr {
     )
 }
 
-fn build_funx(func_id: FunctionId, func: &Function) -> Result<FunctionX, BuildingKrateError> {
+fn build_funx(
+    func_id: FunctionId,
+    func: &Function,
+    current_module: Module,
+) -> Result<FunctionX, BuildingKrateError> {
     let function_params = get_function_params(func)?;
 
     let funx: FunctionX = FunctionX {
@@ -861,7 +865,7 @@ fn build_funx(func_id: FunctionId, func: &Function) -> Result<FunctionX, Buildin
         proxy: None, // No clue. In Verus documentation it says "Proxy used to declare the spec of this function"
         kind: get_func_kind(func), // As far as I understand all functions in SSA are of FunctionKind::Static
         visibility: Visibility { restricted_to: None }, // None is for functions with public visibility. There is no information if the current function is public or private.
-        owning_module: None,                            // There is no module logic in SSA
+        owning_module: Some(current_module.x.path.clone()),
         mode: Mode::Exec, // Currently all functions are Exec. In the near future we will support ghost functions.
         fuel: 1, // In Verus' documentation it says that 1 means visible. I don't understand visible to what exactly
         typ_params: empty_vec_idents(), // There are no generics in SSA
@@ -877,7 +881,7 @@ fn build_funx(func_id: FunctionId, func: &Function) -> Result<FunctionX, Buildin
         mask_spec: None,            // Not sure what it is
         unwind_spec: Some(UnwindSpec::NoUnwind),
         item_kind: ItemKind::Function,
-        publish: Some(false), // TODO I am not sure if it should be opaque(false) or visible(true)
+        publish: None, // Only if we use None we pass Verus checks.
         attrs: build_default_funx_attrs(function_params.is_empty()),
         body: Some(func_body_to_vir_expr(func)), // Functions in SSA always have a boyd
         extra_dependencies: vec![],              // Not needed for the prototype
@@ -898,12 +902,26 @@ pub(crate) fn build_krate(ssa: Ssa) -> Result<Krate, BuildingKrateError> {
         modules: Vec::new(),
         external_fns: Vec::new(),
         external_types: Vec::new(),
-        path_as_rust_names: Vec::new(),
+        path_as_rust_names: vir::ast_util::get_path_as_rust_names_for_krate(&Arc::new(
+            vir::def::VERUSLIB.to_string(),
+        )),
         arch: vir::ast::Arch { word_bits: vir::ast::ArchWordBits::Either32Or64 }, // Don't know what bits to use
     };
-
+    let ssa_module = Spanned::new(
+        build_span(&Id::<Value>::new(0), format!("SSA module")),
+        ModuleX {
+            path: Arc::new(PathX {
+                krate: None,
+                segments: Arc::new(vec![Arc::new(String::from("SSA"))]),
+            }),
+            reveals: None, //Some(Spanned::new(
+                           //     build_span(&Id::<Value>::new(0), format!("SSA module reveals")),
+                           //     vir.functions.iter().map(|function| function.x.name.clone()).collect(),
+                           // )),
+        },
+    );
     for (id, func) in &ssa.functions {
-        let func_x = build_funx(*id, func)?;
+        let func_x = build_funx(*id, func, ssa_module.clone())?;
         let function = Spanned::new(
             build_span(id, format!("Function({}) with name {}", id, func.name())),
             func_x,
@@ -911,19 +929,7 @@ pub(crate) fn build_krate(ssa: Ssa) -> Result<Krate, BuildingKrateError> {
         vir.functions.push(function);
     }
 
-    vir.modules.push(Spanned::new(
-        build_span(&Id::<Value>::new(0), format!("SSA module")),
-        ModuleX {
-            path: Arc::new(PathX {
-                krate: None,
-                segments: Arc::new(vec![Arc::new(String::from("SSA"))]),
-            }),
-            reveals: Some(Spanned::new(
-                build_span(&Id::<Value>::new(0), format!("SSA module reveals")),
-                vir.functions.iter().map(|function| function.x.name.clone()).collect(),
-            )),
-        },
-    ));
+    vir.modules.push(ssa_module);
 
     Ok(Arc::new(vir))
 }
