@@ -227,7 +227,7 @@ fn return_var_ident() -> VarIdent {
 }
 /// Probably need to be swapped with the return_var_ident function
 fn empty_var_ident() -> VarIdent {
-    VarIdent(Arc::new("empty var ident".to_string()), vir::ast::VarIdentDisambiguate::NoBodyParam)
+    VarIdent(Arc::new("empty_tuple".to_string()), vir::ast::VarIdentDisambiguate::NoBodyParam)
 }
 
 /// Returns a Verus VIR param
