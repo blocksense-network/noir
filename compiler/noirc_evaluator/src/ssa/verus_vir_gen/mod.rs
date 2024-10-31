@@ -303,6 +303,10 @@ fn get_function_params(func: &Function) -> Result<Params, BuildingKrateError> {
     Ok(Arc::new(parameters))
 }
 
+fn is_function_return_void(func: &Function) -> bool {
+    !func.returns().is_empty()
+}
+
 fn get_function_return_param(func: &Function) -> Result<Param, BuildingKrateError> {
     let entry_block_id = func.entry_block();
     let terminating_instruction = func.dfg[entry_block_id].terminator();
@@ -889,7 +893,7 @@ fn build_funx(
         attrs: build_default_funx_attrs(function_params.is_empty()),
         body: Some(func_body_to_vir_expr(func)), // Functions in SSA always have a boyd
         extra_dependencies: vec![],              // Not needed for the prototype
-        ens_has_return: true, // Semantic analysis saves us if the ensures is referencing a unit type
+        ens_has_return: is_function_return_void(func), // Should be true if the function returns a value
         returns: None, // SSA functions (I believe) always return values and never expressions. They could also return zero values.
     };
     Ok(funx)
