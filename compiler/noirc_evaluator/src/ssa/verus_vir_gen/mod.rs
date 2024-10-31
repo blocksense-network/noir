@@ -394,7 +394,7 @@ fn get_function_return_param(func: &Function) -> Result<Param, BuildingKrateErro
 /// constructed in Verus VIR
 fn build_default_funx_attrs(zero_args: bool) -> FunctionAttrs {
     Arc::new(FunctionAttrsX {
-        uses_ghost_blocks: false,
+        uses_ghost_blocks: true,
         inline: false,
         hidden: Arc::new(vec![]), // Default in Verus
         broadcast_forall: false,
@@ -624,19 +624,29 @@ fn constrain_instruction_to_expr(
         &build_span(&instruction_id, format!("lhs({}) == rhs({})", lhs, rhs)),
         &Arc::new(TypX::Bool),
         ExprX::Binary(
-            VirBinaryOp::Eq(Mode::Exec), // I assume that mode Exec is the correct one
+            VirBinaryOp::Eq(Mode::Spec), // Verus uses Spec for Eq expressions in asserts
             ssa_value_to_expr(lhs, dfg),
             ssa_value_to_expr(rhs, dfg),
         ),
     );
     let assert_exprx = ExprX::AssertAssume { is_assume: false, expr: binary_equals_expr };
-    SpannedTyped::new(
+    let assert_expr = SpannedTyped::new(
         &build_span(
             &instruction_id,
             format!("Constrain({}) lhs({}) == rhs({})", instruction_id, lhs, rhs),
         ),
         &get_empty_vir_type(),
         assert_exprx,
+    );
+    let block_wrap = SpannedTyped::new(
+        &build_span(&instruction_id, format!("Block wrapper for AssertAssume")),
+        &get_empty_vir_type(),
+        ExprX::Block(Arc::new(vec![]), Some(assert_expr)),
+    );
+    SpannedTyped::new(
+        &build_span(&instruction_id, format!("Ghost wrapper for AssertAssume")),
+        &get_empty_vir_type(),
+        ExprX::Ghost { alloc_wrapper: false, tracked: false, expr: block_wrap },
     )
 }
 
@@ -659,7 +669,7 @@ fn call_instruction_to_expr(
         CallTarget::Fun(
             CallTargetKind::Static,
             name,
-            Arc::new(vec![]), // Argument types are not being passed in Rust to VIR 
+            Arc::new(vec![]), // Argument types are not being passed in Rust to VIR
             Arc::new(vec![]),
             AutospecUsage::Final, // In Verus for non ghost calls they mark them as Final
         ),
