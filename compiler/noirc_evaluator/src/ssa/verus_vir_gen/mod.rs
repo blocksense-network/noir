@@ -41,7 +41,7 @@ pub enum BuildingKrateError {
 }
 
 fn func_id_into_segments(function_id: FunctionId) -> Idents {
-    Arc::new(vec![Arc::new(function_id.to_usize().to_string())]) // If I use function_id.to_string() it will return "f{id}" instead of only id
+    Arc::new(vec![Arc::new(function_id.to_string())]) // If I use function_id.to_string() it will return "f{id}" instead of only id
 }
 
 fn func_id_into_funx_name(function_id: FunctionId) -> Fun {
@@ -653,19 +653,13 @@ fn call_instruction_to_expr(
     };
 
     let name = func_id_into_funx_name(*func_id);
-    let argument_types: Arc<Vec<Typ>> = Arc::new(
-        arguments
-            .iter()
-            .map(|val_id| from_noir_type(dfg[*val_id].get_type().clone(), None))
-            .collect(),
-    );
     let arguments_as_expr: Exprs =
         Arc::new(arguments.iter().map(|val_id| ssa_value_to_expr(val_id, dfg)).collect());
     let call_exprx: ExprX = ExprX::Call(
         CallTarget::Fun(
             CallTargetKind::Static,
             name,
-            argument_types,
+            Arc::new(vec![]), // Argument types are not being passed in Rust to VIR 
             Arc::new(vec![]),
             AutospecUsage::Final, // In Verus for non ghost calls they mark them as Final
         ),
