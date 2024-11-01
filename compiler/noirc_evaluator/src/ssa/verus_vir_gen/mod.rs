@@ -566,7 +566,7 @@ fn bitwise_not_instr_to_exprx(
     bit_width: Option<IntegerTypeBitwidth>,
 ) -> ExprX {
     let expr = ssa_value_to_expr(value_id, dfg);
-    
+
     match bit_width {
         Some(IntegerTypeBitwidth::Width(1)) => ExprX::Unary(UnaryOp::Not, expr),
         Some(width) => ExprX::Unary(UnaryOp::BitNot(Some(width)), expr),
@@ -588,19 +588,63 @@ fn bitwise_not_instr_to_expr(value_id: &ValueId, dfg: &DataFlowGraph) -> Expr {
     )
 }
 
-fn cast_instruction_to_expr(value_id: &ValueId, noir_type: &Type, dfg: &DataFlowGraph) -> Expr {
-    let cast_exprx = match noir_type {
-        Type::Numeric(numeric_type) => ExprX::Unary(
-            UnaryOp::Clip { range: get_int_range(*numeric_type), truncate: false },
-            ssa_value_to_expr(value_id, dfg),
-        ),
-        _ => panic!("Expected that all SSA casts have numeric targets"),
-    };
+fn build_const_expr(const_num: i64, value_id: &ValueId, noir_type: &Type) -> Expr {
+    SpannedTyped::new(
+        &build_span(value_id, format!("Const {const_num}")),
+        &from_noir_type(noir_type.clone(), None),
+        ExprX::Const(Constant::Int(BigInt::from(const_num))),
+    )
+}
+
+fn cast_bool_to_integer(value_id: &ValueId, noir_type: &Type, dfg: &DataFlowGraph) -> Expr {
+    let if_return_type = from_noir_type(noir_type.clone(), None);
+    let condition = ssa_value_to_expr(value_id, dfg);
+
+    let const_true = build_const_expr(1, value_id, noir_type);
+    let const_false = build_const_expr(0, value_id, noir_type);
+
+    let if_true_expr = SpannedTyped::new(
+        &build_span(value_id, format!("Then condition of if")),
+        &if_return_type,
+        ExprX::Block(Arc::new(vec![]), Some(const_true)),
+    );
+    let if_false_expr = SpannedTyped::new(
+        &build_span(value_id, format!("Then condition of if")),
+        &if_return_type,
+        ExprX::Block(Arc::new(vec![]), Some(const_false)),
+    );
+
+    let if_expr = SpannedTyped::new(
+        &build_span(value_id, format!("If expr because bool to int cast")),
+        &if_return_type,
+        ExprX::If(condition, if_true_expr, Some(if_false_expr)),
+    );
+    if_expr
+}
+
+fn cast_integer_to_integer(
+    value_id: &ValueId,
+    noir_type: &Type,
+    dfg: &DataFlowGraph,
+    numeric_type: &NumericType,
+) -> Expr {
+    let cast_exprx = ExprX::Unary(
+        UnaryOp::Clip { range: get_int_range(*numeric_type), truncate: false },
+        ssa_value_to_expr(value_id, dfg),
+    );
     SpannedTyped::new(
         &build_span(value_id, format!("Cast({}) to type({})", value_id, noir_type)),
         &from_noir_type(noir_type.clone(), None),
         cast_exprx,
     )
+}
+
+fn cast_instruction_to_expr(value_id: &ValueId, noir_type: &Type, dfg: &DataFlowGraph) -> Expr {
+    match dfg[*value_id].get_type() {
+        Type::Numeric(NumericType::Unsigned { bit_size: 1 }) => cast_bool_to_integer(value_id, noir_type, dfg),
+        Type::Numeric(numeric_type) => cast_integer_to_integer(value_id, noir_type, dfg, numeric_type),
+        _ => panic!("Expected that all SSA casts have numeric targets"),
+    }
 }
 
 fn range_limit_to_expr(
@@ -814,7 +858,7 @@ fn lhs_values_to_pattern(
 fn instruction_to_pattern(instruction_id: InstructionId, dfg: &DataFlowGraph) -> Pattern {
     let lhs_ids = dfg.instruction_results(instruction_id);
     match lhs_ids.len() {
-        0 => panic!("Instructions with no results can not be turned to a pattern"),
+        0 => panic!("Instructions with no results can not be turned into a pattern"),
         1 => lhs_value_to_pattern(&lhs_ids[0], dfg),
         _ => lhs_values_to_pattern(lhs_ids, dfg, instruction_id),
     }
