@@ -558,16 +558,31 @@ fn binary_instruction_to_expr(
         binary_exprx,
     )
 }
+/// Depending on the bit width size we want to either return a
+/// `unary boolean not` expression or a `unary bit not` expression.
+fn bitwise_not_instr_to_exprx(
+    value_id: &ValueId,
+    dfg: &DataFlowGraph,
+    bit_width: Option<IntegerTypeBitwidth>,
+) -> ExprX {
+    let expr = ssa_value_to_expr(value_id, dfg);
+    
+    match bit_width {
+        Some(IntegerTypeBitwidth::Width(1)) => ExprX::Unary(UnaryOp::Not, expr),
+        Some(width) => ExprX::Unary(UnaryOp::BitNot(Some(width)), expr),
+        None => ExprX::Unary(UnaryOp::BitNot(None), expr),
+    }
+}
 
 fn bitwise_not_instr_to_expr(value_id: &ValueId, dfg: &DataFlowGraph) -> Expr {
     let value = &dfg[*value_id];
     let bit_width: Option<IntegerTypeBitwidth> = match value.get_type() {
         Type::Numeric(numeric_type) => get_integer_bit_width(*numeric_type),
-        _ => panic!("Bitwise not on a non numeric type"),
+        _ => panic!("Bitwise negation on a non numeric type"),
     };
-    let bitnot_exprx = ExprX::Unary(UnaryOp::BitNot(bit_width), ssa_value_to_expr(value_id, dfg));
+    let bitnot_exprx = bitwise_not_instr_to_exprx(value_id, dfg, bit_width);
     SpannedTyped::new(
-        &build_span(value_id, format!("Bitwise not on({})", value_id.to_string())),
+        &build_span(value_id, format!("Unary negation on({})", value_id.to_string())),
         &from_noir_type(value.get_type().clone(), None),
         bitnot_exprx,
     )
@@ -829,13 +844,24 @@ fn instruction_to_stmt(
     }
 }
 
+fn is_instruction_enable_side_effects(instruction_id: &InstructionId, dfg: &DataFlowGraph) -> bool {
+    match dfg[*instruction_id] {
+        Instruction::EnableSideEffectsIf { condition: _ } => true,
+        _ => false,
+    }
+}
+
+/// Returns a SSA block as an expression and
+/// the type of the SSA block's terminating instruction
 fn basic_block_to_exprx(basic_block_id: Id<BasicBlock>, dfg: &DataFlowGraph) -> (ExprX, Typ) {
     let basic_block = dfg[basic_block_id].clone();
     let mut vir_statements: Vec<Stmt> = Vec::new();
 
     for instruction_id in basic_block.instructions() {
-        let statement = instruction_to_stmt(&dfg[*instruction_id], dfg, *instruction_id);
-        vir_statements.push(statement);
+        if !is_instruction_enable_side_effects(instruction_id, dfg) {
+            let statement = instruction_to_stmt(&dfg[*instruction_id], dfg, *instruction_id);
+            vir_statements.push(statement);
+        }
     }
 
     assert!(
