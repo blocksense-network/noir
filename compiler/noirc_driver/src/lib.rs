@@ -566,8 +566,10 @@ pub fn compile_no_check(
         monomorphize(main_function, &mut context.def_interner)?
     };
 
-    let hash = fxhash::hash64(&monomorph);
-    let hashes_match = cached_program.as_ref().map_or(false, |program| program.hash == hash);
+    // let hash = fxhash::hash64(&monomorph);
+    // let hashes_match = cached_program.as_ref().map_or(false, |program| program.hash == hash);
+    let hash: u64 = 0;
+    let hashes_match = false;
     if options.show_monomorphized {
         println!("{monomorph}");
     }
