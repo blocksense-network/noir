@@ -151,7 +151,7 @@ pub fn monomorphize_debug(
         .collect();
 
     let functions = vecmap(monomorphizer.finished_functions, |(_, f)| f);
-    let FuncMeta { return_visibility, kind, .. } = monomorphizer.interner.function_meta(&main);
+    let FuncMeta { return_visibility, kind, formal_verification_attributes, .. } = monomorphizer.interner.function_meta(&main);
 
     let (debug_variables, debug_functions, debug_types) =
         monomorphizer.debug_type_tracker.extract_vars_and_types();
@@ -165,6 +165,7 @@ pub fn monomorphize_debug(
         debug_variables,
         debug_functions,
         debug_types,
+        formal_verification_attributes.clone(),
     );
     Ok(program)
 }
@@ -336,6 +337,7 @@ impl<'interner> Monomorphizer<'interner> {
 
         let parameters = self.parameters(&meta.parameters)?;
         let body = self.expr(body_expr_id)?;
+        let formal_verification_attributes = meta.formal_verification_attributes;
         let function = ast::Function {
             id,
             name,
@@ -345,6 +347,7 @@ impl<'interner> Monomorphizer<'interner> {
             unconstrained,
             inline_type,
             func_sig,
+            formal_verification_attributes,
         };
 
         self.push_function(id, function);
@@ -1553,6 +1556,7 @@ impl<'interner> Monomorphizer<'interner> {
             unconstrained,
             inline_type: InlineType::default(),
             func_sig: FunctionSignature::default(),
+            formal_verification_attributes: Vec::default(),
         };
         self.push_function(id, function);
 
@@ -1687,6 +1691,7 @@ impl<'interner> Monomorphizer<'interner> {
             unconstrained,
             inline_type: InlineType::default(),
             func_sig: FunctionSignature::default(),
+            formal_verification_attributes: Vec::default(),
         };
         self.push_function(id, function);
 
@@ -1811,6 +1816,7 @@ impl<'interner> Monomorphizer<'interner> {
             unconstrained,
             inline_type: InlineType::default(),
             func_sig: FunctionSignature::default(),
+            formal_verification_attributes: Vec::default(),
         };
         self.push_function(id, function);
 

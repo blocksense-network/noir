@@ -7,7 +7,7 @@ use noirc_errors::{
     Location,
 };
 
-use crate::hir_def::function::FunctionSignature;
+use crate::hir_def::function::{ FunctionSignature, ResolvedFvAttribute };
 use crate::{
     ast::{BinaryOpKind, IntegerBitSize, Signedness, Visibility},
     token::{Attributes, FunctionAttribute},
@@ -265,7 +265,7 @@ impl std::fmt::Display for InlineType {
     }
 }
 
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone)]
 pub struct Function {
     pub id: FuncId,
     pub name: String,
@@ -277,6 +277,7 @@ pub struct Function {
     pub unconstrained: bool,
     pub inline_type: InlineType,
     pub func_sig: FunctionSignature,
+    pub formal_verification_attributes: Vec<ResolvedFvAttribute>,
 }
 
 /// Compared to hir_def::types::Type, this monomorphized Type has:
@@ -313,7 +314,7 @@ impl Type {
     }
 }
 
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone)]
 pub struct Program {
     pub functions: Vec<Function>,
     pub function_signatures: Vec<FunctionSignature>,
@@ -325,6 +326,7 @@ pub struct Program {
     pub debug_variables: DebugVariables,
     pub debug_functions: DebugFunctions,
     pub debug_types: DebugTypes,
+    pub formal_verification_attributes: Vec<ResolvedFvAttribute>,
 }
 
 impl Program {
@@ -339,6 +341,7 @@ impl Program {
         debug_variables: DebugVariables,
         debug_functions: DebugFunctions,
         debug_types: DebugTypes,
+        formal_verification_attributes: Vec<ResolvedFvAttribute>,
     ) -> Program {
         Program {
             functions,
@@ -350,6 +353,7 @@ impl Program {
             debug_variables,
             debug_functions,
             debug_types,
+            formal_verification_attributes,
         }
     }
 
