@@ -37,6 +37,7 @@ pub(crate) struct FunctionBuilder {
     finished_functions: Vec<Function>,
     call_stack: CallStack,
     error_types: BTreeMap<ErrorSelector, ErrorType>,
+    pub fv_instruction: bool,
 }
 
 impl FunctionBuilder {
@@ -53,6 +54,7 @@ impl FunctionBuilder {
             finished_functions: Vec::new(),
             call_stack: CallStack::new(),
             error_types: BTreeMap::default(),
+            fv_instruction: false,
         }
     }
 
@@ -165,6 +167,10 @@ impl FunctionBuilder {
         ctrl_typevars: Option<Vec<Type>>,
     ) -> InsertInstructionResult {
         let block = self.current_block();
+        if self.fv_instruction {
+            self.current_function.dfg.fv_instructions.insert(instruction);
+            return InsertInstructionResult::InstructionRemoved;
+        }
         self.current_function.dfg.insert_instruction_and_results(
             instruction,
             block,
