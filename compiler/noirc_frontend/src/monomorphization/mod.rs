@@ -16,7 +16,7 @@ use crate::{
     debug::DebugInstrumenter,
     hir_def::{
         expr::*,
-        function::{FuncMeta, FunctionSignature, Parameters},
+        function::{FuncMeta, FunctionSignature, Parameters, ResolvedFvAttribute},
         stmt::{HirAssignStatement, HirLValue, HirLetStatement, HirPattern, HirStatement},
         types,
     },
@@ -337,7 +337,15 @@ impl<'interner> Monomorphizer<'interner> {
 
         let parameters = self.parameters(&meta.parameters)?;
         let body = self.expr(body_expr_id)?;
-        let formal_verification_attributes = meta.formal_verification_attributes;
+        let formal_verification_expressions = meta.formal_verification_attributes
+            .iter()
+            .map(|fv: &ResolvedFvAttribute| {
+                match *fv {
+                    ResolvedFvAttribute::Ensures(id)  => self.expr(id),
+                    ResolvedFvAttribute::Requires(id) => self.expr(id),
+                }.unwrap()
+            })
+            .collect();
         let function = ast::Function {
             id,
             name,
@@ -347,7 +355,7 @@ impl<'interner> Monomorphizer<'interner> {
             unconstrained,
             inline_type,
             func_sig,
-            formal_verification_attributes,
+            formal_verification_expressions,
         };
 
         self.push_function(id, function);
@@ -1556,7 +1564,7 @@ impl<'interner> Monomorphizer<'interner> {
             unconstrained,
             inline_type: InlineType::default(),
             func_sig: FunctionSignature::default(),
-            formal_verification_attributes: Vec::default(),
+            formal_verification_expressions: Vec::default(),
         };
         self.push_function(id, function);
 
@@ -1691,7 +1699,7 @@ impl<'interner> Monomorphizer<'interner> {
             unconstrained,
             inline_type: InlineType::default(),
             func_sig: FunctionSignature::default(),
-            formal_verification_attributes: Vec::default(),
+            formal_verification_expressions: Vec::default(),
         };
         self.push_function(id, function);
 
@@ -1816,7 +1824,7 @@ impl<'interner> Monomorphizer<'interner> {
             unconstrained,
             inline_type: InlineType::default(),
             func_sig: FunctionSignature::default(),
-            formal_verification_attributes: Vec::default(),
+            formal_verification_expressions: Vec::default(),
         };
         self.push_function(id, function);
 

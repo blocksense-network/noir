@@ -277,7 +277,7 @@ pub struct Function {
     pub unconstrained: bool,
     pub inline_type: InlineType,
     pub func_sig: FunctionSignature,
-    pub formal_verification_attributes: Vec<ResolvedFvAttribute>,
+    pub formal_verification_expressions: Vec<Expression>,
 }
 
 /// Compared to hir_def::types::Type, this monomorphized Type has:
