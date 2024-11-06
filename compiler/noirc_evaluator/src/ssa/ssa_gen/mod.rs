@@ -68,7 +68,7 @@ pub(crate) fn generate_ssa(
     // Generate the call_data bus from the relevant parameters. We create it *before* processing the function body
     let call_data = function_context.builder.call_data_bus(is_databus);
 
-    function_context.codegen_function_body(&main.body)?;
+    function_context.codegen_function_body(&main.body, &main.formal_verification_expressions)?;
 
     let mut return_data = DataBusBuilder::new();
     if let Some(return_location) = return_location {
@@ -115,7 +115,7 @@ pub(crate) fn generate_ssa(
     while let Some((src_function_id, dest_id)) = context.pop_next_function_in_queue() {
         let function = &context.program[src_function_id];
         function_context.new_function(dest_id, function, force_brillig_runtime);
-        function_context.codegen_function_body(&function.body)?;
+        function_context.codegen_function_body(&function.body, &function.formal_verification_expressions)?;
     }
 
     Ok(function_context.builder.finish())
@@ -124,13 +124,20 @@ pub(crate) fn generate_ssa(
 impl<'a> FunctionContext<'a> {
     /// Codegen a function's body and set its return value to that of its last parameter.
     /// For functions returning nothing, this will be an empty list.
-    fn codegen_function_body(&mut self, body: &Expression) -> Result<(), RuntimeError> {
+    fn codegen_function_body(&mut self, body: &Expression, formal_verification_expressions: &Vec<Expression>) -> Result<(), RuntimeError> {
         let entry_block = self.increment_parameter_rcs();
         let return_value = self.codegen_expression(body)?;
         let results = return_value.into_value_list(self);
         self.end_scope(entry_block, &results);
 
         self.builder.terminate_with_return(results);
+
+        self.builder.fv_instruction = true;
+        for expr in formal_verification_expressions {
+            self.codegen_expression(expr);
+        }
+        self.builder.fv_instruction = false;
+
         Ok(())
     }
 

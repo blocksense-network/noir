@@ -94,6 +94,9 @@ pub(crate) struct DataFlowGraph {
 
     #[serde(skip)]
     pub(crate) data_bus: DataBus,
+
+    #[serde(skip)]
+    pub fv_instructions: DenseMap<Instruction>,
 }
 
 pub(crate) type CallStack = im::Vector<Location>;
