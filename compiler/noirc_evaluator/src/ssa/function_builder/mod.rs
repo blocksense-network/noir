@@ -9,7 +9,7 @@ use noirc_frontend::monomorphization::ast::InlineType;
 use crate::ssa::ir::{
     basic_block::BasicBlockId,
     function::{Function, FunctionId},
-    instruction::{Binary, BinaryOp, Instruction, TerminatorInstruction},
+    instruction::{Binary, BinaryOp, Instruction, FvInstruction, TerminatorInstruction},
     types::Type,
     value::{Value, ValueId},
 };
@@ -24,6 +24,12 @@ use super::{
     ssa_gen::Ssa,
 };
 
+pub enum FvBuilder {
+    None,
+    Ensures,
+    Requires,
+}
+
 /// The per-function context for each ssa function being generated.
 ///
 /// This is split from the global SsaBuilder context to allow each function
@@ -37,7 +43,7 @@ pub(crate) struct FunctionBuilder {
     finished_functions: Vec<Function>,
     call_stack: CallStack,
     error_types: BTreeMap<ErrorSelector, ErrorType>,
-    pub fv_instruction: bool,
+    pub fv_instruction: FvBuilder,
 }
 
 impl FunctionBuilder {
@@ -54,7 +60,7 @@ impl FunctionBuilder {
             finished_functions: Vec::new(),
             call_stack: CallStack::new(),
             error_types: BTreeMap::default(),
-            fv_instruction: false,
+            fv_instruction: FvBuilder::None,
         }
     }
 
@@ -166,11 +172,18 @@ impl FunctionBuilder {
         instruction: Instruction,
         ctrl_typevars: Option<Vec<Type>>,
     ) -> InsertInstructionResult {
-        let block = self.current_block();
-        if self.fv_instruction {
-            self.current_function.dfg.fv_instructions.insert(instruction);
-            return InsertInstructionResult::InstructionRemoved;
+        match self.fv_instruction {
+            FvBuilder::Ensures => {
+                self.current_function.dfg.fv_instructions.insert(FvInstruction::Ensures(instruction));
+                return InsertInstructionResult::InstructionRemoved;
+            },
+            FvBuilder::Requires => {
+                self.current_function.dfg.fv_instructions.insert(FvInstruction::Requires(instruction));
+                return InsertInstructionResult::InstructionRemoved;
+            },
+            _ => {}
         }
+        let block = self.current_block();
         self.current_function.dfg.insert_instruction_and_results(
             instruction,
             block,

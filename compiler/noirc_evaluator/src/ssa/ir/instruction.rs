@@ -759,6 +759,12 @@ impl Instruction {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum FvInstruction {
+    Requires(Instruction),
+    Ensures(Instruction),
+}
+
 /// Given a chain of operations like:
 /// v1 = array_set [10, 11, 12], index 1, value: 5
 /// v2 = array_set v1, index 2, value: 6
