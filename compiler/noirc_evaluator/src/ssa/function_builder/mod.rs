@@ -174,11 +174,11 @@ impl FunctionBuilder {
     ) -> InsertInstructionResult {
         match self.fv_instruction {
             FvBuilder::Ensures => {
-                self.current_function.dfg.fv_instructions.insert(FvInstruction::Ensures(instruction));
+                self.current_function.dfg.fv_instructions.push(FvInstruction::Ensures(instruction));
                 return InsertInstructionResult::InstructionRemoved;
             },
             FvBuilder::Requires => {
-                self.current_function.dfg.fv_instructions.insert(FvInstruction::Requires(instruction));
+                self.current_function.dfg.fv_instructions.push(FvInstruction::Requires(instruction));
                 return InsertInstructionResult::InstructionRemoved;
             },
             _ => {}
