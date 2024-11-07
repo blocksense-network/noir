@@ -136,11 +136,11 @@ impl<'a> FunctionContext<'a> {
             match fvexpr {
                 FvExpression::Ensures(expr) => {
                     self.builder.fv_instruction = FvBuilder::Ensures;
-                    self.codegen_expression(expr);
+                    let _ = self.codegen_expression(expr);
                 },
                 FvExpression::Requires(expr) => {
                     self.builder.fv_instruction = FvBuilder::Requires;
-                    self.codegen_expression(expr);
+                    let _ = self.codegen_expression(expr);
                 },
             }
         }
