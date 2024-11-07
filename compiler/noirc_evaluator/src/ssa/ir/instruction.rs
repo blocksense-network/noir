@@ -760,7 +760,7 @@ impl Instruction {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum FvInstruction {
+pub(crate) enum FvInstruction {
     Requires(Instruction),
     Ensures(Instruction),
 }

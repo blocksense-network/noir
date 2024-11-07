@@ -24,7 +24,7 @@ use super::{
     ssa_gen::Ssa,
 };
 
-pub enum FvBuilder {
+pub(crate) enum FvBuilder {
     None,
     Ensures,
     Requires,
