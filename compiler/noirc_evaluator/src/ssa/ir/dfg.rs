@@ -6,7 +6,7 @@ use super::{
     basic_block::{BasicBlock, BasicBlockId},
     function::FunctionId,
     instruction::{
-        Instruction, InstructionId, InstructionResultType, Intrinsic, TerminatorInstruction,
+        Instruction, FvInstruction, InstructionId, InstructionResultType, Intrinsic, TerminatorInstruction,
     },
     map::DenseMap,
     types::Type,
@@ -96,7 +96,7 @@ pub(crate) struct DataFlowGraph {
     pub(crate) data_bus: DataBus,
 
     #[serde(skip)]
-    pub fv_instructions: DenseMap<Instruction>,
+    pub fv_instructions: DenseMap<FvInstruction>,
 }
 
 pub(crate) type CallStack = im::Vector<Location>;

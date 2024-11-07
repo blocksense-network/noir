@@ -266,6 +266,12 @@ impl std::fmt::Display for InlineType {
 }
 
 #[derive(Debug, Clone)]
+pub enum FvExpression {
+    Requires(Expression),
+    Ensures(Expression),
+}
+
+#[derive(Debug, Clone)]
 pub struct Function {
     pub id: FuncId,
     pub name: String,
@@ -277,7 +283,7 @@ pub struct Function {
     pub unconstrained: bool,
     pub inline_type: InlineType,
     pub func_sig: FunctionSignature,
-    pub formal_verification_expressions: Vec<Expression>,
+    pub formal_verification_expressions: Vec<FvExpression>,
 }
 
 /// Compared to hir_def::types::Type, this monomorphized Type has:

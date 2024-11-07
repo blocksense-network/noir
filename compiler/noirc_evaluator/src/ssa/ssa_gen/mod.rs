@@ -9,11 +9,11 @@ use iter_extended::{try_vecmap, vecmap};
 use noirc_errors::Location;
 use noirc_frontend::ast::{UnaryOp, Visibility};
 use noirc_frontend::hir_def::types::Type as HirType;
-use noirc_frontend::monomorphization::ast::{self, Expression, Program};
+use noirc_frontend::monomorphization::ast::{self, Expression, FvExpression, Program};
 
 use crate::{
     errors::RuntimeError,
-    ssa::{function_builder::data_bus::DataBusBuilder, ir::instruction::Intrinsic},
+    ssa::{function_builder::{ FvBuilder, data_bus::DataBusBuilder }, ir::instruction::Intrinsic},
 };
 
 use self::{
@@ -124,7 +124,7 @@ pub(crate) fn generate_ssa(
 impl<'a> FunctionContext<'a> {
     /// Codegen a function's body and set its return value to that of its last parameter.
     /// For functions returning nothing, this will be an empty list.
-    fn codegen_function_body(&mut self, body: &Expression, formal_verification_expressions: &Vec<Expression>) -> Result<(), RuntimeError> {
+    fn codegen_function_body(&mut self, body: &Expression, formal_verification_expressions: &Vec<FvExpression>) -> Result<(), RuntimeError> {
         let entry_block = self.increment_parameter_rcs();
         let return_value = self.codegen_expression(body)?;
         let results = return_value.into_value_list(self);
@@ -132,11 +132,19 @@ impl<'a> FunctionContext<'a> {
 
         self.builder.terminate_with_return(results);
 
-        self.builder.fv_instruction = true;
-        for expr in formal_verification_expressions {
-            self.codegen_expression(expr);
+        for fvexpr in formal_verification_expressions {
+            match fvexpr {
+                FvExpression::Ensures(expr) => {
+                    self.builder.fv_instruction = FvBuilder::Ensures;
+                    self.codegen_expression(expr);
+                },
+                FvExpression::Requires(expr) => {
+                    self.builder.fv_instruction = FvBuilder::Requires;
+                    self.codegen_expression(expr);
+                },
+            }
         }
-        self.builder.fv_instruction = false;
+        self.builder.fv_instruction = FvBuilder::None;
 
         Ok(())
     }

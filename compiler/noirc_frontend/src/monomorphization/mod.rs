@@ -32,7 +32,7 @@ use std::{
     unreachable,
 };
 
-use self::ast::InlineType;
+use self::ast::{ InlineType, FvExpression };
 use self::debug_types::DebugTypeTracker;
 use self::{
     ast::{Definition, FuncId, Function, LocalId, Program},
@@ -341,9 +341,9 @@ impl<'interner> Monomorphizer<'interner> {
             .iter()
             .map(|fv: &ResolvedFvAttribute| {
                 match *fv {
-                    ResolvedFvAttribute::Ensures(id)  => self.expr(id),
-                    ResolvedFvAttribute::Requires(id) => self.expr(id),
-                }.unwrap()
+                    ResolvedFvAttribute::Ensures(id)  => FvExpression::Ensures(self.expr(id).unwrap()),
+                    ResolvedFvAttribute::Requires(id) => FvExpression::Requires(self.expr(id).unwrap()),
+                }
             })
             .collect();
         let function = ast::Function {
