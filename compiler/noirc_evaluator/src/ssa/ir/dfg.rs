@@ -595,7 +595,8 @@ impl<'dfg> InsertInstructionResult<'dfg> {
                 results[0]
             }
             InsertInstructionResult::InstructionRemoved => {
-                panic!("Instruction was removed, no results")
+                super::map::Id::new(0)
+                // panic!("Instruction was removed, no results")
             }
         }
     }
