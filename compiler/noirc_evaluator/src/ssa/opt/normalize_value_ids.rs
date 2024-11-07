@@ -115,6 +115,8 @@ impl Context {
             terminator.mutate_blocks(|old_block| self.new_ids.blocks[&old_block]);
             new_function.dfg.set_block_terminator(new_block_id, terminator);
         }
+
+        new_function.dfg.fv_instructions = old_function.dfg.fv_instructions.clone();
     }
 }
 

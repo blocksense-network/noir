@@ -12,12 +12,32 @@ use super::{
     basic_block::BasicBlockId,
     dfg::DataFlowGraph,
     function::Function,
-    instruction::{ConstrainError, Instruction, InstructionId, TerminatorInstruction},
+    instruction::{ConstrainError, Instruction, FvInstruction, InstructionId, TerminatorInstruction},
     value::{Value, ValueId},
 };
 
 /// Helper function for Function's Display impl to pretty-print the function with the given formatter.
 pub(crate) fn display_function(function: &Function, f: &mut Formatter) -> Result {
+    writeln!(f, "requires: (")?;
+    let requires = function.dfg.fv_instructions
+        .iter()
+        .map_while(|x| match x { FvInstruction::Requires(i) => Some(i), _ => None });
+    for instruction in requires {
+        write!(f, "    ")?;
+        let _ = display_instruction_inner(function, instruction, f);
+    }
+    writeln!(f, ")")?;
+
+    writeln!(f, "ensures: (")?;
+    let ensures = function.dfg.fv_instructions
+        .iter()
+        .map_while(|x| match x { FvInstruction::Ensures(i) => Some(i), _ => None });
+    for instruction in ensures {
+        write!(f, "    ")?;
+        let _ = display_instruction_inner(function, instruction, f);
+    }
+    writeln!(f, ")")?;
+
     writeln!(f, "{} fn {} {} {{", function.runtime(), function.name(), function.id())?;
     display_block_with_successors(function, function.entry_block(), &mut HashSet::new(), f)?;
     write!(f, "}}")
