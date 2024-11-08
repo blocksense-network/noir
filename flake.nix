@@ -8,7 +8,18 @@
     };
   };
 
-  outputs = inputs @ {flake-parts, ...}:
+  outputs = inputs @ {
+    nixpkgs,
+    flake-parts,
+    fenix,
+    ...
+  }: let
+    system = "x86_64-linux";
+    venir-toolchain = fenix.packages.${system}.fromToolchainFile {
+      file = ./venir-toolchain.toml;
+      sha256 = "sha256-e4mlaJehWBymYxJGgnbuCObVlqMlQSilZ8FljG9zPHY=";
+    };
+  in
     flake-parts.lib.mkFlake {inherit inputs;} {
       systems = ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"];
       perSystem = {
@@ -27,7 +38,7 @@
             rustc
             rustfmt
           ];
-        devShells.default = import ./shell.nix {inherit pkgs self';};
+        devShells.default = import ./shell.nix {inherit pkgs self' venir-toolchain;};
       };
     };
 }
