@@ -127,6 +127,7 @@ impl<'a> FunctionContext<'a> {
     fn codegen_function_body(&mut self, body: &Expression, formal_verification_expressions: &Vec<FvExpression>) -> Result<(), RuntimeError> {
         let entry_block = self.increment_parameter_rcs();
         let return_value = self.codegen_expression(body)?;
+        self.return_value = return_value.clone();
         let results = return_value.into_value_list(self);
         self.end_scope(entry_block, &results);
 
@@ -145,6 +146,7 @@ impl<'a> FunctionContext<'a> {
             }
         }
         self.builder.fv_instruction = FvBuilder::None;
+        self.return_value = Tree::empty();
 
         Ok(())
     }
@@ -204,6 +206,11 @@ impl<'a> FunctionContext<'a> {
 
     /// Codegen an identifier, automatically loading its value if it is mutable.
     fn codegen_ident(&mut self, ident: &ast::Ident) -> Values {
+        // Replace the marker value for ensures and requires "result" variable
+        // with the actual return values
+        if ident.location == None && ident.name == "result" {
+            return self.return_value.clone();
+        }
         self.codegen_ident_reference(ident).map(|value| value.eval(self).into())
     }
 
