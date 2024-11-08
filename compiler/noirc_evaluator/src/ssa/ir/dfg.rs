@@ -29,7 +29,7 @@ use serde_with::DisplayFromStr;
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub(crate) struct DataFlowGraph {
     /// All of the instructions in a function
-    pub instructions: DenseMap<Instruction>,
+    instructions: DenseMap<Instruction>,
 
     /// Stores the results for a particular instruction.
     ///
