@@ -52,7 +52,7 @@ fn display_fv_attribute(function: &Function, attribute: Attribute, f: &mut Forma
 
 fn display_fv_instruction(function: &Function, id: usize, instruction: &Instruction, f: &mut Formatter) -> Result {
     write!(f, "    ")?;
-    let results = function.dfg.instruction_results(InstructionId::new(function.dfg.instructions.len() + id));
+    let results = function.dfg.instruction_results(InstructionId::new(function.dfg.num_instructions() + id));
     if !results.is_empty() {
         write!(f, "{} = ", value_list(function, results))?;
     }
