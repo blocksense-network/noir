@@ -29,7 +29,7 @@ use serde_with::DisplayFromStr;
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub(crate) struct DataFlowGraph {
     /// All of the instructions in a function
-    instructions: DenseMap<Instruction>,
+    pub instructions: DenseMap<Instruction>,
 
     /// Stores the results for a particular instruction.
     ///
@@ -344,6 +344,28 @@ impl DataFlowGraph {
             InstructionResultType::Unknown => {
                 ctrl_typevars.expect("Control typevars required but not given")
             }
+        }
+    }
+
+    pub(crate) fn make_instruction_results_fv(
+        &mut self,
+        instruction_id: InstructionId,
+        ctrl_typevars: Option<Vec<Type>>,
+        result_type: InstructionResultType,
+    ) {
+        self.results.insert(instruction_id, Default::default());
+
+        let types = match result_type {
+            InstructionResultType::Known(typ) => vec![typ],
+            InstructionResultType::Operand(value) => vec![self.type_of_value(value)],
+            InstructionResultType::None => vec![],
+            InstructionResultType::Unknown => {
+                ctrl_typevars.expect("Control typevars required but not given")
+            }
+        };
+
+        for typ in types {
+            self.append_result(instruction_id, typ);
         }
     }
 
