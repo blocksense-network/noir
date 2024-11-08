@@ -8,8 +8,7 @@ use vir::{
         ExprX, Exprs, Fun, FunX, FunctionAttrs, FunctionAttrsX, FunctionKind, FunctionX,
         GenericBounds, Idents, InequalityOp, IntRange, IntegerTypeBitwidth, ItemKind, Krate,
         KrateX, Mode, Module, ModuleX, Param, ParamX, Params, PathX, Pattern, PatternX, Primitive,
-        SpannedTyped, Stmt, StmtX, Typ, TypDecoration, TypX, Typs, UnaryOp, UnwindSpec, VarIdent,
-        Visibility,
+        SpannedTyped, Stmt, StmtX, Typ, TypDecoration, TypX, Typs, UnaryOp, VarIdent, Visibility,
     },
     ast_util::mk_tuple,
     def::{prefix_tuple_variant, Spanned},
@@ -641,8 +640,12 @@ fn cast_integer_to_integer(
 
 fn cast_instruction_to_expr(value_id: &ValueId, noir_type: &Type, dfg: &DataFlowGraph) -> Expr {
     match dfg[*value_id].get_type() {
-        Type::Numeric(NumericType::Unsigned { bit_size: 1 }) => cast_bool_to_integer(value_id, noir_type, dfg),
-        Type::Numeric(numeric_type) => cast_integer_to_integer(value_id, noir_type, dfg, numeric_type),
+        Type::Numeric(NumericType::Unsigned { bit_size: 1 }) => {
+            cast_bool_to_integer(value_id, noir_type, dfg)
+        }
+        Type::Numeric(numeric_type) => {
+            cast_integer_to_integer(value_id, noir_type, dfg, numeric_type)
+        }
         _ => panic!("Expected that all SSA casts have numeric targets"),
     }
 }
@@ -755,6 +758,62 @@ fn call_instruction_to_expr(
     )
 }
 
+/// Transforming an array_get instruction is tricky because we have to use a 
+/// function from the verus standard library. The way we do it is we generate a 
+/// function call to the needed vstd function. This function becomes available
+/// in a later stage when we merge the noir VIR with the vstd VIR. Therefore
+/// the function call becomes valid.
+fn array_get_to_expr(
+    array_id: &ValueId,
+    index: &ValueId,
+    instruction_id: InstructionId,
+    dfg: &DataFlowGraph,
+) -> Expr {
+    let vstd_krate = Some(Arc::new("vstd".to_string()));
+    let array_return_type: Typ =
+        get_function_ret_type(dfg.instruction_results(instruction_id), dfg);
+
+    let array_length = dfg.try_get_array_length(*array_id).unwrap();
+    let array_length_as_type = into_vir_const_int(array_length);
+    let typs_for_vstd_func_call: Typs =
+        Arc::new(vec![array_return_type.clone(), array_length_as_type.clone()]);
+    let array_as_vir_expr: Expr = SpannedTyped::new(
+        &build_span(array_id, format!("Array{} as expr", array_id)),
+        &Arc::new(TypX::Decorate(
+            TypDecoration::Ref,
+            None,
+            Arc::new(TypX::Primitive(
+                Primitive::Array,
+                Arc::new(vec![array_return_type.clone(), array_length_as_type.clone()]),
+            )),
+        )),
+        ExprX::Var(id_into_var_ident(*array_id)),
+    );
+    let index_as_vir_expr = ssa_value_to_expr(index, dfg);
+
+    let segments: Idents =
+        Arc::new(vec![Arc::new("array".to_string()), Arc::new("array_index_get".to_string())]);
+
+    let array_get_vir_exprx: ExprX = ExprX::Call(
+        CallTarget::Fun(
+            CallTargetKind::Static,
+            Arc::new(FunX { path: Arc::new(PathX { krate: vstd_krate, segments: segments }) }),
+            typs_for_vstd_func_call,
+            Arc::new(vec![]),
+            AutospecUsage::Final, // Verus uses this flag
+        ),
+        Arc::new(vec![array_as_vir_expr, index_as_vir_expr]),
+    );
+    let ref_wrapped_array_return_type: Typ =
+        Arc::new(TypX::Decorate(TypDecoration::Ref, None, array_return_type));
+
+    SpannedTyped::new(
+        &build_span(&instruction_id, format!("Array get with index {}", index)),
+        &ref_wrapped_array_return_type,
+        array_get_vir_exprx,
+    )
+}
+
 fn instruction_to_expr(
     instruction_id: InstructionId,
     instruction: &Instruction,
@@ -776,11 +835,13 @@ fn instruction_to_expr(
         Instruction::Call { func, arguments } => {
             call_instruction_to_expr(instruction_id, func, arguments, dfg)
         }
-        Instruction::Allocate => unreachable!(),
-        Instruction::Load { address: _ } => unreachable!(),
-        Instruction::Store { address: _, value: _ } => unreachable!(),
+        Instruction::Allocate => unreachable!(), // Optimized away
+        Instruction::Load { address: _ } => unreachable!(), // Optimized away
+        Instruction::Store { address: _, value: _ } => unreachable!(), // Optimized away
         Instruction::EnableSideEffectsIf { condition: _ } => todo!(), //TODO(totel) Support for mutability
-        Instruction::ArrayGet { array: _, index: _ } => todo!(),
+        Instruction::ArrayGet { array, index } => {
+            array_get_to_expr(array, index, instruction_id, dfg)
+        }
         Instruction::ArraySet { array: _, index: _, value: _, mutable: _ } => todo!(),
         Instruction::IncrementRc { value: _ } => unreachable!(), // Only in Brillig
         Instruction::DecrementRc { value: _ } => unreachable!(), // Only in Brillig
@@ -957,7 +1018,7 @@ fn build_funx(
         decrease_by: None,          // No such feature in the prototype
         fndef_axioms: None,         // Not sure what it is
         mask_spec: None,            // Not sure what it is
-        unwind_spec: Some(UnwindSpec::NoUnwind),
+        unwind_spec: None, // To be able to use functions from VSTD we need None on unwinding
         item_kind: ItemKind::Function,
         publish: None, // Only if we use None we pass Verus checks.
         attrs: build_default_funx_attrs(function_params.is_empty()),
