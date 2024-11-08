@@ -43,6 +43,11 @@ pub(super) struct FunctionContext<'a> {
     /// These are ordered such that an inner loop is at the end of the vector and
     /// outer loops are at the beginning. When a loop is finished, it is popped.
     loops: Vec<Loop>,
+
+    /// In the monomorphization AST we have created a marker value for ensures and
+    /// requires attributes, so in the SSA we can replace it with the return value
+    /// of the function. We use this inside codegen_ident to do just that.
+    pub(super) return_value: Values,
 }
 
 /// Shared context for all functions during ssa codegen. This is the only
@@ -110,7 +115,7 @@ impl<'a> FunctionContext<'a> {
         let mut builder = FunctionBuilder::new(function_name, function_id);
         builder.set_runtime(runtime);
         let definitions = HashMap::default();
-        let mut this = Self { definitions, builder, shared_context, loops: Vec::new() };
+        let mut this = Self { definitions, builder, shared_context, loops: Vec::new(), return_value: Tree::empty() };
         this.add_parameters_to_scope(parameters);
         this
     }
