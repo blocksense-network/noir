@@ -423,6 +423,38 @@ fn build_default_funx_attrs(zero_args: bool) -> FunctionAttrs {
 }
 
 // TODO MOVE into a separate file all expr mapping logic
+fn is_multiplication_between_bools(
+    lhs: &ValueId,
+    rhs: &ValueId,
+    binary_op: &BinaryOp,
+    dfg: &DataFlowGraph,
+) -> bool {
+    match (dfg[*lhs].get_type(), dfg[*rhs].get_type(), binary_op) {
+        (
+            Type::Numeric(NumericType::Unsigned { bit_size: 1 }),
+            Type::Numeric(NumericType::Unsigned { bit_size: 1 }),
+            BinaryOp::Mul,
+        ) => true,
+        (_, _, _) => false,
+    }
+}
+
+fn is_or_between_bools(
+    lhs: &ValueId,
+    rhs: &ValueId,
+    binary_op: &BinaryOp,
+    dfg: &DataFlowGraph,
+) -> bool {
+    match (dfg[*lhs].get_type(), dfg[*rhs].get_type(), binary_op) {
+        (
+            Type::Numeric(NumericType::Unsigned { bit_size: 1 }),
+            Type::Numeric(NumericType::Unsigned { bit_size: 1 }),
+            BinaryOp::Or,
+        ) => true,
+        (_, _, _) => false,
+    }
+}
+
 fn array_to_expr(
     array_id: &ValueId,
     array_values: &im::Vector<ValueId>,
@@ -545,12 +577,29 @@ fn binary_instruction_to_expr(
     dfg: &DataFlowGraph,
 ) -> Expr {
     let Binary { lhs, rhs, operator } = binary;
-
-    let binary_exprx = ExprX::Binary(
+    let lhs_expr = ssa_value_to_expr(lhs, dfg);
+    let rhs_expr = ssa_value_to_expr(rhs, dfg);
+    let mut binary_exprx = ExprX::Binary(
         binary_op_to_vir_binary_op(operator),
-        ssa_value_to_expr(lhs, dfg),
-        ssa_value_to_expr(rhs, dfg),
+        lhs_expr.clone(),
+        rhs_expr.clone(),
     );
+    //Special case for multiplications of booleans
+    if is_multiplication_between_bools(lhs, rhs, operator, dfg) {
+        binary_exprx = ExprX::Binary(
+            VirBinaryOp::And,
+            lhs_expr.clone(),
+            rhs_expr.clone(),
+        )
+    }
+    //Special case for logical or of booleans
+    if is_or_between_bools(lhs, rhs, operator, dfg) {
+        binary_exprx = ExprX::Binary(
+            VirBinaryOp::Or,
+            lhs_expr,
+            rhs_expr,
+        )
+    }
     SpannedTyped::new(
         &build_span(&instruction_id, format!("lhs({}) binary_op({}) rhs({})", lhs, operator, rhs)),
         &instr_res_type_to_vir_type(binary.result_type(), dfg),
@@ -758,8 +807,8 @@ fn call_instruction_to_expr(
     )
 }
 
-/// Transforming an array_get instruction is tricky because we have to use a 
-/// function from the verus standard library. The way we do it is we generate a 
+/// Transforming an array_get instruction is tricky because we have to use a
+/// function from the verus standard library. The way we do it is we generate a
 /// function call to the needed vstd function. This function becomes available
 /// in a later stage when we merge the noir VIR with the vstd VIR. Therefore
 /// the function call becomes valid.
