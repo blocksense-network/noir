@@ -24,6 +24,7 @@ use super::{
     ssa_gen::Ssa,
 };
 
+#[derive(PartialEq)]
 pub(crate) enum FvBuilder {
     None,
     Ensures,
@@ -172,16 +173,18 @@ impl FunctionBuilder {
         instruction: Instruction,
         ctrl_typevars: Option<Vec<Type>>,
     ) -> InsertInstructionResult {
-        match self.fv_instruction {
-            FvBuilder::Ensures => {
-                self.current_function.dfg.fv_instructions.push(FvInstruction::Ensures(instruction));
-                return InsertInstructionResult::InstructionRemoved;
-            },
-            FvBuilder::Requires => {
-                self.current_function.dfg.fv_instructions.push(FvInstruction::Requires(instruction));
-                return InsertInstructionResult::InstructionRemoved;
-            },
-            _ => {}
+        if self.fv_instruction != FvBuilder::None {
+            let dfg = &mut self.current_function.dfg;
+            let id = InstructionId::new(dfg.instructions.len() + dfg.fv_instructions.len());
+
+            dfg.make_instruction_results_fv(id, ctrl_typevars, instruction.clone().result_type());
+            dfg.fv_instructions.push(match self.fv_instruction {
+                FvBuilder::Ensures  => FvInstruction::Ensures(instruction),
+                FvBuilder::Requires => FvInstruction::Requires(instruction),
+                _ => panic!("Not possible"),
+            });
+
+            return InsertInstructionResult::Results(id, dfg.instruction_results(id));
         }
         let block = self.current_block();
         self.current_function.dfg.insert_instruction_and_results(
