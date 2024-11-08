@@ -2854,7 +2854,6 @@ dependencies = [
  "tower",
  "tracing-appender",
  "tracing-subscriber",
- "vir",
 ]
 
 [[package]]
