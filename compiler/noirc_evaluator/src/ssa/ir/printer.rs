@@ -16,31 +16,48 @@ use super::{
     value::{Value, ValueId},
 };
 
+enum Attribute {
+    Requires, Ensures,
+}
+
+impl Attribute {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Attribute::Requires => "requires",
+            Attribute::Ensures => "ensures",
+        }
+    }
+}
+
 /// Helper function for Function's Display impl to pretty-print the function with the given formatter.
 pub(crate) fn display_function(function: &Function, f: &mut Formatter) -> Result {
-    writeln!(f, "requires: (")?;
-    let requires = function.dfg.fv_instructions
-        .iter()
-        .map_while(|x| match x { FvInstruction::Requires(i) => Some(i), _ => None });
-    for instruction in requires {
-        write!(f, "    ")?;
-        let _ = display_instruction_inner(function, instruction, f);
-    }
-    writeln!(f, ")")?;
-
-    writeln!(f, "ensures: (")?;
-    let ensures = function.dfg.fv_instructions
-        .iter()
-        .map_while(|x| match x { FvInstruction::Ensures(i) => Some(i), _ => None });
-    for instruction in ensures {
-        write!(f, "    ")?;
-        let _ = display_instruction_inner(function, instruction, f);
-    }
-    writeln!(f, ")")?;
+    display_fv_attribute(function, Attribute::Requires, f)?;
+    display_fv_attribute(function, Attribute::Ensures, f)?;
 
     writeln!(f, "{} fn {} {} {{", function.runtime(), function.name(), function.id())?;
     display_block_with_successors(function, function.entry_block(), &mut HashSet::new(), f)?;
     write!(f, "}}")
+}
+
+fn display_fv_attribute(function: &Function, attribute: Attribute, f: &mut Formatter) -> Result {
+    writeln!(f, "{} (", attribute.as_str())?;
+    for (id, fvi) in function.dfg.fv_instructions.iter().enumerate() {
+        match fvi {
+            FvInstruction::Ensures(instruction) => display_fv_instruction(function, id, instruction, f)?,
+            FvInstruction::Requires(instruction) => display_fv_instruction(function, id, instruction, f)?,
+        }
+    }
+    writeln!(f, ")")
+}
+
+fn display_fv_instruction(function: &Function, id: usize, instruction: &Instruction, f: &mut Formatter) -> Result {
+    write!(f, "    ")?;
+    let results = function.dfg.instruction_results(InstructionId::new(function.dfg.instructions.len() + id));
+    if !results.is_empty() {
+        write!(f, "{} = ", value_list(function, results))?;
+    }
+    let _ = display_instruction_inner(function, instruction, f);
+    Ok(())
 }
 
 /// Displays a block followed by all of its successors recursively.
