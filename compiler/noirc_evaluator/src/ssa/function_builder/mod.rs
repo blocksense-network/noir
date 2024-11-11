@@ -175,7 +175,7 @@ impl FunctionBuilder {
     ) -> InsertInstructionResult {
         if self.fv_instruction != FvBuilder::None {
             let dfg = &mut self.current_function.dfg;
-            let id = InstructionId::new(dfg.num_instructions() + dfg.fv_instructions.len());
+            let id = InstructionId::new(dfg.fv_start_id + dfg.fv_instructions.len());
 
             dfg.make_instruction_results_fv(id, ctrl_typevars, instruction.clone().result_type());
             dfg.fv_instructions.push(match self.fv_instruction {
