@@ -6,7 +6,7 @@ use super::{
     basic_block::BasicBlockId,
     dfg::{CallStack, InsertInstructionResult},
     function::Function,
-    instruction::{Instruction, InstructionId},
+    instruction::{Instruction, FvInstruction, InstructionId},
     value::ValueId,
 };
 use fxhash::FxHashMap as HashMap;
@@ -101,6 +101,20 @@ impl<'f> FunctionInserter<'f> {
         let data_bus = self.function.dfg.data_bus.clone();
         let data_bus = data_bus.map_values(|value| self.resolve(value));
         self.function.dfg.data_bus = data_bus;
+
+        self.map_fv_instructions();
+    }
+
+    fn map_fv_instructions(&mut self) {
+        let newfv = self.function.dfg.fv_instructions.clone().iter().map(|fv| {
+            match fv {
+                FvInstruction::Requires(instr) =>
+                    FvInstruction::Requires(instr.clone().map_values(|v| self.resolve(v))),
+                FvInstruction::Ensures(instr) =>
+                    FvInstruction::Ensures(instr.clone().map_values(|v| self.resolve(v))),
+            }
+        }).collect();
+        self.function.dfg.fv_instructions = newfv;
     }
 
     /// Push a new instruction to the given block and return its new InstructionId.
