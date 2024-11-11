@@ -133,6 +133,7 @@ impl<'a> FunctionContext<'a> {
 
         self.builder.terminate_with_return(results);
 
+        self.builder.current_function.dfg.fv_start_id = self.builder.current_function.dfg.num_instructions();
         for fvexpr in formal_verification_expressions {
             match fvexpr {
                 FvExpression::Ensures(expr) => {
