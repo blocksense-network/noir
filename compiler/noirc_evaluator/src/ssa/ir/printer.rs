@@ -16,6 +16,7 @@ use super::{
     value::{Value, ValueId},
 };
 
+#[derive(PartialEq)]
 enum Attribute {
     Requires, Ensures,
 }
@@ -43,8 +44,16 @@ fn display_fv_attribute(function: &Function, attribute: Attribute, f: &mut Forma
     writeln!(f, "{} (", attribute.as_str())?;
     for (id, fvi) in function.dfg.fv_instructions.iter().enumerate() {
         match fvi {
-            FvInstruction::Ensures(instruction) => display_fv_instruction(function, id, instruction, f)?,
-            FvInstruction::Requires(instruction) => display_fv_instruction(function, id, instruction, f)?,
+            FvInstruction::Ensures(instruction) => {
+                if attribute == Attribute::Ensures {
+                    display_fv_instruction(function, id, instruction, f)?
+                }
+            },
+            FvInstruction::Requires(instruction) => {
+                if attribute == Attribute::Requires {
+                    display_fv_instruction(function, id, instruction, f)?
+                }
+            },
         }
     }
     writeln!(f, ")")
