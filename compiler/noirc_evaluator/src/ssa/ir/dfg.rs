@@ -315,6 +315,14 @@ impl DataFlowGraph {
         instruction_id: InstructionId,
         ctrl_typevars: Option<Vec<Type>>,
     ) {
+        if self.fv_instructions.len() > 0 {
+            for id in (0..self.fv_instructions.len()).rev().map(|x| self.fv_start_id + x) {
+                let res = self.results.remove(&InstructionId::new(id)).unwrap();
+                self.results.insert(InstructionId::new(id+1), res);
+            }
+            self.fv_start_id += 1;
+        }
+
         self.results.insert(instruction_id, Default::default());
 
         // Get all of the types that this instruction produces
