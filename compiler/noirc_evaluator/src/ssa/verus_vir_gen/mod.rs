@@ -530,6 +530,7 @@ fn numeric_const_to_expr(numeric_const: &FieldElement, noir_type: &Type) -> Expr
 }
 
 fn ssa_value_to_expr(value_id: &ValueId, dfg: &DataFlowGraph) -> Expr {
+    let value_id = &dfg.resolve(*value_id);
     let value = &dfg[*value_id];
     match value {
         Value::Instruction { instruction: _, position, typ } => {
