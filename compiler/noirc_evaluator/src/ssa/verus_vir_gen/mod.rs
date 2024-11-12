@@ -571,18 +571,18 @@ fn return_values_to_expr(
     }
 }
 
-fn binary_op_to_vir_binary_op(binary: &BinaryOp) -> VirBinaryOp {
+fn binary_op_to_vir_binary_op(binary: &BinaryOp, mode: Mode) -> VirBinaryOp {
     match binary {
-        BinaryOp::Add => VirBinaryOp::Arith(ArithOp::Add, Mode::Exec), // It would be of Mode::Spec only if it is a part of a fv attribute or a ghost block
-        BinaryOp::Sub => VirBinaryOp::Arith(ArithOp::Sub, Mode::Exec),
-        BinaryOp::Mul => VirBinaryOp::Arith(ArithOp::Mul, Mode::Exec),
-        BinaryOp::Div => VirBinaryOp::Arith(ArithOp::EuclideanDiv, Mode::Exec),
-        BinaryOp::Mod => VirBinaryOp::Arith(ArithOp::EuclideanMod, Mode::Exec),
-        BinaryOp::Eq => VirBinaryOp::Eq(Mode::Exec),
+        BinaryOp::Add => VirBinaryOp::Arith(ArithOp::Add, mode), // It would be of Mode::Spec only if it is a part of a fv attribute or a ghost block
+        BinaryOp::Sub => VirBinaryOp::Arith(ArithOp::Sub, mode),
+        BinaryOp::Mul => VirBinaryOp::Arith(ArithOp::Mul, mode),
+        BinaryOp::Div => VirBinaryOp::Arith(ArithOp::EuclideanDiv, mode),
+        BinaryOp::Mod => VirBinaryOp::Arith(ArithOp::EuclideanMod, mode),
+        BinaryOp::Eq => VirBinaryOp::Eq(mode),
         BinaryOp::Lt => VirBinaryOp::Inequality(InequalityOp::Lt),
-        BinaryOp::And => VirBinaryOp::Bitwise(BitwiseOp::BitAnd, Mode::Exec),
-        BinaryOp::Or => VirBinaryOp::Bitwise(BitwiseOp::BitOr, Mode::Exec),
-        BinaryOp::Xor => VirBinaryOp::Bitwise(BitwiseOp::BitXor, Mode::Exec),
+        BinaryOp::And => VirBinaryOp::Bitwise(BitwiseOp::BitAnd, mode),
+        BinaryOp::Or => VirBinaryOp::Bitwise(BitwiseOp::BitOr, mode),
+        BinaryOp::Xor => VirBinaryOp::Bitwise(BitwiseOp::BitXor, mode),
         BinaryOp::Shl => todo!(), // Needs argument bitwidth. Get it here as Optional arg, perhaps
         BinaryOp::Shr => todo!(), // Needs argument bitwidth. Get it here as Optional arg, perhaps
     }
@@ -591,13 +591,14 @@ fn binary_op_to_vir_binary_op(binary: &BinaryOp) -> VirBinaryOp {
 fn binary_instruction_to_expr(
     instruction_id: InstructionId,
     binary: &Binary,
+    mode: Mode,
     dfg: &DataFlowGraph,
 ) -> Expr {
     let Binary { lhs, rhs, operator } = binary;
     let lhs_expr = ssa_value_to_expr(lhs, dfg);
     let rhs_expr = ssa_value_to_expr(rhs, dfg);
     let mut binary_exprx =
-        ExprX::Binary(binary_op_to_vir_binary_op(operator), lhs_expr.clone(), rhs_expr.clone());
+        ExprX::Binary(binary_op_to_vir_binary_op(operator, mode), lhs_expr.clone(), rhs_expr.clone());
     //Special case for multiplications of booleans
     if is_multiplication_between_bools(lhs, rhs, operator, dfg) {
         binary_exprx = ExprX::Binary(VirBinaryOp::And, lhs_expr.clone(), rhs_expr.clone())
@@ -876,10 +877,11 @@ fn array_get_to_expr(
 fn instruction_to_expr(
     instruction_id: InstructionId,
     instruction: &Instruction,
+    mode: Mode,
     dfg: &DataFlowGraph,
 ) -> Expr {
     match instruction {
-        Instruction::Binary(binary) => binary_instruction_to_expr(instruction_id, binary, dfg),
+        Instruction::Binary(binary) => binary_instruction_to_expr(instruction_id, binary, mode, dfg),
         Instruction::Cast(val_id, noir_type) => cast_instruction_to_expr(val_id, noir_type, dfg),
         Instruction::Not(val_id) => bitwise_not_instr_to_expr(val_id, dfg),
         Instruction::Truncate { value: val_id, bit_size, max_bit_size: _ } => {
@@ -988,6 +990,7 @@ fn instruction_to_stmt(
     instruction: &Instruction,
     dfg: &DataFlowGraph,
     instruction_id: Id<Instruction>,
+    mode: Mode,
 ) -> Stmt {
     let instruction_span =
         build_span(&instruction_id, format!("Instruction({}) statement", instruction_id));
@@ -995,14 +998,14 @@ fn instruction_to_stmt(
     match dfg.instruction_results(instruction_id).len() {
         0 => Spanned::new(
             build_span(&instruction_id, format!("Instruction({})", instruction_id)),
-            StmtX::Expr(instruction_to_expr(instruction_id, instruction, dfg)),
+            StmtX::Expr(instruction_to_expr(instruction_id, instruction, mode, dfg)),
         ),
         _ => Spanned::new(
             instruction_span,
             StmtX::Decl {
                 pattern: instruction_to_pattern(instruction_id, dfg),
                 mode: Some(Mode::Exec),
-                init: Some(instruction_to_expr(instruction_id, instruction, dfg)),
+                init: Some(instruction_to_expr(instruction_id, instruction, mode, dfg)),
             },
         ),
     }
@@ -1023,7 +1026,7 @@ fn basic_block_to_exprx(basic_block_id: Id<BasicBlock>, dfg: &DataFlowGraph) -> 
 
     for instruction_id in basic_block.instructions() {
         if !is_instruction_enable_side_effects(instruction_id, dfg) {
-            let statement = instruction_to_stmt(&dfg[*instruction_id], dfg, *instruction_id);
+            let statement = instruction_to_stmt(&dfg[*instruction_id], dfg, *instruction_id, Mode::Exec);
             vir_statements.push(statement);
         }
     }
@@ -1059,10 +1062,10 @@ fn func_attributes_to_vir_expr(
         let mut vir_statements: Vec<Stmt> = Vec::new();
 
         for (instruction_id, instruction) in attribute_instructions.clone() {
-            let statement = instruction_to_stmt(&instruction, dfg, instruction_id);
+            let statement = instruction_to_stmt(&instruction, dfg, instruction_id, Mode::Spec);
             vir_statements.push(statement);
         }
-        let last_expr = instruction_to_expr(last_instruction_id.clone(), last_instruction, dfg);
+        let last_expr = instruction_to_expr(last_instruction_id.clone(), last_instruction, Mode::Spec, dfg);
         vec![SpannedTyped::new(
             &empty_span(), //TODO real span
             &get_empty_vir_type(),
