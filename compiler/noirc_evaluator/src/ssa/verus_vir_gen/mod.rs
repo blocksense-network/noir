@@ -1,12 +1,12 @@
-use std::sync::Arc;
+use std::{ sync::Arc, collections::HashMap };
 
 use acvm::{AcirField, FieldElement};
 use num_bigint::{BigInt, BigUint};
 use vir::{
     ast::{
         ArithOp, AutospecUsage, Binders, BitwiseOp, CallTarget, CallTargetKind, Constant, Dt, Expr,
-        ExprX, Exprs, Fun, FunX, FunctionAttrs, FunctionAttrsX, FunctionKind, FunctionX,
-        GenericBounds, Idents, InequalityOp, IntRange, IntegerTypeBitwidth, ItemKind, Krate,
+        ExprX, Exprs, Fun, FunX, FunctionAttrs, FunctionAttrsX, FunctionKind, FunctionX, FieldOpr,
+        GenericBounds, Ident, Idents, InequalityOp, IntRange, IntegerTypeBitwidth, ItemKind, Krate,
         KrateX, Mode, Module, ModuleX, Param, ParamX, Params, PathX, Pattern, PatternX, Primitive,
         SpannedTyped, Stmt, StmtX, Typ, TypDecoration, TypX, Typs, UnaryOp, VarIdent, Visibility,
     },
@@ -1043,6 +1043,74 @@ fn func_ensures_to_vir_expr(func: &Function) -> Exprs {
         })
         .collect();
     Arc::new(func_attributes_to_vir_expr(attr_instrs, &func.dfg))
+}
+
+struct ResultIdFixer {
+    dt_tuple: Dt,
+    dt_typs: Vec<Typ>,
+    dt_len: Ident,
+    result_span: Expr,
+    id_map: HashMap<ValueId, Ident>,
+}
+
+impl ResultIdFixer {
+    fn result_variable_map(func: &Function) -> Result<HashMap<ValueId, Ident>, BuildingKrateError> {
+        let return_values = get_function_return_values(func)?;
+        let mut result: HashMap<ValueId, Ident> = HashMap::new();
+
+        for (i, &vid) in return_values.iter().enumerate() {
+            result.insert(vid, Arc::new(i.to_string()));
+        }
+
+        Ok(result)
+    }
+
+    fn new(func: &Function, ret: &Param) -> ResultIdFixer {
+        let (mut dt_len, dt_typs, dt_tuple) = match (*ret.x.typ).clone() {
+            TypX::Datatype(Dt::Tuple(len), typs, _) => (
+                len.to_string(),
+                (*typs).clone(),
+                Dt::Tuple(len),
+            ),
+            _ => unreachable!("Function return type is not a tuple: {:?}", ret.x.typ),
+        };
+
+        dt_len.insert_str(0, "tuple%");
+        let dt_len = Arc::new(dt_len);
+
+        ResultIdFixer {
+            dt_tuple,
+            dt_typs,
+            dt_len,
+            result_span: SpannedTyped::new(
+                    &empty_span(),
+                    &Arc::new((*ret.x.typ).clone()),
+                    ExprX::Var(VarIdent(Arc::new("result".to_string()), vir::ast::VarIdentDisambiguate::NoBodyParam))
+                ),
+            id_map: Self::result_variable_map(func).unwrap(),
+        }
+    }
+
+    fn fix_id(&self, id: &ValueId) -> Option<Expr> {
+        if !self.id_map.contains_key(id) {
+            return None;
+        }
+
+        Some(SpannedTyped::new(
+            &empty_span(),
+            &self.dt_typs[(*self.id_map[id]).parse::<usize>().unwrap()],
+            ExprX::UnaryOpr(
+                vir::ast::UnaryOpr::Field(FieldOpr {
+                    datatype: self.dt_tuple.clone(),
+                    variant: self.dt_len.clone(),
+                    field: self.id_map[id].clone(),
+                    get_variant: false,
+                    check: vir::ast::VariantCheck::None,
+                }),
+                self.result_span.clone(),
+            )
+        ))
+    }
 }
 
 fn build_funx(
