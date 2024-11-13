@@ -251,25 +251,18 @@ fn build_param(
     )
 }
 
-fn build_empty_param(basic_block_id: Id<BasicBlock>) -> Param {
+fn build_tuple_return_param(values: &Vec<ValueId>, basic_block_id: Id<BasicBlock>, dfg: &DataFlowGraph) -> Param {
     let paramx = ParamX {
-        name: empty_var_ident(),
-        typ: get_empty_vir_type(),
-        mode: Mode::Exec,     // For now all parameters are of type Exec
-        is_mut: false,        // As far as I understand there is no &mut in SSA
-        unwrapped_info: None, // Only if the parameter uses Ghost(x)/Tracked(x) pattern
+        name: VarIdent(Arc::new("result".to_string()), vir::ast::VarIdentDisambiguate::NoBodyParam),
+        typ: get_function_ret_type(values, dfg),
+        mode: Mode::Exec,
+        is_mut: false,
+        unwrapped_info: None,
     };
     Spanned::new(
-        build_span(
-            &basic_block_id,
-            "empty param from basic block ".to_owned() + &basic_block_id.to_usize().to_string(),
-        ),
+        build_span(&basic_block_id, "Tuple param".to_string()),
         paramx,
     )
-}
-
-fn build_tuple_param_from_values(_values: &Vec<ValueId>) -> Param {
-    todo!()
 }
 
 fn ssa_param_into_vir_param(
@@ -306,7 +299,7 @@ fn is_function_return_void(func: &Function) -> bool {
     !func.returns().is_empty()
 }
 
-fn get_function_return_param(func: &Function) -> Result<Param, BuildingKrateError> {
+fn get_function_return_values(func: &Function) -> Result<Vec<ValueId>, BuildingKrateError> {
     let entry_block_id = func.entry_block();
     let terminating_instruction = func.dfg[entry_block_id].terminator();
 
@@ -315,72 +308,7 @@ fn get_function_return_param(func: &Function) -> Result<Param, BuildingKrateErro
             TerminatorInstruction::Return { return_values, call_stack: _ } => {
                 let return_values: Vec<ValueId> =
                     return_values.iter().map(|val_id| func.dfg.resolve(*val_id)).collect();
-                if return_values.len() > 1 {
-                    // this means that the function either returns a tuple or a struct
-                    // this is problematic because tuples and structs are being flatten into
-                    // a tuple. What I mean is if we have (A, B, (i32, i32)) where A is a struct
-                    // with two Fields and B is a struct with two bools, we will get this as a return value
-                    // (Field, Field, bool, bool, i32, i32). A lot of information is lost!!
-                    return Ok(build_tuple_param_from_values(&return_values));
-                }
-                if return_values.len() == 0 {
-                    return Ok(build_empty_param(entry_block_id));
-                }
-                let value_id = return_values[0];
-                let value = func.dfg[value_id].clone();
-                match value {
-                    Value::Instruction { instruction: _, position, typ } => {
-                        let vir_type = from_noir_type(typ, None);
-                        return Ok(build_param(
-                            value_id, // air_unique_var(vir::def::RETURN_VALUE)
-                            vir_type,
-                            Mode::Exec,
-                            false,
-                            None,
-                            Some(position),
-                        ));
-                    }
-                    Value::Param { block: _, position, typ } => {
-                        let vir_type = from_noir_type(typ, None);
-                        return Ok(build_param(
-                            value_id, // air_unique_var(vir::def::RETURN_VALUE)
-                            vir_type,
-                            Mode::Exec,
-                            false,
-                            None,
-                            Some(position),
-                        ));
-                    }
-                    Value::NumericConstant { constant: _, typ } => {
-                        let vir_type = from_noir_type(typ, None);
-                        return Ok(build_param(
-                            value_id, // air_unique_var(vir::def::RETURN_VALUE)
-                            vir_type,
-                            Mode::Exec,
-                            false,
-                            None,
-                            None,
-                        ));
-                    }
-                    Value::Array { array: _, typ } => {
-                        let vir_type = from_noir_type(typ, None);
-                        return Ok(build_param(
-                            value_id, // air_unique_var(vir::def::RETURN_VALUE)
-                            vir_type,
-                            Mode::Exec,
-                            false,
-                            None,
-                            None,
-                        ));
-                    }
-                    Value::Function(func_id) => {
-                        let vir_type = from_noir_type(Type::Function, Some(func_id));
-                        return Ok(build_param(value_id, vir_type, Mode::Exec, false, None, None));
-                    }
-                    // TODO(totel) I don't know if those last two ever appear as a return value
-                    Value::Intrinsic(_intrinsic) => todo!(),
-                    Value::ForeignFunction(_) => todo!(),
-                }
+                Ok(return_values)
             }
             _ => unreachable!(), // Only Brillig functions have a non Return Terminating instruction
         },
@@ -390,6 +318,11 @@ fn get_function_return_param(func: &Function) -> Result<Param, BuildingKrateErro
             ))
         }
     }
+}
+
+fn get_function_return_param(func: &Function) -> Result<Param, BuildingKrateError> {
+    let return_values = get_function_return_values(func)?;
+    Ok(build_tuple_return_param(&return_values, func.entry_block(), &func.dfg))
 }
 
 /// Returns default instance of FunctionAttrs
