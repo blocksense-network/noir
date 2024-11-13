@@ -4,11 +4,7 @@ use acvm::{AcirField, FieldElement};
 use num_bigint::{BigInt, BigUint};
 use vir::{
     ast::{
-        ArithOp, AutospecUsage, Binders, BitwiseOp, CallTarget, CallTargetKind, Constant, Dt, Expr,
-        ExprX, Exprs, FieldOpr, Fun, FunX, FunctionAttrs, FunctionAttrsX, FunctionKind, FunctionX,
-        GenericBounds, Ident, Idents, InequalityOp, IntRange, IntegerTypeBitwidth, ItemKind, Krate,
-        KrateX, Mode, Module, ModuleX, Param, ParamX, Params, PathX, Pattern, PatternX, Primitive,
-        SpannedTyped, Stmt, StmtX, Typ, TypDecoration, TypX, Typs, UnaryOp, VarIdent, Visibility,
+        ArithOp, AutospecUsage, Binders, BitwiseOp, CallTarget, CallTargetKind, Constant, Dt, Expr, ExprX, Exprs, FieldOpr, Fun, FunX, FunctionAttrs, FunctionAttrsX, FunctionKind, FunctionX, GenericBounds, Ident, Idents, ImplPath, ImplPaths, InequalityOp, IntRange, IntegerTypeBitwidth, ItemKind, Krate, KrateX, Mode, Module, ModuleX, Param, ParamX, Params, PathX, Pattern, PatternX, Primitive, SpannedTyped, Stmt, StmtX, Typ, TypDecoration, TypX, Typs, UnaryOp, VarIdent, Visibility
     },
     ast_util::mk_tuple,
     def::{prefix_tuple_variant, Spanned},
@@ -797,6 +793,7 @@ fn array_get_to_expr(
     array_id: &ValueId,
     index: &ValueId,
     instruction_id: InstructionId,
+    mode: Mode,
     dfg: &DataFlowGraph,
     result_id_fixer: Option<&ResultIdFixer>,
 ) -> Expr {
@@ -806,32 +803,87 @@ fn array_get_to_expr(
 
     let array_length = dfg.try_get_array_length(*array_id).unwrap();
     let array_length_as_type = into_vir_const_int(array_length);
-    let typs_for_vstd_func_call: Typs =
+    let array_inner_type_and_length_type: Typs =
         Arc::new(vec![array_return_type.clone(), array_length_as_type.clone()]);
+    let array_as_primary_vir_type = Arc::new(TypX::Primitive(
+        Primitive::Array,
+        Arc::new(vec![array_return_type.clone(), array_length_as_type.clone()]),
+    ));
     let array_as_vir_expr: Expr = SpannedTyped::new(
         &build_span(array_id, format!("Array{} as expr", array_id)),
-        &Arc::new(TypX::Decorate(
-            TypDecoration::Ref,
-            None,
-            Arc::new(TypX::Primitive(
-                Primitive::Array,
-                Arc::new(vec![array_return_type.clone(), array_length_as_type.clone()]),
-            )),
-        )),
+        &Arc::new(TypX::Decorate(TypDecoration::Ref, None, array_as_primary_vir_type.clone())),
         ExprX::Var(id_into_var_ident(*array_id)),
     );
-    let index_as_vir_expr = ssa_value_to_expr(index, dfg, result_id_fixer);
-
-    let segments: Idents =
-        Arc::new(vec![Arc::new("array".to_string()), Arc::new("array_index_get".to_string())]);
-
+    let index_as_vir_expr: Expr;
+    let segments: Idents;
+    let call_target_kind: CallTargetKind;
+    let typs_for_vstd_func_call: Typs;
+    let trait_impl_paths: ImplPaths;
+    let autospec_usage: AutospecUsage;
+    match mode {
+        Mode::Spec => {
+            segments = Arc::new(vec![
+                Arc::new("array".to_string()),
+                Arc::new("ArrayAdditionalSpecFns".to_string()),
+                Arc::new("spec_index".to_string()),
+            ]);
+            let segments_for_resolved = Arc::new(vec![
+                Arc::new("array".to_string()),
+                Arc::new("impl&%2".to_string()),
+                Arc::new("spec_index".to_string()),
+            ]);
+            call_target_kind = CallTargetKind::DynamicResolved {
+                resolved: Arc::new(FunX {
+                    path: Arc::new(PathX {
+                        krate: vstd_krate.clone(),
+                        segments: segments_for_resolved,
+                    }),
+                }),
+                typs: array_inner_type_and_length_type,
+                impl_paths: Arc::new(vec![]),
+                is_trait_default: false,
+            };
+            typs_for_vstd_func_call =
+                Arc::new(vec![array_as_primary_vir_type, array_return_type.clone()]);
+            let trait_impl_path1 = ImplPath::TraitImplPath(Arc::new(PathX {
+                krate: vstd_krate.clone(),
+                segments: Arc::new(vec![
+                    Arc::new("array".to_string()),
+                    Arc::new("impl&%0".to_string()),
+                ]),
+            }));
+            let trait_impl_path2 = ImplPath::TraitImplPath(Arc::new(PathX {
+                krate: vstd_krate.clone(),
+                segments: Arc::new(vec![
+                    Arc::new("array".to_string()),
+                    Arc::new("impl&%2".to_string()),
+                ]),
+            }));
+            trait_impl_paths = Arc::new(vec![trait_impl_path1, trait_impl_path2]);
+            autospec_usage = AutospecUsage::IfMarked;
+            index_as_vir_expr = ssa_value_to_expr(index, dfg, result_id_fixer);
+        }
+        Mode::Exec => {
+            segments = Arc::new(vec![
+                Arc::new("array".to_string()),
+                Arc::new("array_index_get".to_string()),
+            ]);
+            call_target_kind = CallTargetKind::Static;
+            typs_for_vstd_func_call = array_inner_type_and_length_type;
+            trait_impl_paths = Arc::new(vec![]);
+            autospec_usage = AutospecUsage::Final;
+            index_as_vir_expr = ssa_value_to_expr(index, dfg, result_id_fixer);
+        }
+        Mode::Proof => unreachable!(), // Out of scope for the prototype
+    };
+    
     let array_get_vir_exprx: ExprX = ExprX::Call(
         CallTarget::Fun(
-            CallTargetKind::Static,
+            call_target_kind,
             Arc::new(FunX { path: Arc::new(PathX { krate: vstd_krate, segments: segments }) }),
             typs_for_vstd_func_call,
-            Arc::new(vec![]),
-            AutospecUsage::Final, // Verus uses this flag
+            trait_impl_paths,
+            autospec_usage,
         ),
         Arc::new(vec![array_as_vir_expr, index_as_vir_expr]),
     );
@@ -877,7 +929,7 @@ fn instruction_to_expr(
         Instruction::Store { address: _, value: _ } => unreachable!(), // Optimized away
         Instruction::EnableSideEffectsIf { condition: _ } => todo!(), //TODO(totel) Support for mutability
         Instruction::ArrayGet { array, index } => {
-            array_get_to_expr(array, index, instruction_id, dfg, result_id_fixer)
+            array_get_to_expr(array, index, instruction_id, mode, dfg, result_id_fixer)
         }
         Instruction::ArraySet { array: _, index: _, value: _, mutable: _ } => {
             todo!("Array set not implemented")
