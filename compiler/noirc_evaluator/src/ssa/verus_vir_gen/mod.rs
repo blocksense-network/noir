@@ -1000,8 +1000,8 @@ fn func_attributes_to_vir_expr(
         }
         let last_expr = instruction_to_expr(last_instruction_id.clone(), last_instruction, Mode::Spec, dfg);
         vec![SpannedTyped::new(
-            &empty_span(), //TODO real span
-            &get_empty_vir_type(),
+            &build_span(last_instruction_id, "Formal verification expression".to_string()),
+            &get_function_ret_type(dfg.instruction_results(*last_instruction_id), dfg),
             ExprX::Block(Arc::new(vir_statements), Some(last_expr)),
         )]
     } else {
