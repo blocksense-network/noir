@@ -951,7 +951,7 @@ fn instruction_to_stmt(
             instruction_span,
             StmtX::Decl {
                 pattern: instruction_to_pattern(instruction_id, dfg),
-                mode: Some(Mode::Exec),
+                mode: Some(mode),
                 init: Some(instruction_to_expr(instruction_id, instruction, mode, dfg, result_id_fixer)),
             },
         ),
