@@ -411,7 +411,7 @@ fn array_to_expr(
     dfg: &DataFlowGraph,
 ) -> Expr {
     let vals_to_expr: Vec<Expr> =
-        array_values.iter().map(|val_id| ssa_value_to_expr(val_id, dfg)).collect();
+        array_values.iter().map(|val_id| ssa_value_to_expr(val_id, dfg, None)).collect();
     SpannedTyped::new(
         &build_span(
             array_id,
@@ -426,7 +426,12 @@ fn array_to_expr(
     )
 }
 
-fn param_to_expr(value_id: &ValueId, position: usize, noir_type: &Type) -> Expr {
+fn param_to_expr(value_id: &ValueId, position: usize, noir_type: &Type, result_id_fixer: Option<&ResultIdFixer>) -> Expr {
+    if let Some(result_id_fixer) = result_id_fixer {
+        if let Some(expr) = result_id_fixer.fix_id(value_id) {
+            return expr;
+        }
+    }
     SpannedTyped::new(
         &build_span(value_id, "param position ".to_owned() + &position.to_string()),
         &from_noir_type(noir_type.clone(), None),
@@ -462,14 +467,14 @@ fn numeric_const_to_expr(numeric_const: &FieldElement, noir_type: &Type) -> Expr
     )
 }
 
-fn ssa_value_to_expr(value_id: &ValueId, dfg: &DataFlowGraph) -> Expr {
+fn ssa_value_to_expr(value_id: &ValueId, dfg: &DataFlowGraph, result_id_fixer: Option<&ResultIdFixer>) -> Expr {
     let value_id = &dfg.resolve(*value_id);
     let value = &dfg[*value_id];
     match value {
         Value::Instruction { instruction: _, position, typ } => {
-            param_to_expr(value_id, *position, typ)
+            param_to_expr(value_id, *position, typ, result_id_fixer)
         }
-        Value::Param { block: _, position, typ } => param_to_expr(value_id, *position, typ),
+        Value::Param { block: _, position, typ } => param_to_expr(value_id, *position, typ, None),
         Value::NumericConstant { constant, typ } => numeric_const_to_expr(constant, typ),
         Value::Array { array, typ } => array_to_expr(value_id, array, typ, dfg), //TODO(totel) See if there is an other way to represent arrays
         Value::Function(_) => unreachable!(), // The only possible way to have a Value::Function is through Instruction::Call
@@ -488,10 +493,10 @@ fn return_values_to_expr(
 
     match return_values_ids.len() {
         0 => None,
-        1 => Some(ssa_value_to_expr(&return_values_ids[0], dfg)),
+        1 => Some(ssa_value_to_expr(&return_values_ids[0], dfg, None)),
         _ => {
             let tuple_exprs: Exprs = Arc::new(
-                return_values_ids.iter().map(|val_id| ssa_value_to_expr(val_id, dfg)).collect(),
+                return_values_ids.iter().map(|val_id| ssa_value_to_expr(val_id, dfg, None)).collect(),
             );
             Some(mk_tuple(
                 &build_span(
@@ -526,10 +531,11 @@ fn binary_instruction_to_expr(
     binary: &Binary,
     mode: Mode,
     dfg: &DataFlowGraph,
+    result_id_fixer: Option<&ResultIdFixer>,
 ) -> Expr {
     let Binary { lhs, rhs, operator } = binary;
-    let lhs_expr = ssa_value_to_expr(lhs, dfg);
-    let rhs_expr = ssa_value_to_expr(rhs, dfg);
+    let lhs_expr = ssa_value_to_expr(lhs, dfg, result_id_fixer);
+    let rhs_expr = ssa_value_to_expr(rhs, dfg, result_id_fixer);
     let mut binary_exprx =
         ExprX::Binary(binary_op_to_vir_binary_op(operator, mode), lhs_expr.clone(), rhs_expr.clone());
     //Special case for multiplications of booleans
@@ -556,8 +562,9 @@ fn bitwise_not_instr_to_exprx(
     value_id: &ValueId,
     dfg: &DataFlowGraph,
     bit_width: Option<IntegerTypeBitwidth>,
+    result_id_fixer: Option<&ResultIdFixer>,
 ) -> ExprX {
-    let expr = ssa_value_to_expr(value_id, dfg);
+    let expr = ssa_value_to_expr(value_id, dfg, result_id_fixer);
 
     match bit_width {
         Some(IntegerTypeBitwidth::Width(1)) => ExprX::Unary(UnaryOp::Not, expr),
@@ -566,13 +573,13 @@ fn bitwise_not_instr_to_exprx(
     }
 }
 
-fn bitwise_not_instr_to_expr(value_id: &ValueId, dfg: &DataFlowGraph) -> Expr {
+fn bitwise_not_instr_to_expr(value_id: &ValueId, dfg: &DataFlowGraph, result_id_fixer: Option<&ResultIdFixer>) -> Expr {
     let value = &dfg[*value_id];
     let bit_width: Option<IntegerTypeBitwidth> = match value.get_type() {
         Type::Numeric(numeric_type) => get_integer_bit_width(*numeric_type),
         _ => panic!("Bitwise negation on a non numeric type"),
     };
-    let bitnot_exprx = bitwise_not_instr_to_exprx(value_id, dfg, bit_width);
+    let bitnot_exprx = bitwise_not_instr_to_exprx(value_id, dfg, bit_width, result_id_fixer);
     SpannedTyped::new(
         &build_span(value_id, format!("Unary negation on({})", value_id.to_string())),
         &from_noir_type(value.get_type().clone(), None),
@@ -588,9 +595,9 @@ fn build_const_expr(const_num: i64, value_id: &ValueId, noir_type: &Type) -> Exp
     )
 }
 
-fn cast_bool_to_integer(value_id: &ValueId, noir_type: &Type, dfg: &DataFlowGraph) -> Expr {
+fn cast_bool_to_integer(value_id: &ValueId, noir_type: &Type, dfg: &DataFlowGraph, result_id_fixer: Option<&ResultIdFixer>) -> Expr {
     let if_return_type = from_noir_type(noir_type.clone(), None);
-    let condition = ssa_value_to_expr(value_id, dfg);
+    let condition = ssa_value_to_expr(value_id, dfg, result_id_fixer);
 
     let const_true = build_const_expr(1, value_id, noir_type);
     let const_false = build_const_expr(0, value_id, noir_type);
@@ -619,10 +626,11 @@ fn cast_integer_to_integer(
     noir_type: &Type,
     dfg: &DataFlowGraph,
     numeric_type: &NumericType,
+    result_id_fixer: Option<&ResultIdFixer>,
 ) -> Expr {
     let cast_exprx = ExprX::Unary(
         UnaryOp::Clip { range: get_int_range(*numeric_type), truncate: false },
-        ssa_value_to_expr(value_id, dfg),
+        ssa_value_to_expr(value_id, dfg, result_id_fixer),
     );
     SpannedTyped::new(
         &build_span(value_id, format!("Cast({}) to type({})", value_id, noir_type)),
@@ -631,13 +639,13 @@ fn cast_integer_to_integer(
     )
 }
 
-fn cast_instruction_to_expr(value_id: &ValueId, noir_type: &Type, dfg: &DataFlowGraph) -> Expr {
+fn cast_instruction_to_expr(value_id: &ValueId, noir_type: &Type, dfg: &DataFlowGraph, result_id_fixer: Option<&ResultIdFixer>) -> Expr {
     match dfg[*value_id].get_type() {
         Type::Numeric(NumericType::Unsigned { bit_size: 1 }) => {
-            cast_bool_to_integer(value_id, noir_type, dfg)
+            cast_bool_to_integer(value_id, noir_type, dfg, result_id_fixer)
         }
         Type::Numeric(numeric_type) => {
-            cast_integer_to_integer(value_id, noir_type, dfg, numeric_type)
+            cast_integer_to_integer(value_id, noir_type, dfg, numeric_type, result_id_fixer)
         }
         _ => panic!("Expected that all SSA casts have numeric targets"),
     }
@@ -648,6 +656,7 @@ fn range_limit_to_expr(
     target_bit_size: u32,
     truncate: bool,
     dfg: &DataFlowGraph,
+    result_id_fixer: Option<&ResultIdFixer>,
 ) -> Expr {
     let value_type = dfg[*value_id].get_type();
     let clip_exprx = match value_type {
@@ -656,7 +665,7 @@ fn range_limit_to_expr(
                 range: trunc_target_int_range(numeric_type, target_bit_size),
                 truncate,
             },
-            ssa_value_to_expr(value_id, dfg),
+            ssa_value_to_expr(value_id, dfg, result_id_fixer),
         ),
         _ => panic!("Can range limit/truncate only numeric values"),
     };
@@ -678,14 +687,15 @@ fn constrain_instruction_to_expr(
     lhs: &ValueId,
     rhs: &ValueId,
     dfg: &DataFlowGraph,
+    result_id_fixer: Option<&ResultIdFixer>,
 ) -> Expr {
     let binary_equals_expr = SpannedTyped::new(
         &build_span(&instruction_id, format!("lhs({}) == rhs({})", lhs, rhs)),
         &Arc::new(TypX::Bool),
         ExprX::Binary(
             VirBinaryOp::Eq(Mode::Spec), // Verus uses Spec for Eq expressions in asserts
-            ssa_value_to_expr(lhs, dfg),
-            ssa_value_to_expr(rhs, dfg),
+            ssa_value_to_expr(lhs, dfg, result_id_fixer),
+            ssa_value_to_expr(rhs, dfg, result_id_fixer),
         ),
     );
     let assert_exprx = ExprX::AssertAssume { is_assume: false, expr: binary_equals_expr };
@@ -714,6 +724,7 @@ fn call_instruction_to_expr(
     value_id: &ValueId,
     arguments: &Vec<ValueId>,
     dfg: &DataFlowGraph,
+    result_id_fixer: Option<&ResultIdFixer>,
 ) -> Expr {
     let value = &dfg[*value_id];
     let func_id = match value {
@@ -723,7 +734,7 @@ fn call_instruction_to_expr(
 
     let name = func_id_into_funx_name(*func_id);
     let arguments_as_expr: Exprs =
-        Arc::new(arguments.iter().map(|val_id| ssa_value_to_expr(val_id, dfg)).collect());
+        Arc::new(arguments.iter().map(|val_id| ssa_value_to_expr(val_id, dfg, result_id_fixer)).collect());
     let call_exprx: ExprX = ExprX::Call(
         CallTarget::Fun(
             CallTargetKind::Static,
@@ -761,6 +772,7 @@ fn array_get_to_expr(
     index: &ValueId,
     instruction_id: InstructionId,
     dfg: &DataFlowGraph,
+    result_id_fixer: Option<&ResultIdFixer>,
 ) -> Expr {
     let vstd_krate = Some(Arc::new("vstd".to_string()));
     let array_return_type: Typ =
@@ -782,7 +794,7 @@ fn array_get_to_expr(
         )),
         ExprX::Var(id_into_var_ident(*array_id)),
     );
-    let index_as_vir_expr = ssa_value_to_expr(index, dfg);
+    let index_as_vir_expr = ssa_value_to_expr(index, dfg, result_id_fixer);
 
     let segments: Idents =
         Arc::new(vec![Arc::new("array".to_string()), Arc::new("array_index_get".to_string())]);
@@ -812,29 +824,30 @@ fn instruction_to_expr(
     instruction: &Instruction,
     mode: Mode,
     dfg: &DataFlowGraph,
+    result_id_fixer: Option<&ResultIdFixer>,
 ) -> Expr {
     match instruction {
-        Instruction::Binary(binary) => binary_instruction_to_expr(instruction_id, binary, mode, dfg),
-        Instruction::Cast(val_id, noir_type) => cast_instruction_to_expr(val_id, noir_type, dfg),
-        Instruction::Not(val_id) => bitwise_not_instr_to_expr(val_id, dfg),
+        Instruction::Binary(binary) => binary_instruction_to_expr(instruction_id, binary, mode, dfg, result_id_fixer),
+        Instruction::Cast(val_id, noir_type) => cast_instruction_to_expr(val_id, noir_type, dfg, result_id_fixer),
+        Instruction::Not(val_id) => bitwise_not_instr_to_expr(val_id, dfg, result_id_fixer),
         Instruction::Truncate { value: val_id, bit_size, max_bit_size: _ } => {
-            range_limit_to_expr(val_id, *bit_size, true, dfg)
+            range_limit_to_expr(val_id, *bit_size, true, dfg, result_id_fixer)
         }
         Instruction::Constrain(lhs, rhs, _) => {
-            constrain_instruction_to_expr(instruction_id, lhs, rhs, dfg)
+            constrain_instruction_to_expr(instruction_id, lhs, rhs, dfg, result_id_fixer)
         }
         Instruction::RangeCheck { value: val_id, max_bit_size, assert_message: _ } => {
-            range_limit_to_expr(val_id, *max_bit_size, false, dfg)
+            range_limit_to_expr(val_id, *max_bit_size, false, dfg, result_id_fixer)
         }
         Instruction::Call { func, arguments } => {
-            call_instruction_to_expr(instruction_id, func, arguments, dfg)
+            call_instruction_to_expr(instruction_id, func, arguments, dfg, result_id_fixer)
         }
         Instruction::Allocate => unreachable!(), // Optimized away
         Instruction::Load { address: _ } => unreachable!(), // Optimized away
         Instruction::Store { address: _, value: _ } => unreachable!(), // Optimized away
         Instruction::EnableSideEffectsIf { condition: _ } => todo!(), //TODO(totel) Support for mutability
         Instruction::ArrayGet { array, index } => {
-            array_get_to_expr(array, index, instruction_id, dfg)
+            array_get_to_expr(array, index, instruction_id, dfg, result_id_fixer)
         }
         Instruction::ArraySet { array: _, index: _, value: _, mutable: _ } => todo!(),
         Instruction::IncrementRc { value: _ } => unreachable!(), // Only in Brillig
@@ -924,6 +937,7 @@ fn instruction_to_stmt(
     dfg: &DataFlowGraph,
     instruction_id: Id<Instruction>,
     mode: Mode,
+    result_id_fixer: Option<&ResultIdFixer>,
 ) -> Stmt {
     let instruction_span =
         build_span(&instruction_id, format!("Instruction({}) statement", instruction_id));
@@ -931,14 +945,14 @@ fn instruction_to_stmt(
     match dfg.instruction_results(instruction_id).len() {
         0 => Spanned::new(
             build_span(&instruction_id, format!("Instruction({})", instruction_id)),
-            StmtX::Expr(instruction_to_expr(instruction_id, instruction, mode, dfg)),
+            StmtX::Expr(instruction_to_expr(instruction_id, instruction, mode, dfg, result_id_fixer)),
         ),
         _ => Spanned::new(
             instruction_span,
             StmtX::Decl {
                 pattern: instruction_to_pattern(instruction_id, dfg),
                 mode: Some(Mode::Exec),
-                init: Some(instruction_to_expr(instruction_id, instruction, mode, dfg)),
+                init: Some(instruction_to_expr(instruction_id, instruction, mode, dfg, result_id_fixer)),
             },
         ),
     }
@@ -959,7 +973,7 @@ fn basic_block_to_exprx(basic_block_id: Id<BasicBlock>, dfg: &DataFlowGraph) -> 
 
     for instruction_id in basic_block.instructions() {
         if !is_instruction_enable_side_effects(instruction_id, dfg) {
-            let statement = instruction_to_stmt(&dfg[*instruction_id], dfg, *instruction_id, Mode::Exec);
+            let statement = instruction_to_stmt(&dfg[*instruction_id], dfg, *instruction_id, Mode::Exec, None);
             vir_statements.push(statement);
         }
     }
@@ -990,15 +1004,17 @@ fn func_body_to_vir_expr(func: &Function) -> Expr {
 fn func_attributes_to_vir_expr(
     attribute_instructions: Vec<(Id<Instruction>, Instruction)>,
     dfg: &DataFlowGraph,
+    result_id_fixer: Option<&ResultIdFixer>,
 ) -> Vec<Expr> {
     if let Some((last_instruction_id, last_instruction)) = attribute_instructions.last() {
         let mut vir_statements: Vec<Stmt> = Vec::new();
 
         for (instruction_id, instruction) in attribute_instructions.clone() {
-            let statement = instruction_to_stmt(&instruction, dfg, instruction_id, Mode::Spec);
+            let statement = instruction_to_stmt(&instruction, dfg, instruction_id, Mode::Spec, result_id_fixer);
             vir_statements.push(statement);
         }
-        let last_expr = instruction_to_expr(last_instruction_id.clone(), last_instruction, Mode::Spec, dfg);
+
+        let last_expr = instruction_to_expr(last_instruction_id.clone(), last_instruction, Mode::Spec, dfg, result_id_fixer);
         vec![SpannedTyped::new(
             &build_span(last_instruction_id, "Formal verification expression".to_string()),
             &get_function_ret_type(dfg.instruction_results(*last_instruction_id), dfg),
@@ -1009,7 +1025,10 @@ fn func_attributes_to_vir_expr(
     }
 }
 
-fn func_requires_to_vir_expr(func: &Function) -> Exprs {
+fn func_requires_to_vir_expr(
+    func: &Function,
+    result_id_fixer: Option<&ResultIdFixer>,
+) -> Exprs {
     let attr_instrs: Vec<(Id<Instruction>, Instruction)> = func
         .dfg
         .fv_instructions
@@ -1024,10 +1043,13 @@ fn func_requires_to_vir_expr(func: &Function) -> Exprs {
             }
         })
         .collect();
-    Arc::new(func_attributes_to_vir_expr(attr_instrs, &func.dfg))
+    Arc::new(func_attributes_to_vir_expr(attr_instrs, &func.dfg, result_id_fixer))
 }
 
-fn func_ensures_to_vir_expr(func: &Function) -> Exprs {
+fn func_ensures_to_vir_expr(
+    func: &Function,
+    result_id_fixer: Option<&ResultIdFixer>,
+) -> Exprs {
     let attr_instrs: Vec<(Id<Instruction>, Instruction)> = func
         .dfg
         .fv_instructions
@@ -1042,7 +1064,7 @@ fn func_ensures_to_vir_expr(func: &Function) -> Exprs {
             }
         })
         .collect();
-    Arc::new(func_attributes_to_vir_expr(attr_instrs, &func.dfg))
+    Arc::new(func_attributes_to_vir_expr(attr_instrs, &func.dfg, result_id_fixer))
 }
 
 struct ResultIdFixer {
@@ -1120,6 +1142,9 @@ fn build_funx(
 ) -> Result<FunctionX, BuildingKrateError> {
     let function_params = get_function_params(func)?;
 
+    let ret = get_function_return_param(func)?;
+    let result_id_fixer = ResultIdFixer::new(func, &ret);
+
     let funx: FunctionX = FunctionX {
         name: func_id_into_funx_name(func_id),
         proxy: None, // No clue. In Verus documentation it says "Proxy used to declare the spec of this function"
@@ -1131,9 +1156,9 @@ fn build_funx(
         typ_params: empty_vec_idents(), // There are no generics in SSA
         typ_bounds: empty_vec_generic_bounds(), // There are no generics in SSA
         params: function_params.clone(),
-        ret: get_function_return_param(func)?,
-        require: func_requires_to_vir_expr(func), // TODO(totel)
-        ensure: func_ensures_to_vir_expr(func),   // TODO(totel)
+        ret,
+        require: func_requires_to_vir_expr(func, Some(&result_id_fixer)),
+        ensure: func_ensures_to_vir_expr(func, Some(&result_id_fixer)),
         decrease: Arc::new(vec![]),               // No such feature in the prototype
         decrease_when: None,                      // No such feature in the prototype
         decrease_by: None,                        // No such feature in the prototype
