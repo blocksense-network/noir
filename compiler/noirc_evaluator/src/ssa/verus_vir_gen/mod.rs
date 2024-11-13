@@ -252,6 +252,10 @@ fn build_param(
 }
 
 fn build_tuple_return_param(values: &Vec<ValueId>, basic_block_id: Id<BasicBlock>, dfg: &DataFlowGraph) -> Param {
+    if values.len() == 1 {
+        return build_param(values[0], get_function_ret_type(values, dfg), Mode::Exec, false, None, None)
+    }
+
     let paramx = ParamX {
         name: VarIdent(Arc::new("result".to_string()), vir::ast::VarIdentDisambiguate::NoBodyParam),
         typ: get_function_ret_type(values, dfg),
@@ -1087,20 +1091,20 @@ impl ResultIdFixer {
         Ok(result)
     }
 
-    fn new(func: &Function, ret: &Param) -> ResultIdFixer {
+    fn new(func: &Function, ret: &Param) -> Result<ResultIdFixer, BuildingKrateError> {
         let (mut dt_len, dt_typs, dt_tuple) = match (*ret.x.typ).clone() {
             TypX::Datatype(Dt::Tuple(len), typs, _) => (
                 len.to_string(),
                 (*typs).clone(),
                 Dt::Tuple(len),
             ),
-            _ => unreachable!("Function return type is not a tuple: {:?}", ret.x.typ),
+            _ => return Err(BuildingKrateError::SomeError("Function return type is not a tuple".to_string())),
         };
 
         dt_len.insert_str(0, "tuple%");
         let dt_len = Arc::new(dt_len);
 
-        ResultIdFixer {
+        Ok(ResultIdFixer {
             dt_tuple,
             dt_typs,
             dt_len,
@@ -1110,7 +1114,7 @@ impl ResultIdFixer {
                     ExprX::Var(VarIdent(Arc::new("result".to_string()), vir::ast::VarIdentDisambiguate::NoBodyParam))
                 ),
             id_map: Self::result_variable_map(func).unwrap(),
-        }
+        })
     }
 
     fn fix_id(&self, id: &ValueId) -> Option<Expr> {
@@ -1143,7 +1147,7 @@ fn build_funx(
     let function_params = get_function_params(func)?;
 
     let ret = get_function_return_param(func)?;
-    let result_id_fixer = ResultIdFixer::new(func, &ret);
+    let result_id_fixer = ResultIdFixer::new(func, &ret).ok();
 
     let funx: FunctionX = FunctionX {
         name: func_id_into_funx_name(func_id),
@@ -1157,8 +1161,8 @@ fn build_funx(
         typ_bounds: empty_vec_generic_bounds(), // There are no generics in SSA
         params: function_params.clone(),
         ret,
-        require: func_requires_to_vir_expr(func, Some(&result_id_fixer)),
-        ensure: func_ensures_to_vir_expr(func, Some(&result_id_fixer)),
+        require: func_requires_to_vir_expr(func, result_id_fixer.as_ref()),
+        ensure: func_ensures_to_vir_expr(func, result_id_fixer.as_ref()),
         decrease: Arc::new(vec![]),               // No such feature in the prototype
         decrease_when: None,                      // No such feature in the prototype
         decrease_by: None,                        // No such feature in the prototype
