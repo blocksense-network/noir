@@ -1014,6 +1014,9 @@ fn func_attributes_to_vir_expr(
         let mut vir_statements: Vec<Stmt> = Vec::new();
 
         for (instruction_id, instruction) in attribute_instructions.clone() {
+            if let Instruction::Constrain(_, _, _) = instruction {
+                continue;
+            }
             let statement = instruction_to_stmt(&instruction, dfg, instruction_id, Mode::Spec, result_id_fixer);
             vir_statements.push(statement);
         }
