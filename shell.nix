@@ -13,6 +13,7 @@ in
     packages =
       [
         pkgs.alejandra
+        pkgs.z3_4_12
         venir
         self'.legacyPackages.rustToolchain
         # pkgs.rustfilt
@@ -21,4 +22,7 @@ in
         pkgs.libiconv
         frameworks.CoreServices
       ];
+    shellHook = ''
+      export VERUS_Z3_PATH=$(which z3)
+    '';
   }

@@ -15,7 +15,7 @@ in
   customRustPlatform.buildRustPackage rec {
     pname = "Venir";
     name = pname;
-    binaryName = "noir_verifier";
+    binaryName = "venir";
     version = "0.1.0";
 
     RUSTC_BOOTSTRAP = 1;
@@ -25,8 +25,8 @@ in
     src = fetchFromGitHub {
       owner = "blocksense-network";
       repo = "Venir";
-      hash = "sha256-/owacNYeiETVR7uVtwO+cS3+Cu7+YvKURIoIB4t2eKI=";
-      rev = "d5a1ae9c44d0c94a729bda639177e0a386da7e34";
+      hash = "sha256-SKhqc4fNT128KnLmoyL0xo8vrCGtAZanG3XcMDW8SjM";
+      rev = "1fc4019f06bc8bdf4bba084cc4a404bb686a9c07";
     };
 
     cargoLock = {
