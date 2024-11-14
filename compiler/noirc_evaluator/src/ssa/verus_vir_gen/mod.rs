@@ -1092,11 +1092,11 @@ impl ResultIdFixer {
     }
 
     fn new(func: &Function, ret: &Param) -> Result<ResultIdFixer, BuildingKrateError> {
-        let (mut dt_len, dt_typs, dt_tuple) = match (*ret.x.typ).clone() {
+        let (mut dt_len, dt_typs, dt_tuple) = match &*ret.x.typ.clone() {
             TypX::Datatype(Dt::Tuple(len), typs, _) => (
                 len.to_string(),
-                (*typs).clone(),
-                Dt::Tuple(len),
+                (**typs).clone(),
+                Dt::Tuple(len.clone()),
             ),
             _ => return Err(BuildingKrateError::SomeError("Function return type is not a tuple".to_string())),
         };
@@ -1110,7 +1110,7 @@ impl ResultIdFixer {
             dt_len,
             result_span: SpannedTyped::new(
                     &empty_span(),
-                    &Arc::new((*ret.x.typ).clone()),
+                    &ret.x.typ.clone(),
                     ExprX::Var(VarIdent(Arc::new("result".to_string()), vir::ast::VarIdentDisambiguate::NoBodyParam))
                 ),
             id_map: Self::result_variable_map(func).unwrap(),
