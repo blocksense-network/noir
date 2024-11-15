@@ -24,5 +24,6 @@ in
       ];
     shellHook = ''
       export VERUS_Z3_PATH=$(which z3)
+      #export VARGO_TARGET_DIR="../verus-lib/source/target-verus/debug"
     '';
   }
