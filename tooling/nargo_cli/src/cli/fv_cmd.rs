@@ -1,3 +1,9 @@
+use std::{
+    io::Write,
+    ops::Not,
+    process::{Command, Stdio},
+};
+
 use clap::Args;
 use nargo::{
     insert_all_files_for_workspace_into_file_manager, ops::report_errors, parse_all,
@@ -8,6 +14,7 @@ use noirc_driver::{
     file_manager_with_stdlib, link_to_debug_crate, CompileOptions, NOIR_ARTIFACT_VERSION_STRING,
 };
 use noirc_frontend::{debug::DebugInstrumenter, graph::CrateName};
+use vir::ast::Krate;
 
 use crate::errors::CliError;
 
@@ -52,23 +59,47 @@ pub(crate) fn run(args: FormalVerifyCommand, config: NargoConfig) -> Result<(), 
         link_to_debug_crate(&mut context, crate_id);
         context.debug_instrumenter = DebugInstrumenter::default();
         context.package_build_path = workspace.package_build_path(package);
-        // Note: This is the only important line in this function. Everything else is equivalent to the compile command.
-        // (Except saving the result in a file.)
         context.perform_formal_verification = true;
 
-        let formal_verification_result =
+        let compiled_program =
             noirc_driver::compile_main(&mut context, crate_id, &args.compile_options, None, false);
-        println!(
-            "{:#?}",
-            formal_verification_result.clone().unwrap().0.verus_vir.unwrap().functions
-        );
+        let noir_program_to_vir = compiled_program.clone().unwrap().0.verus_vir.unwrap();
+
+        // println!("{:#?}", noir_program_to_vir.functions); Useful for debugging
+
         report_errors(
-            formal_verification_result,
+            compiled_program,
             &workspace_file_manager,
             args.compile_options.deny_warnings,
             true, // We don't want to report compile related warnings
         )?;
+
+        z3_verify(noir_program_to_vir);
     }
 
     Ok(())
+}
+
+/// Verifies the VIR crate which the Noir code was transformed into
+pub(crate) fn z3_verify(vir_krate: Krate) {
+    let serialized_vir_krate = serde_json::to_string(&vir_krate).expect("Failed to serialize");
+
+    let mut child = Command::new("venir")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to start the Venir binary. Please run the command nix develop");
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(serialized_vir_krate.as_bytes()).expect("Failed to write to Venir stdin");
+    }
+
+    let output = child.wait_with_output().expect("Failed to read Venir stdout");
+
+    println!("Verifier output:\n{}", String::from_utf8_lossy(&output.stdout));
+    let stderr_output = String::from_utf8_lossy(&output.stderr);
+    println!("{}", stderr_output);
+    assert!(stderr_output.contains("Error:").not(), "Verification failed!");
+    assert!(output.status.success(), "Venir crashed unexpectedly!");
 }
