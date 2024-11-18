@@ -573,7 +573,15 @@ impl DataFlowGraph {
 impl std::ops::Index<InstructionId> for DataFlowGraph {
     type Output = Instruction;
     fn index(&self, id: InstructionId) -> &Self::Output {
-        &self.instructions[id]
+        if id.to_usize() >= self.instructions.len() {
+            match &self.fv_instructions[id.to_usize() - self.fv_start_id] {
+                FvInstruction::Ensures(i) => &i,
+                FvInstruction::Requires(i) => &i,
+            }
+        }
+        else {
+            &self.instructions[id]
+        }
     }
 }
 
