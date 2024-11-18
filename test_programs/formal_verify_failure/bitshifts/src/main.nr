@@ -1,3 +1,4 @@
+// Bitshifts use an array (look at the SSA) and ArrayGet is not yet implemented
 fn main(x: u32, y: u8) {
     let _ = lbs(x, y);
     let _ = rbs(x, y);
