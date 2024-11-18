@@ -1,3 +1,4 @@
+// No support planned
 #[requires(*x == 0)]
 fn set_to_zero(x: &mut Field) {
     *x = 0;

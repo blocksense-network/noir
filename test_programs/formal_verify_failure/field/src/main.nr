@@ -1,3 +1,4 @@
+// Fields cannot be compared directly
 #[requires((-10 < x) & (x < 10) & (-10 < y) & (y < 10) & (y != 0))]
 fn main(x : Field, y : Field) {
     let _ = plus(x, y);

@@ -1,3 +1,4 @@
+// Missing "hack" for xor bitwise operator translation
 fn main(x: bool, y: bool) {
 	let _ = xor(x, y);
 	let _ = and(x, y);
