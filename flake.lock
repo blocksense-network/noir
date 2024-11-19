@@ -71,7 +71,8 @@
       "inputs": {
         "fenix": "fenix",
         "flake-parts": "flake-parts",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "verus-lib": "verus-lib"
       }
     },
     "rust-analyzer-src": {
@@ -88,6 +89,22 @@
         "owner": "rust-lang",
         "ref": "nightly",
         "repo": "rust-analyzer",
+        "type": "github"
+      }
+    },
+    "verus-lib": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1731935688,
+        "narHash": "sha256-neRsUNdi0xThO4RSAPUDPZZRwh00JAy4bw0eSKcka68=",
+        "owner": "Aristotelis2002",
+        "repo": "verus-lib",
+        "rev": "3a53f3e311eff68776a583dbf46759857712c182",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Aristotelis2002",
+        "repo": "verus-lib",
         "type": "github"
       }
     }

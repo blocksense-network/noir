@@ -6,12 +6,18 @@
       url = "github:nix-community/fenix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    verus-lib = {
+      url = "github:Aristotelis2002/verus-lib";
+      flake = false;
+    };
   };
 
   outputs = inputs @ {
     nixpkgs,
     flake-parts,
     fenix,
+    verus-lib,
     ...
   }: let
     system = "x86_64-linux";
@@ -38,7 +44,7 @@
             rustc
             rustfmt
           ];
-        devShells.default = import ./shell.nix {inherit pkgs self' venir-toolchain;};
+        devShells.default = import ./shell.nix {inherit pkgs self' venir-toolchain verus-lib;};
       };
     };
 }
