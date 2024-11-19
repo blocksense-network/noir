@@ -492,7 +492,15 @@ fn return_values_to_expr(
     }
 }
 
-fn binary_op_to_vir_binary_op(binary: &BinaryOp, mode: Mode) -> VirBinaryOp {
+fn get_value_bitwidth(value_id: &ValueId, dfg: &DataFlowGraph) -> IntegerTypeBitwidth {
+    let value = &dfg[*value_id];
+    match value.get_type() {
+        Type::Numeric(numeric_type) => get_integer_bit_width(*numeric_type).unwrap(),
+        _ => panic!("Bitwise operation on a non numeric type"),
+    }
+}
+
+fn binary_op_to_vir_binary_op(binary: &BinaryOp, mode: Mode, lhs: &ValueId, dfg: &DataFlowGraph) -> VirBinaryOp {
     match binary {
         BinaryOp::Add => VirBinaryOp::Arith(ArithOp::Add, mode), // It would be of Mode::Spec only if it is a part of a fv attribute or a ghost block
         BinaryOp::Sub => VirBinaryOp::Arith(ArithOp::Sub, mode),
@@ -504,8 +512,8 @@ fn binary_op_to_vir_binary_op(binary: &BinaryOp, mode: Mode) -> VirBinaryOp {
         BinaryOp::And => VirBinaryOp::Bitwise(BitwiseOp::BitAnd, mode),
         BinaryOp::Or => VirBinaryOp::Bitwise(BitwiseOp::BitOr, mode),
         BinaryOp::Xor => VirBinaryOp::Bitwise(BitwiseOp::BitXor, mode),
-        BinaryOp::Shl => todo!(), // Needs argument bitwidth. Get it here as Optional arg, perhaps
-        BinaryOp::Shr => todo!(), // Needs argument bitwidth. Get it here as Optional arg, perhaps
+        BinaryOp::Shl => VirBinaryOp::Bitwise(BitwiseOp::Shl(get_value_bitwidth(lhs, dfg), false), mode),
+        BinaryOp::Shr => VirBinaryOp::Bitwise(BitwiseOp::Shr(get_value_bitwidth(lhs, dfg)), mode),
     }
 }
 
@@ -520,7 +528,7 @@ fn binary_instruction_to_expr(
     let lhs_expr = ssa_value_to_expr(lhs, dfg, result_id_fixer);
     let rhs_expr = ssa_value_to_expr(rhs, dfg, result_id_fixer);
     let mut binary_exprx =
-        ExprX::Binary(binary_op_to_vir_binary_op(operator, mode), lhs_expr.clone(), rhs_expr.clone());
+        ExprX::Binary(binary_op_to_vir_binary_op(operator, mode, lhs, dfg), lhs_expr.clone(), rhs_expr.clone());
     // Special cases for operations between booleans
     if let Some(exprx) = is_operation_between_bools(lhs, operator, rhs, lhs_expr, rhs_expr, dfg) {
         binary_exprx = exprx;
