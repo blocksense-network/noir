@@ -174,17 +174,12 @@ impl FunctionBuilder {
         ctrl_typevars: Option<Vec<Type>>,
     ) -> InsertInstructionResult {
         if self.fv_instruction != FvBuilder::None {
-            let dfg = &mut self.current_function.dfg;
-            let id = InstructionId::new(dfg.fv_start_id + dfg.fv_instructions.len());
-
-            dfg.make_instruction_results_fv(id, ctrl_typevars, instruction.clone().result_type());
-            dfg.fv_instructions.push(match self.fv_instruction {
-                FvBuilder::Ensures => FvInstruction::Ensures(instruction),
-                FvBuilder::Requires => FvInstruction::Requires(instruction),
-                FvBuilder::None => unreachable!(), // The if condition ensures this
-            });
-
-            return InsertInstructionResult::Results(id, dfg.instruction_results(id));
+            return self.current_function.dfg.insert_fv_instruction_and_results(
+                &self.fv_instruction,
+                instruction,
+                ctrl_typevars,
+                self.call_stack.clone()
+            );
         }
         let block = self.current_block();
         self.current_function.dfg.insert_instruction_and_results(
