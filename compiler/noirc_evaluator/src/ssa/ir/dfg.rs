@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use crate::ssa::{function_builder::data_bus::DataBus, ir::instruction::SimplifyResult};
+use crate::ssa::{function_builder::{ FvBuilder, data_bus::DataBus }, ir::instruction::SimplifyResult};
 
 use super::{
     basic_block::{BasicBlock, BasicBlockId},
@@ -357,25 +357,67 @@ impl DataFlowGraph {
         }
     }
 
-    pub(crate) fn make_instruction_results_fv(
+    pub(crate) fn insert_fv_instruction_and_results(
         &mut self,
-        instruction_id: InstructionId,
+        instruction_type: &FvBuilder,
+        instruction: Instruction,
         ctrl_typevars: Option<Vec<Type>>,
-        result_type: InstructionResultType,
-    ) {
-        self.results.insert(instruction_id, Default::default());
-
-        let types = match result_type {
-            InstructionResultType::Known(typ) => vec![typ],
-            InstructionResultType::Operand(value) => vec![self.type_of_value(value)],
-            InstructionResultType::None => vec![],
-            InstructionResultType::Unknown => {
-                ctrl_typevars.expect("Control typevars required but not given")
+        call_stack: CallStack,
+    ) -> InsertInstructionResult {
+        match instruction.simplify(self, BasicBlockId::new(0), ctrl_typevars.clone(), &call_stack) {
+            SimplifyResult::SimplifiedTo(simplification) => {
+                InsertInstructionResult::SimplifiedTo(simplification)
             }
-        };
+            SimplifyResult::SimplifiedToMultiple(simplification) => {
+                InsertInstructionResult::SimplifiedToMultiple(simplification)
+            }
+            SimplifyResult::Remove => InsertInstructionResult::InstructionRemoved,
+            result @ (SimplifyResult::SimplifiedToInstruction(_)
+            | SimplifyResult::SimplifiedToInstructionMultiple(_)
+            | SimplifyResult::None) => {
+                let instructions = result.instructions().unwrap_or(vec![instruction]);
 
-        for typ in types {
-            self.append_result(instruction_id, typ);
+                if instructions.len() > 1 {
+                    // There's currently no way to pass results from one instruction in `instructions` on to the next.
+                    // We then restrict this to only support multiple instructions if they're all `Instruction::Constrain`
+                    // as this instruction type does not have any results.
+                    assert!(
+                        instructions.iter().all(|instruction| matches!(instruction, Instruction::Constrain(..))),
+                        "`SimplifyResult::SimplifiedToInstructionMultiple` only supports `Constrain` instructions"
+                    );
+                }
+
+                let mut instruction_id = InstructionId::new(self.fv_start_id + self.fv_instructions.len() - 1);
+
+                for instruction in instructions {
+                    instruction_id = InstructionId::new(instruction_id.to_usize() + 1);
+
+                    // Add results
+                    self.results.insert(instruction_id, Default::default());
+
+                    let types = match instruction.clone().result_type() {
+                        InstructionResultType::Known(typ) => vec![typ],
+                        InstructionResultType::Operand(value) => vec![self.type_of_value(value)],
+                        InstructionResultType::None => vec![],
+                        InstructionResultType::Unknown => {
+                            ctrl_typevars.clone().expect("Control typevars required but not given")
+                        }
+                    };
+
+                    for typ in types {
+                        self.append_result(instruction_id, typ);
+                    }
+
+                    // Add instruction
+                    self.fv_instructions.push(match instruction_type {
+                        FvBuilder::Ensures  => FvInstruction::Ensures(instruction),
+                        FvBuilder::Requires => FvInstruction::Requires(instruction),
+                        FvBuilder::None => unreachable!(), // The if condition ensures this
+                    });
+                }
+
+                InsertInstructionResult::Results(instruction_id, self.instruction_results(instruction_id))
+            }
         }
     }
 
