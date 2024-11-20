@@ -408,6 +408,22 @@ fn is_and_between_bools(
     }
 }
 
+fn is_xor_between_bools(
+    lhs: &ValueId,
+    rhs: &ValueId,
+    binary_op: &BinaryOp,
+    dfg: &DataFlowGraph,
+) -> bool {
+    match (dfg[*lhs].get_type(), dfg[*rhs].get_type(), binary_op) {
+        (
+            Type::Numeric(NumericType::Unsigned { bit_size: 1 }),
+            Type::Numeric(NumericType::Unsigned { bit_size: 1 }),
+            BinaryOp::Xor,
+        ) => true,
+        (_, _, _) => false,
+    }
+}
+
 fn array_to_expr(
     array_id: &ValueId,
     array_values: &im::Vector<ValueId>,
@@ -552,7 +568,11 @@ fn binary_instruction_to_expr(
     }
     //Special case for logical and of booleans
     if is_and_between_bools(lhs, rhs, operator, dfg) {
-        binary_exprx = ExprX::Binary(VirBinaryOp::And, lhs_expr, rhs_expr)
+        binary_exprx = ExprX::Binary(VirBinaryOp::And, lhs_expr.clone(), rhs_expr.clone())
+    }
+    //Special case for logical xor of booleans
+    if is_xor_between_bools(lhs, rhs, operator, dfg) {
+        binary_exprx = ExprX::Binary(VirBinaryOp::Xor, lhs_expr, rhs_expr)
     }
     SpannedTyped::new(
         &build_span(&instruction_id, format!("lhs({}) binary_op({}) rhs({})", lhs, operator, rhs)),
