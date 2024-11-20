@@ -1,6 +1,9 @@
 use std::borrow::Cow;
 
-use crate::ssa::{function_builder::{ FvBuilder, data_bus::DataBus }, ir::instruction::SimplifyResult};
+use crate::ssa::{
+    function_builder::{data_bus::DataBus, FvBuilder},
+    ir::instruction::SimplifyResult,
+};
 
 use super::{
     basic_block::{BasicBlock, BasicBlockId},
@@ -387,7 +390,8 @@ impl DataFlowGraph {
                     );
                 }
 
-                let mut instruction_id = InstructionId::new(self.fv_start_id + self.fv_instructions.len() - 1);
+                let mut instruction_id =
+                    InstructionId::new(self.fv_start_id + self.fv_instructions.len() - 1);
 
                 for instruction in instructions {
                     instruction_id = InstructionId::new(instruction_id.to_usize() + 1);
@@ -410,13 +414,16 @@ impl DataFlowGraph {
 
                     // Add instruction
                     self.fv_instructions.push(match instruction_type {
-                        FvBuilder::Ensures  => FvInstruction::Ensures(instruction),
+                        FvBuilder::Ensures => FvInstruction::Ensures(instruction),
                         FvBuilder::Requires => FvInstruction::Requires(instruction),
                         FvBuilder::None => unreachable!(), // The if condition ensures this
                     });
                 }
 
-                InsertInstructionResult::Results(instruction_id, self.instruction_results(instruction_id))
+                InsertInstructionResult::Results(
+                    instruction_id,
+                    self.instruction_results(instruction_id),
+                )
             }
         }
     }

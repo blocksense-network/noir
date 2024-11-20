@@ -178,7 +178,7 @@ impl FunctionBuilder {
                 &self.fv_instruction,
                 instruction,
                 ctrl_typevars,
-                self.call_stack.clone()
+                self.call_stack.clone(),
             );
         }
         let block = self.current_block();

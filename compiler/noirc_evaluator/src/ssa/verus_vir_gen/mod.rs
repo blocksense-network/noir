@@ -4,7 +4,12 @@ use acvm::{AcirField, FieldElement};
 use num_bigint::{BigInt, BigUint};
 use vir::{
     ast::{
-        ArithOp, AutospecUsage, Binders, BitwiseOp, CallTarget, CallTargetKind, Constant, Dt, Expr, ExprX, Exprs, FieldOpr, Fun, FunX, FunctionAttrs, FunctionAttrsX, FunctionKind, FunctionX, GenericBounds, Ident, Idents, ImplPath, ImplPaths, InequalityOp, IntRange, IntegerTypeBitwidth, ItemKind, Krate, KrateX, Mode, Module, ModuleX, Param, ParamX, Params, PathX, Pattern, PatternX, Primitive, SpannedTyped, Stmt, StmtX, Typ, TypDecoration, TypX, Typs, UnaryOp, VarIdent, Visibility
+        ArithOp, AutospecUsage, Binders, BitwiseOp, CallTarget, CallTargetKind, Constant, Dt, Expr,
+        ExprX, Exprs, FieldOpr, Fun, FunX, FunctionAttrs, FunctionAttrsX, FunctionKind, FunctionX,
+        GenericBounds, Ident, Idents, ImplPath, ImplPaths, InequalityOp, IntRange,
+        IntegerTypeBitwidth, ItemKind, Krate, KrateX, Mode, Module, ModuleX, Param, ParamX, Params,
+        PathX, Pattern, PatternX, Primitive, SpannedTyped, Stmt, StmtX, Typ, TypDecoration, TypX,
+        Typs, UnaryOp, VarIdent, Visibility,
     },
     ast_util::mk_tuple,
     def::{prefix_tuple_variant, Spanned},
@@ -876,7 +881,7 @@ fn array_get_to_expr(
         }
         Mode::Proof => unreachable!(), // Out of scope for the prototype
     };
-    
+
     let array_get_vir_exprx: ExprX = ExprX::Call(
         CallTarget::Fun(
             call_target_kind,
