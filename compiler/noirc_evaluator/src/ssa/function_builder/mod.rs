@@ -9,7 +9,7 @@ use noirc_frontend::monomorphization::ast::InlineType;
 use crate::ssa::ir::{
     basic_block::BasicBlockId,
     function::{Function, FunctionId},
-    instruction::{Binary, BinaryOp, Instruction, FvInstruction, TerminatorInstruction},
+    instruction::{Binary, BinaryOp, FvInstruction, Instruction, TerminatorInstruction},
     types::Type,
     value::{Value, ValueId},
 };
@@ -179,7 +179,7 @@ impl FunctionBuilder {
 
             dfg.make_instruction_results_fv(id, ctrl_typevars, instruction.clone().result_type());
             dfg.fv_instructions.push(match self.fv_instruction {
-                FvBuilder::Ensures  => FvInstruction::Ensures(instruction),
+                FvBuilder::Ensures => FvInstruction::Ensures(instruction),
                 FvBuilder::Requires => FvInstruction::Requires(instruction),
                 FvBuilder::None => unreachable!(), // The if condition ensures this
             });

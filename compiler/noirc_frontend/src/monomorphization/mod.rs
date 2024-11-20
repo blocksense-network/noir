@@ -32,7 +32,7 @@ use std::{
     unreachable,
 };
 
-use self::ast::{ InlineType, FvExpression };
+use self::ast::{FvExpression, InlineType};
 use self::debug_types::DebugTypeTracker;
 use self::{
     ast::{Definition, FuncId, Function, LocalId, Program},
@@ -336,13 +336,12 @@ impl<'interner> Monomorphizer<'interner> {
 
         let parameters = self.parameters(&meta.parameters)?;
         let body = self.expr(body_expr_id)?;
-        let formal_verification_expressions = meta.formal_verification_attributes
+        let formal_verification_expressions = meta
+            .formal_verification_attributes
             .iter()
-            .map(|fv: &ResolvedFvAttribute| {
-                match *fv {
-                    ResolvedFvAttribute::Ensures(id)  => FvExpression::Ensures(self.expr(id).unwrap()),
-                    ResolvedFvAttribute::Requires(id) => FvExpression::Requires(self.expr(id).unwrap()),
-                }
+            .map(|fv: &ResolvedFvAttribute| match *fv {
+                ResolvedFvAttribute::Ensures(id) => FvExpression::Ensures(self.expr(id).unwrap()),
+                ResolvedFvAttribute::Requires(id) => FvExpression::Requires(self.expr(id).unwrap()),
             })
             .collect();
         let function = ast::Function {

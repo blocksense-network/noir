@@ -12,13 +12,16 @@ use super::{
     basic_block::BasicBlockId,
     dfg::DataFlowGraph,
     function::Function,
-    instruction::{ConstrainError, Instruction, FvInstruction, InstructionId, TerminatorInstruction},
+    instruction::{
+        ConstrainError, FvInstruction, Instruction, InstructionId, TerminatorInstruction,
+    },
     value::{Value, ValueId},
 };
 
 #[derive(PartialEq)]
 enum Attribute {
-    Requires, Ensures,
+    Requires,
+    Ensures,
 }
 
 impl Attribute {
@@ -48,20 +51,26 @@ fn display_fv_attribute(function: &Function, attribute: Attribute, f: &mut Forma
                 if attribute == Attribute::Ensures {
                     display_fv_instruction(function, id, instruction, f)?
                 }
-            },
+            }
             FvInstruction::Requires(instruction) => {
                 if attribute == Attribute::Requires {
                     display_fv_instruction(function, id, instruction, f)?
                 }
-            },
+            }
         }
     }
     writeln!(f, ")")
 }
 
-fn display_fv_instruction(function: &Function, id: usize, instruction: &Instruction, f: &mut Formatter) -> Result {
+fn display_fv_instruction(
+    function: &Function,
+    id: usize,
+    instruction: &Instruction,
+    f: &mut Formatter,
+) -> Result {
     write!(f, "    ")?;
-    let results = function.dfg.instruction_results(InstructionId::new(function.dfg.fv_start_id + id));
+    let results =
+        function.dfg.instruction_results(InstructionId::new(function.dfg.fv_start_id + id));
     if !results.is_empty() {
         write!(f, "{} = ", value_list(function, results))?;
     }
