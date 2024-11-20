@@ -382,7 +382,7 @@ fn is_operation_between_bools(
 
     match binary_op {
         BinaryOp::And | BinaryOp::Mul => Some(ExprX::Binary(VirBinaryOp::And, lhs_expr, rhs_expr)),
-        BinaryOp::Or => Some(ExprX::Binary(VirBinaryOp::Or, lhs_expr, rhs_expr)),
+        BinaryOp::Or | BinaryOp::Add => Some(ExprX::Binary(VirBinaryOp::Or, lhs_expr, rhs_expr)),
         BinaryOp::Xor => Some(ExprX::Binary(VirBinaryOp::Xor, lhs_expr, rhs_expr)),
         _ => None,
     }
