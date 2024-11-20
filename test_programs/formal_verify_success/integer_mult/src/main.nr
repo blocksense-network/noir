@@ -1,4 +1,3 @@
-// There is a bug with Verus/Z3
 #[requires((-10 < x) & (x < 10) & (-10 < y) & (y < 10))]
 fn main(x: i64, y: i64) {
     let _ = integer_i8(x as i8, y as i8);
