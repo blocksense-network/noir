@@ -115,7 +115,13 @@ impl<'a> FunctionContext<'a> {
         let mut builder = FunctionBuilder::new(function_name, function_id);
         builder.set_runtime(runtime);
         let definitions = HashMap::default();
-        let mut this = Self { definitions, builder, shared_context, loops: Vec::new(), return_value: Tree::empty() };
+        let mut this = Self {
+            definitions,
+            builder,
+            shared_context,
+            loops: Vec::new(),
+            return_value: Tree::empty(),
+        };
         this.add_parameters_to_scope(parameters);
         this
     }
