@@ -812,7 +812,7 @@ fn array_get_to_expr(
     let array_as_vir_expr: Expr = SpannedTyped::new(
         &build_span(array_id, format!("Array{} as expr", array_id)),
         &Arc::new(TypX::Decorate(TypDecoration::Ref, None, array_as_primary_vir_type.clone())),
-        ExprX::Var(id_into_var_ident(*array_id)),
+        (*ssa_value_to_expr(array_id, dfg, result_id_fixer)).x.clone(),
     );
     let index_as_vir_expr: Expr;
     let segments: Idents;
