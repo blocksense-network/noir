@@ -712,6 +712,7 @@ fn call_instruction_to_expr(
     let value = &dfg[*value_id];
     let func_id = match value {
         Value::Function(func_id) => func_id,
+        Value::ForeignFunction(_) => panic!("Unconstrained functions are not supported"),
         _ => unreachable!("You can only call functions in SSA"),
     };
 
@@ -832,7 +833,7 @@ fn instruction_to_expr(
         Instruction::ArrayGet { array, index } => {
             array_get_to_expr(array, index, instruction_id, dfg, result_id_fixer)
         }
-        Instruction::ArraySet { array: _, index: _, value: _, mutable: _ } => todo!(),
+        Instruction::ArraySet { array: _, index: _, value: _, mutable: _ } => todo!("Array set not implemented"),
         Instruction::IncrementRc { value: _ } => unreachable!(), // Only in Brillig
         Instruction::DecrementRc { value: _ } => unreachable!(), // Only in Brillig
         Instruction::IfElse {
@@ -948,6 +949,19 @@ fn is_instruction_enable_side_effects(instruction_id: &InstructionId, dfg: &Data
     }
 }
 
+fn is_instruction_call_to_print(instruction_id: &InstructionId, dfg: &DataFlowGraph) -> bool {
+    match &dfg[*instruction_id] {
+        Instruction::Call { func, arguments: _ } => {
+            if let Value::ForeignFunction(func_name) = &dfg[*func] {
+                return func_name == "print"
+            } else {
+                false
+            }
+        },
+        _ => false,
+    }
+}
+
 /// Returns a SSA block as an expression and
 /// the type of the SSA block's terminating instruction
 fn basic_block_to_exprx(basic_block_id: Id<BasicBlock>, dfg: &DataFlowGraph) -> (ExprX, Typ) {
@@ -955,7 +969,8 @@ fn basic_block_to_exprx(basic_block_id: Id<BasicBlock>, dfg: &DataFlowGraph) -> 
     let mut vir_statements: Vec<Stmt> = Vec::new();
 
     for instruction_id in basic_block.instructions() {
-        if !is_instruction_enable_side_effects(instruction_id, dfg) {
+        if !is_instruction_enable_side_effects(instruction_id, dfg)
+         && !is_instruction_call_to_print(instruction_id, dfg){
             let statement = instruction_to_stmt(&dfg[*instruction_id], dfg, *instruction_id, Mode::Exec, None);
             vir_statements.push(statement);
         }
