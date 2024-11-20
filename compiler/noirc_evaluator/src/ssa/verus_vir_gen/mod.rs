@@ -347,7 +347,7 @@ fn build_default_funx_attrs(zero_args: bool) -> FunctionAttrs {
         integer_ring: false,
         is_decrease_by: false,
         check_recommends: false,
-        nonlinear: false,
+        nonlinear: true,
         spinoff_prover: false,
         memoize: false,
         rlimit: None,
@@ -1015,6 +1015,9 @@ fn func_attributes_to_vir_expr(
 
         for (instruction_id, instruction) in attribute_instructions.clone() {
             if let Instruction::Constrain(_, _, _) = instruction {
+                continue;
+            }
+            if let Instruction::RangeCheck { .. } = instruction {
                 continue;
             }
             let statement = instruction_to_stmt(&instruction, dfg, instruction_id, Mode::Spec, result_id_fixer);
