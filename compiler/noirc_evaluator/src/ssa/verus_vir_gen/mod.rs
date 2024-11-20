@@ -359,68 +359,31 @@ fn build_default_funx_attrs(zero_args: bool) -> FunctionAttrs {
     })
 }
 
-// TODO MOVE into a separate file all expr mapping logic
-fn is_multiplication_between_bools(
+fn is_operation_between_bools(
     lhs: &ValueId,
-    rhs: &ValueId,
     binary_op: &BinaryOp,
+    rhs: &ValueId,
+    lhs_expr: Expr,
+    rhs_expr: Expr,
     dfg: &DataFlowGraph,
-) -> bool {
-    match (dfg[*lhs].get_type(), dfg[*rhs].get_type(), binary_op) {
-        (
-            Type::Numeric(NumericType::Unsigned { bit_size: 1 }),
-            Type::Numeric(NumericType::Unsigned { bit_size: 1 }),
-            BinaryOp::Mul,
-        ) => true,
-        (_, _, _) => false,
+) -> Option<ExprX> {
+    match dfg[*lhs].get_type() {
+        Type::Numeric(NumericType::Unsigned { bit_size: 1 }) => {},
+        _ => return None,
     }
-}
-
-fn is_or_between_bools(
-    lhs: &ValueId,
-    rhs: &ValueId,
-    binary_op: &BinaryOp,
-    dfg: &DataFlowGraph,
-) -> bool {
-    match (dfg[*lhs].get_type(), dfg[*rhs].get_type(), binary_op) {
-        (
-            Type::Numeric(NumericType::Unsigned { bit_size: 1 }),
-            Type::Numeric(NumericType::Unsigned { bit_size: 1 }),
-            BinaryOp::Or,
-        ) => true,
-        (_, _, _) => false,
+    match dfg[*rhs].get_type() {
+        Type::Numeric(NumericType::Unsigned { bit_size: 1 }) => {},
+        _ => return None,
     }
-}
 
-fn is_and_between_bools(
-    lhs: &ValueId,
-    rhs: &ValueId,
-    binary_op: &BinaryOp,
-    dfg: &DataFlowGraph,
-) -> bool {
-    match (dfg[*lhs].get_type(), dfg[*rhs].get_type(), binary_op) {
-        (
-            Type::Numeric(NumericType::Unsigned { bit_size: 1 }),
-            Type::Numeric(NumericType::Unsigned { bit_size: 1 }),
-            BinaryOp::And,
-        ) => true,
-        (_, _, _) => false,
-    }
-}
-
-fn is_xor_between_bools(
-    lhs: &ValueId,
-    rhs: &ValueId,
-    binary_op: &BinaryOp,
-    dfg: &DataFlowGraph,
-) -> bool {
-    match (dfg[*lhs].get_type(), dfg[*rhs].get_type(), binary_op) {
-        (
-            Type::Numeric(NumericType::Unsigned { bit_size: 1 }),
-            Type::Numeric(NumericType::Unsigned { bit_size: 1 }),
-            BinaryOp::Xor,
-        ) => true,
-        (_, _, _) => false,
+    match binary_op {
+        BinaryOp::And | BinaryOp::Mul =>
+            Some(ExprX::Binary(VirBinaryOp::And, lhs_expr, rhs_expr)),
+        BinaryOp::Or =>
+            Some(ExprX::Binary(VirBinaryOp::Or, lhs_expr, rhs_expr)),
+        BinaryOp::Xor =>
+            Some(ExprX::Binary(VirBinaryOp::Xor, lhs_expr, rhs_expr)),
+        _ => None,
     }
 }
 
@@ -558,21 +521,9 @@ fn binary_instruction_to_expr(
     let rhs_expr = ssa_value_to_expr(rhs, dfg, result_id_fixer);
     let mut binary_exprx =
         ExprX::Binary(binary_op_to_vir_binary_op(operator, mode), lhs_expr.clone(), rhs_expr.clone());
-    //Special case for multiplications of booleans
-    if is_multiplication_between_bools(lhs, rhs, operator, dfg) {
-        binary_exprx = ExprX::Binary(VirBinaryOp::And, lhs_expr.clone(), rhs_expr.clone())
-    }
-    //Special case for logical or of booleans
-    if is_or_between_bools(lhs, rhs, operator, dfg) {
-        binary_exprx = ExprX::Binary(VirBinaryOp::Or, lhs_expr.clone(), rhs_expr.clone())
-    }
-    //Special case for logical and of booleans
-    if is_and_between_bools(lhs, rhs, operator, dfg) {
-        binary_exprx = ExprX::Binary(VirBinaryOp::And, lhs_expr.clone(), rhs_expr.clone())
-    }
-    //Special case for logical xor of booleans
-    if is_xor_between_bools(lhs, rhs, operator, dfg) {
-        binary_exprx = ExprX::Binary(VirBinaryOp::Xor, lhs_expr, rhs_expr)
+    // Special cases for operations between booleans
+    if let Some(exprx) = is_operation_between_bools(lhs, operator, rhs, lhs_expr, rhs_expr, dfg) {
+        binary_exprx = exprx;
     }
     SpannedTyped::new(
         &build_span(&instruction_id, format!("lhs({}) binary_op({}) rhs({})", lhs, operator, rhs)),
