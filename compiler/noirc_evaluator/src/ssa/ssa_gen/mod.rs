@@ -13,7 +13,10 @@ use noirc_frontend::monomorphization::ast::{self, Expression, FvExpression, Prog
 
 use crate::{
     errors::RuntimeError,
-    ssa::{function_builder::{ FvBuilder, data_bus::DataBusBuilder }, ir::instruction::Intrinsic},
+    ssa::{
+        function_builder::{data_bus::DataBusBuilder, FvBuilder},
+        ir::instruction::Intrinsic,
+    },
 };
 
 use self::{
@@ -115,7 +118,8 @@ pub(crate) fn generate_ssa(
     while let Some((src_function_id, dest_id)) = context.pop_next_function_in_queue() {
         let function = &context.program[src_function_id];
         function_context.new_function(dest_id, function, force_brillig_runtime);
-        function_context.codegen_function_body(&function.body, &function.formal_verification_expressions)?;
+        function_context
+            .codegen_function_body(&function.body, &function.formal_verification_expressions)?;
     }
 
     Ok(function_context.builder.finish())
@@ -124,7 +128,11 @@ pub(crate) fn generate_ssa(
 impl<'a> FunctionContext<'a> {
     /// Codegen a function's body and set its return value to that of its last parameter.
     /// For functions returning nothing, this will be an empty list.
-    fn codegen_function_body(&mut self, body: &Expression, formal_verification_expressions: &Vec<FvExpression>) -> Result<(), RuntimeError> {
+    fn codegen_function_body(
+        &mut self,
+        body: &Expression,
+        formal_verification_expressions: &Vec<FvExpression>,
+    ) -> Result<(), RuntimeError> {
         let entry_block = self.increment_parameter_rcs();
         let return_value = self.codegen_expression(body)?;
         self.return_value = return_value.clone();
@@ -133,17 +141,18 @@ impl<'a> FunctionContext<'a> {
 
         self.builder.terminate_with_return(results);
 
-        self.builder.current_function.dfg.fv_start_id = self.builder.current_function.dfg.num_instructions();
+        self.builder.current_function.dfg.fv_start_id =
+            self.builder.current_function.dfg.num_instructions();
         for fvexpr in formal_verification_expressions {
             match fvexpr {
                 FvExpression::Ensures(expr) => {
                     self.builder.fv_instruction = FvBuilder::Ensures;
                     let _ = self.codegen_expression(expr);
-                },
+                }
                 FvExpression::Requires(expr) => {
                     self.builder.fv_instruction = FvBuilder::Requires;
                     let _ = self.codegen_expression(expr);
-                },
+                }
             }
         }
         self.builder.fv_instruction = FvBuilder::None;

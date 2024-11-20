@@ -1,11 +1,11 @@
-use std::{ sync::Arc, collections::HashMap };
+use std::{collections::HashMap, sync::Arc};
 
 use acvm::{AcirField, FieldElement};
 use num_bigint::{BigInt, BigUint};
 use vir::{
     ast::{
         ArithOp, AutospecUsage, Binders, BitwiseOp, CallTarget, CallTargetKind, Constant, Dt, Expr,
-        ExprX, Exprs, Fun, FunX, FunctionAttrs, FunctionAttrsX, FunctionKind, FunctionX, FieldOpr,
+        ExprX, Exprs, FieldOpr, Fun, FunX, FunctionAttrs, FunctionAttrsX, FunctionKind, FunctionX,
         GenericBounds, Ident, Idents, InequalityOp, IntRange, IntegerTypeBitwidth, ItemKind, Krate,
         KrateX, Mode, Module, ModuleX, Param, ParamX, Params, PathX, Pattern, PatternX, Primitive,
         SpannedTyped, Stmt, StmtX, Typ, TypDecoration, TypX, Typs, UnaryOp, VarIdent, Visibility,
@@ -251,9 +251,20 @@ fn build_param(
     )
 }
 
-fn build_tuple_return_param(values: &Vec<ValueId>, basic_block_id: Id<BasicBlock>, dfg: &DataFlowGraph) -> Param {
+fn build_tuple_return_param(
+    values: &Vec<ValueId>,
+    basic_block_id: Id<BasicBlock>,
+    dfg: &DataFlowGraph,
+) -> Param {
     if values.len() == 1 {
-        return build_param(values[0], get_function_ret_type(values, dfg), Mode::Exec, false, None, None)
+        return build_param(
+            values[0],
+            get_function_ret_type(values, dfg),
+            Mode::Exec,
+            false,
+            None,
+            None,
+        );
     }
 
     let paramx = ParamX {
@@ -263,10 +274,7 @@ fn build_tuple_return_param(values: &Vec<ValueId>, basic_block_id: Id<BasicBlock
         is_mut: false,
         unwrapped_info: None,
     };
-    Spanned::new(
-        build_span(&basic_block_id, "Tuple param".to_string()),
-        paramx,
-    )
+    Spanned::new(build_span(&basic_block_id, "Tuple param".to_string()), paramx)
 }
 
 fn ssa_param_into_vir_param(
@@ -368,21 +376,18 @@ fn is_operation_between_bools(
     dfg: &DataFlowGraph,
 ) -> Option<ExprX> {
     match dfg[*lhs].get_type() {
-        Type::Numeric(NumericType::Unsigned { bit_size: 1 }) => {},
+        Type::Numeric(NumericType::Unsigned { bit_size: 1 }) => {}
         _ => return None,
     }
     match dfg[*rhs].get_type() {
-        Type::Numeric(NumericType::Unsigned { bit_size: 1 }) => {},
+        Type::Numeric(NumericType::Unsigned { bit_size: 1 }) => {}
         _ => return None,
     }
 
     match binary_op {
-        BinaryOp::And | BinaryOp::Mul =>
-            Some(ExprX::Binary(VirBinaryOp::And, lhs_expr, rhs_expr)),
-        BinaryOp::Or =>
-            Some(ExprX::Binary(VirBinaryOp::Or, lhs_expr, rhs_expr)),
-        BinaryOp::Xor =>
-            Some(ExprX::Binary(VirBinaryOp::Xor, lhs_expr, rhs_expr)),
+        BinaryOp::And | BinaryOp::Mul => Some(ExprX::Binary(VirBinaryOp::And, lhs_expr, rhs_expr)),
+        BinaryOp::Or => Some(ExprX::Binary(VirBinaryOp::Or, lhs_expr, rhs_expr)),
+        BinaryOp::Xor => Some(ExprX::Binary(VirBinaryOp::Xor, lhs_expr, rhs_expr)),
         _ => None,
     }
 }
@@ -409,7 +414,12 @@ fn array_to_expr(
     )
 }
 
-fn param_to_expr(value_id: &ValueId, position: usize, noir_type: &Type, result_id_fixer: Option<&ResultIdFixer>) -> Expr {
+fn param_to_expr(
+    value_id: &ValueId,
+    position: usize,
+    noir_type: &Type,
+    result_id_fixer: Option<&ResultIdFixer>,
+) -> Expr {
     if let Some(result_id_fixer) = result_id_fixer {
         if let Some(expr) = result_id_fixer.fix_id(value_id) {
             return expr;
@@ -450,7 +460,11 @@ fn numeric_const_to_expr(numeric_const: &FieldElement, noir_type: &Type) -> Expr
     )
 }
 
-fn ssa_value_to_expr(value_id: &ValueId, dfg: &DataFlowGraph, result_id_fixer: Option<&ResultIdFixer>) -> Expr {
+fn ssa_value_to_expr(
+    value_id: &ValueId,
+    dfg: &DataFlowGraph,
+    result_id_fixer: Option<&ResultIdFixer>,
+) -> Expr {
     let value_id = &dfg.resolve(*value_id);
     let value = &dfg[*value_id];
     match value {
@@ -479,7 +493,10 @@ fn return_values_to_expr(
         1 => Some(ssa_value_to_expr(&return_values_ids[0], dfg, None)),
         _ => {
             let tuple_exprs: Exprs = Arc::new(
-                return_values_ids.iter().map(|val_id| ssa_value_to_expr(val_id, dfg, None)).collect(),
+                return_values_ids
+                    .iter()
+                    .map(|val_id| ssa_value_to_expr(val_id, dfg, None))
+                    .collect(),
             );
             Some(mk_tuple(
                 &build_span(
@@ -500,7 +517,12 @@ fn get_value_bitwidth(value_id: &ValueId, dfg: &DataFlowGraph) -> IntegerTypeBit
     }
 }
 
-fn binary_op_to_vir_binary_op(binary: &BinaryOp, mode: Mode, lhs: &ValueId, dfg: &DataFlowGraph) -> VirBinaryOp {
+fn binary_op_to_vir_binary_op(
+    binary: &BinaryOp,
+    mode: Mode,
+    lhs: &ValueId,
+    dfg: &DataFlowGraph,
+) -> VirBinaryOp {
     match binary {
         BinaryOp::Add => VirBinaryOp::Arith(ArithOp::Add, mode), // It would be of Mode::Spec only if it is a part of a fv attribute or a ghost block
         BinaryOp::Sub => VirBinaryOp::Arith(ArithOp::Sub, mode),
@@ -512,7 +534,9 @@ fn binary_op_to_vir_binary_op(binary: &BinaryOp, mode: Mode, lhs: &ValueId, dfg:
         BinaryOp::And => VirBinaryOp::Bitwise(BitwiseOp::BitAnd, mode),
         BinaryOp::Or => VirBinaryOp::Bitwise(BitwiseOp::BitOr, mode),
         BinaryOp::Xor => VirBinaryOp::Bitwise(BitwiseOp::BitXor, mode),
-        BinaryOp::Shl => VirBinaryOp::Bitwise(BitwiseOp::Shl(get_value_bitwidth(lhs, dfg), false), mode),
+        BinaryOp::Shl => {
+            VirBinaryOp::Bitwise(BitwiseOp::Shl(get_value_bitwidth(lhs, dfg), false), mode)
+        }
         BinaryOp::Shr => VirBinaryOp::Bitwise(BitwiseOp::Shr(get_value_bitwidth(lhs, dfg)), mode),
     }
 }
@@ -527,8 +551,11 @@ fn binary_instruction_to_expr(
     let Binary { lhs, rhs, operator } = binary;
     let lhs_expr = ssa_value_to_expr(lhs, dfg, result_id_fixer);
     let rhs_expr = ssa_value_to_expr(rhs, dfg, result_id_fixer);
-    let mut binary_exprx =
-        ExprX::Binary(binary_op_to_vir_binary_op(operator, mode, lhs, dfg), lhs_expr.clone(), rhs_expr.clone());
+    let mut binary_exprx = ExprX::Binary(
+        binary_op_to_vir_binary_op(operator, mode, lhs, dfg),
+        lhs_expr.clone(),
+        rhs_expr.clone(),
+    );
     // Special cases for operations between booleans
     if let Some(exprx) = is_operation_between_bools(lhs, operator, rhs, lhs_expr, rhs_expr, dfg) {
         binary_exprx = exprx;
@@ -556,7 +583,11 @@ fn bitwise_not_instr_to_exprx(
     }
 }
 
-fn bitwise_not_instr_to_expr(value_id: &ValueId, dfg: &DataFlowGraph, result_id_fixer: Option<&ResultIdFixer>) -> Expr {
+fn bitwise_not_instr_to_expr(
+    value_id: &ValueId,
+    dfg: &DataFlowGraph,
+    result_id_fixer: Option<&ResultIdFixer>,
+) -> Expr {
     let value = &dfg[*value_id];
     let bit_width: Option<IntegerTypeBitwidth> = match value.get_type() {
         Type::Numeric(numeric_type) => get_integer_bit_width(*numeric_type),
@@ -578,7 +609,12 @@ fn build_const_expr(const_num: i64, value_id: &ValueId, noir_type: &Type) -> Exp
     )
 }
 
-fn cast_bool_to_integer(value_id: &ValueId, noir_type: &Type, dfg: &DataFlowGraph, result_id_fixer: Option<&ResultIdFixer>) -> Expr {
+fn cast_bool_to_integer(
+    value_id: &ValueId,
+    noir_type: &Type,
+    dfg: &DataFlowGraph,
+    result_id_fixer: Option<&ResultIdFixer>,
+) -> Expr {
     let if_return_type = from_noir_type(noir_type.clone(), None);
     let condition = ssa_value_to_expr(value_id, dfg, result_id_fixer);
 
@@ -622,7 +658,12 @@ fn cast_integer_to_integer(
     )
 }
 
-fn cast_instruction_to_expr(value_id: &ValueId, noir_type: &Type, dfg: &DataFlowGraph, result_id_fixer: Option<&ResultIdFixer>) -> Expr {
+fn cast_instruction_to_expr(
+    value_id: &ValueId,
+    noir_type: &Type,
+    dfg: &DataFlowGraph,
+    result_id_fixer: Option<&ResultIdFixer>,
+) -> Expr {
     match dfg[*value_id].get_type() {
         Type::Numeric(NumericType::Unsigned { bit_size: 1 }) => {
             cast_bool_to_integer(value_id, noir_type, dfg, result_id_fixer)
@@ -717,8 +758,9 @@ fn call_instruction_to_expr(
     };
 
     let name = func_id_into_funx_name(*func_id);
-    let arguments_as_expr: Exprs =
-        Arc::new(arguments.iter().map(|val_id| ssa_value_to_expr(val_id, dfg, result_id_fixer)).collect());
+    let arguments_as_expr: Exprs = Arc::new(
+        arguments.iter().map(|val_id| ssa_value_to_expr(val_id, dfg, result_id_fixer)).collect(),
+    );
     let call_exprx: ExprX = ExprX::Call(
         CallTarget::Fun(
             CallTargetKind::Static,
@@ -811,8 +853,12 @@ fn instruction_to_expr(
     result_id_fixer: Option<&ResultIdFixer>,
 ) -> Expr {
     match instruction {
-        Instruction::Binary(binary) => binary_instruction_to_expr(instruction_id, binary, mode, dfg, result_id_fixer),
-        Instruction::Cast(val_id, noir_type) => cast_instruction_to_expr(val_id, noir_type, dfg, result_id_fixer),
+        Instruction::Binary(binary) => {
+            binary_instruction_to_expr(instruction_id, binary, mode, dfg, result_id_fixer)
+        }
+        Instruction::Cast(val_id, noir_type) => {
+            cast_instruction_to_expr(val_id, noir_type, dfg, result_id_fixer)
+        }
         Instruction::Not(val_id) => bitwise_not_instr_to_expr(val_id, dfg, result_id_fixer),
         Instruction::Truncate { value: val_id, bit_size, max_bit_size: _ } => {
             range_limit_to_expr(val_id, *bit_size, true, dfg, result_id_fixer)
@@ -833,7 +879,9 @@ fn instruction_to_expr(
         Instruction::ArrayGet { array, index } => {
             array_get_to_expr(array, index, instruction_id, dfg, result_id_fixer)
         }
-        Instruction::ArraySet { array: _, index: _, value: _, mutable: _ } => todo!("Array set not implemented"),
+        Instruction::ArraySet { array: _, index: _, value: _, mutable: _ } => {
+            todo!("Array set not implemented")
+        }
         Instruction::IncrementRc { value: _ } => unreachable!(), // Only in Brillig
         Instruction::DecrementRc { value: _ } => unreachable!(), // Only in Brillig
         Instruction::IfElse {
@@ -929,14 +977,26 @@ fn instruction_to_stmt(
     match dfg.instruction_results(instruction_id).len() {
         0 => Spanned::new(
             build_span(&instruction_id, format!("Instruction({})", instruction_id)),
-            StmtX::Expr(instruction_to_expr(instruction_id, instruction, mode, dfg, result_id_fixer)),
+            StmtX::Expr(instruction_to_expr(
+                instruction_id,
+                instruction,
+                mode,
+                dfg,
+                result_id_fixer,
+            )),
         ),
         _ => Spanned::new(
             instruction_span,
             StmtX::Decl {
                 pattern: instruction_to_pattern(instruction_id, dfg),
                 mode: Some(mode),
-                init: Some(instruction_to_expr(instruction_id, instruction, mode, dfg, result_id_fixer)),
+                init: Some(instruction_to_expr(
+                    instruction_id,
+                    instruction,
+                    mode,
+                    dfg,
+                    result_id_fixer,
+                )),
             },
         ),
     }
@@ -953,11 +1013,11 @@ fn is_instruction_call_to_print(instruction_id: &InstructionId, dfg: &DataFlowGr
     match &dfg[*instruction_id] {
         Instruction::Call { func, arguments: _ } => {
             if let Value::ForeignFunction(func_name) = &dfg[*func] {
-                return func_name == "print"
+                return func_name == "print";
             } else {
                 false
             }
-        },
+        }
         _ => false,
     }
 }
@@ -970,8 +1030,10 @@ fn basic_block_to_exprx(basic_block_id: Id<BasicBlock>, dfg: &DataFlowGraph) -> 
 
     for instruction_id in basic_block.instructions() {
         if !is_instruction_enable_side_effects(instruction_id, dfg)
-         && !is_instruction_call_to_print(instruction_id, dfg){
-            let statement = instruction_to_stmt(&dfg[*instruction_id], dfg, *instruction_id, Mode::Exec, None);
+            && !is_instruction_call_to_print(instruction_id, dfg)
+        {
+            let statement =
+                instruction_to_stmt(&dfg[*instruction_id], dfg, *instruction_id, Mode::Exec, None);
             vir_statements.push(statement);
         }
     }
@@ -1014,11 +1076,18 @@ fn func_attributes_to_vir_expr(
             if let Instruction::RangeCheck { .. } = instruction {
                 continue;
             }
-            let statement = instruction_to_stmt(&instruction, dfg, instruction_id, Mode::Spec, result_id_fixer);
+            let statement =
+                instruction_to_stmt(&instruction, dfg, instruction_id, Mode::Spec, result_id_fixer);
             vir_statements.push(statement);
         }
 
-        let last_expr = instruction_to_expr(last_instruction_id.clone(), last_instruction, Mode::Spec, dfg, result_id_fixer);
+        let last_expr = instruction_to_expr(
+            last_instruction_id.clone(),
+            last_instruction,
+            Mode::Spec,
+            dfg,
+            result_id_fixer,
+        );
         vec![SpannedTyped::new(
             &build_span(last_instruction_id, "Formal verification expression".to_string()),
             &get_function_ret_type(dfg.instruction_results(*last_instruction_id), dfg),
@@ -1029,10 +1098,7 @@ fn func_attributes_to_vir_expr(
     }
 }
 
-fn func_requires_to_vir_expr(
-    func: &Function,
-    result_id_fixer: Option<&ResultIdFixer>,
-) -> Exprs {
+fn func_requires_to_vir_expr(func: &Function, result_id_fixer: Option<&ResultIdFixer>) -> Exprs {
     let attr_instrs: Vec<(Id<Instruction>, Instruction)> = func
         .dfg
         .fv_instructions
@@ -1050,10 +1116,7 @@ fn func_requires_to_vir_expr(
     Arc::new(func_attributes_to_vir_expr(attr_instrs, &func.dfg, result_id_fixer))
 }
 
-fn func_ensures_to_vir_expr(
-    func: &Function,
-    result_id_fixer: Option<&ResultIdFixer>,
-) -> Exprs {
+fn func_ensures_to_vir_expr(func: &Function, result_id_fixer: Option<&ResultIdFixer>) -> Exprs {
     let attr_instrs: Vec<(Id<Instruction>, Instruction)> = func
         .dfg
         .fv_instructions
@@ -1093,12 +1156,14 @@ impl ResultIdFixer {
 
     fn new(func: &Function, ret: &Param) -> Result<ResultIdFixer, BuildingKrateError> {
         let (mut dt_len, dt_typs, dt_tuple) = match &*ret.x.typ.clone() {
-            TypX::Datatype(Dt::Tuple(len), typs, _) => (
-                len.to_string(),
-                (**typs).clone(),
-                Dt::Tuple(len.clone()),
-            ),
-            _ => return Err(BuildingKrateError::SomeError("Function return type is not a tuple".to_string())),
+            TypX::Datatype(Dt::Tuple(len), typs, _) => {
+                (len.to_string(), (**typs).clone(), Dt::Tuple(len.clone()))
+            }
+            _ => {
+                return Err(BuildingKrateError::SomeError(
+                    "Function return type is not a tuple".to_string(),
+                ))
+            }
         };
 
         dt_len.insert_str(0, "tuple%");
@@ -1109,10 +1174,13 @@ impl ResultIdFixer {
             dt_typs,
             dt_len,
             result_span: SpannedTyped::new(
-                    &empty_span(),
-                    &ret.x.typ.clone(),
-                    ExprX::Var(VarIdent(Arc::new("result".to_string()), vir::ast::VarIdentDisambiguate::NoBodyParam))
-                ),
+                &empty_span(),
+                &ret.x.typ.clone(),
+                ExprX::Var(VarIdent(
+                    Arc::new("result".to_string()),
+                    vir::ast::VarIdentDisambiguate::NoBodyParam,
+                )),
+            ),
             id_map: Self::result_variable_map(func).unwrap(),
         })
     }
@@ -1134,7 +1202,7 @@ impl ResultIdFixer {
                     check: vir::ast::VariantCheck::None,
                 }),
                 self.result_span.clone(),
-            )
+            ),
         ))
     }
 }
@@ -1163,11 +1231,11 @@ fn build_funx(
         ret,
         require: func_requires_to_vir_expr(func, result_id_fixer.as_ref()),
         ensure: func_ensures_to_vir_expr(func, result_id_fixer.as_ref()),
-        decrease: Arc::new(vec![]),               // No such feature in the prototype
-        decrease_when: None,                      // No such feature in the prototype
-        decrease_by: None,                        // No such feature in the prototype
-        fndef_axioms: None,                       // Not sure what it is
-        mask_spec: None,                          // Not sure what it is
+        decrease: Arc::new(vec![]), // No such feature in the prototype
+        decrease_when: None,        // No such feature in the prototype
+        decrease_by: None,          // No such feature in the prototype
+        fndef_axioms: None,         // Not sure what it is
+        mask_spec: None,            // Not sure what it is
         unwind_spec: None, // To be able to use functions from VSTD we need None on unwinding
         item_kind: ItemKind::Function,
         publish: None, // Only if we use None we pass Verus checks.
