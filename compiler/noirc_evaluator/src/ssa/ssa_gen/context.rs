@@ -546,16 +546,7 @@ impl<'a> FunctionContext<'a> {
 
         let mut result = self.builder.set_location(location).insert_binary(lhs, op, rhs);
 
-        // Check for integer overflow
-        if matches!(
-            operator,
-            BinaryOpKind::Add
-                | BinaryOpKind::Subtract
-                | BinaryOpKind::Multiply
-                | BinaryOpKind::ShiftLeft
-        ) {
-            result = self.check_overflow(result, lhs, rhs, operator, location);
-        }
+        // REMOVED Check for integer overflow
 
         if operator_requires_not(operator) {
             result = self.builder.insert_not(result);
