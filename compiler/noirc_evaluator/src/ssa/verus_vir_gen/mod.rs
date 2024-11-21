@@ -452,7 +452,12 @@ fn numeric_const_to_expr(numeric_const: &FieldElement, noir_type: &Type) -> Expr
     }
     // It's an actual numeric constant
     let const_big_uint: BigUint = numeric_const.into_repr().into();
-    let const_big_int: BigInt = BigInt::from_biguint(num_bigint::Sign::Plus, const_big_uint); //Sign::NoSign??
+    let mut const_big_int: BigInt = BigInt::from_biguint(num_bigint::Sign::Plus, const_big_uint.clone());
+    if let Type::Numeric(NumericType::Signed { bit_size }) = noir_type {
+        if const_big_int > BigInt::from(2_u128.pow(*bit_size - 1)) {
+            const_big_int -= BigInt::from(2_u128.pow(*bit_size));
+        }
+    }
 
     SpannedTyped::new(
         &empty_span(), //TODO maybe dont use empty span
