@@ -63,25 +63,24 @@ pub(crate) fn run(args: FormalVerifyCommand, config: NargoConfig) -> Result<(), 
 
         let compiled_program =
             noirc_driver::compile_main(&mut context, crate_id, &args.compile_options, None, false);
-        let noir_program_to_vir = compiled_program.clone().unwrap().0.verus_vir.unwrap();
-
-        // println!("{:#?}", noir_program_to_vir.functions); Useful for debugging
 
         report_errors(
-            compiled_program,
+            compiled_program.clone(),
             &workspace_file_manager,
             args.compile_options.deny_warnings,
             true, // We don't want to report compile related warnings
         )?;
 
-        z3_verify(noir_program_to_vir);
+        let noir_program_to_vir = compiled_program.unwrap().0.verus_vir.unwrap();
+
+        z3_verify(noir_program_to_vir)?
     }
 
     Ok(())
 }
 
 /// Verifies the VIR crate which the Noir code was transformed into
-pub(crate) fn z3_verify(vir_krate: Krate) {
+pub(crate) fn z3_verify(vir_krate: Krate) -> Result<(), CliError> {
     let serialized_vir_krate = serde_json::to_string(&vir_krate).expect("Failed to serialize");
 
     let mut child = Command::new("venir")
@@ -97,9 +96,20 @@ pub(crate) fn z3_verify(vir_krate: Krate) {
 
     let output = child.wait_with_output().expect("Failed to read Venir stdout");
 
-    println!("Verifier output:\n{}", String::from_utf8_lossy(&output.stdout));
+    let stdout_output = String::from_utf8_lossy(&output.stdout);
+    if !stdout_output.is_empty() {
+        println!("{}", stdout_output);
+    }
+
     let stderr_output = String::from_utf8_lossy(&output.stderr);
-    println!("{}", stderr_output);
-    assert!(stderr_output.contains("Error:").not(), "Verification failed!");
-    assert!(output.status.success(), "Venir crashed unexpectedly!");
+
+    if !output.status.success() {
+        Err(CliError::VerificationCrash(stderr_output.trim().to_string()))?
+    }
+    if stderr_output.contains("Error:") {
+        Err(CliError::VerificationFail(stderr_output.trim().to_string()))?
+    }
+
+    println!("Verification successful!");
+    Ok(())
 }

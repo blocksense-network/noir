@@ -45,6 +45,12 @@ pub(crate) enum CliError {
     #[error("Invalid package name {0}. Did you mean to use `--name`?")]
     InvalidPackageName(String),
 
+    #[error("Verification failed!\n{0}")]
+    VerificationFail(String),
+
+    #[error("Verification crashed!\n{0}")]
+    VerificationCrash(String),
+
     /// ABI encoding/decoding error
     #[error(transparent)]
     AbiError(#[from] AbiError),
