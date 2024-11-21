@@ -25,8 +25,8 @@ in
     src = fetchFromGitHub {
       owner = "blocksense-network";
       repo = "Venir";
-      hash = "sha256-JseMehoV806Z9aFFY4Zfl44FowS1lmtrQjwZAfrfxNQ";
-      rev = "85c4cdaf64e08893d9f190dfd68b6f9117afc095";
+      hash = "sha256-R1w8aFCNsDaSmVlGpVzZPv4Li691DjEQL02GMRGDYNM";
+      rev = "857a75f056d23fbd6254dbb3d72de36e57178607";
     };
 
     cargoLock = {
