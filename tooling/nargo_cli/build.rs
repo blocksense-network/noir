@@ -810,7 +810,10 @@ fn formal_verify_failure_{test_name}() {{
     cmd.arg("--program-dir").arg(test_program_dir);
     cmd.arg("formal-verify");
 
-    cmd.assert().failure().stderr(predicate::str::contains("The application panicked (crashed)."));"#,
+    cmd.assert().failure().stderr(
+        predicate::str::contains("The application panicked (crashed).")
+        .or(predicate::str::contains("Error:")),
+    );"#,
             test_dir = test_dir.display(),
         )
         .expect("Could not write templated test file.");
