@@ -26,15 +26,9 @@
       sha256 = "sha256-e4mlaJehWBymYxJGgnbuCObVlqMlQSilZ8FljG9zPHY=";
     };
   in
-    flake-parts.lib.mkFlake {inherit inputs;} {
-      systems = ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"];
-      perSystem = {
-        pkgs,
-        inputs',
-        self',
-        ...
-      }: {
-        legacyPackages.rustToolchain = with inputs'.fenix.packages;
+    flake-parts.lib.mkFlake {inherit inputs;} (
+      let
+        toolchain = with inputs.fenix.packages;
         with latest;
           combine [
             cargo
@@ -44,7 +38,35 @@
             rustc
             rustfmt
           ];
-        devShells.default = import ./shell.nix {inherit pkgs self' venir-toolchain verus-lib;};
-      };
-    };
+      in {
+        systems = ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"];
+
+        perSystem = {
+          pkgs,
+          inputs',
+          self',
+          ...
+        }: let
+          toolchain = with inputs'.fenix.packages;
+          with latest;
+            combine [
+              cargo
+              clippy
+              rust-analyzer
+              rust-src
+              rustc
+              rustfmt
+            ];
+        in {
+          legacyPackages.rustToolchain = toolchain;
+
+          devShells.default = import ./shell.nix {inherit pkgs self' venir-toolchain verus-lib;};
+
+          packages.default = import ./noir.nix {
+            inherit pkgs;
+            rust-toolchain = toolchain;
+          };
+        };
+      }
+    );
 }

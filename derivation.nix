@@ -1,11 +1,10 @@
 # stanm: The single purpose of this script is to bootstrap rustup.
 {
   pkgs,
-  self',
   venir-toolchain,
   ...
 }: let
-  inherit (pkgs) lib rustPlatform fetchFromGitHub;
+  inherit (pkgs) fetchFromGitHub;
 
   customRustPlatform = pkgs.makeRustPlatform {
     cargo = venir-toolchain;
