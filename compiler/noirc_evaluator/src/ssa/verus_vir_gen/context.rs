@@ -80,4 +80,5 @@ impl ResultIdFixer {
 
 pub(crate) struct CurrentContext<'a> {
     pub result_id_fixer: Option<&'a ResultIdFixer>,
+    pub side_effects_condition: Option<ValueId>,
 }

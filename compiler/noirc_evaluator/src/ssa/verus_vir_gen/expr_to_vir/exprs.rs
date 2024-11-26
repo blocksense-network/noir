@@ -1,4 +1,11 @@
-use expr_to_vir::{patterns::instruction_to_stmt, types::{from_noir_type, get_empty_vir_type, get_function_ret_type, get_int_range, get_integer_bit_width, instr_res_type_to_vir_type, into_vir_const_int, trunc_target_int_range}};
+use expr_to_vir::{
+    patterns::instruction_to_stmt,
+    types::{
+        from_noir_type, get_empty_vir_type, get_function_ret_type, get_int_range,
+        get_integer_bit_width, instr_res_type_to_vir_type, into_vir_const_int,
+        trunc_target_int_range,
+    },
+};
 
 use crate::ssa::verus_vir_gen::*;
 
@@ -8,6 +15,12 @@ fn get_value_bitwidth(value_id: &ValueId, dfg: &DataFlowGraph) -> IntegerTypeBit
         Type::Numeric(numeric_type) => get_integer_bit_width(*numeric_type).unwrap(),
         _ => panic!("Bitwise operation on a non numeric type"),
     }
+}
+
+fn wrap_with_an_if_logic(condition_id: ValueId, binary_expr: Expr, lhs_expr: Expr, dfg: &DataFlowGraph, result_id_fixer: Option<&ResultIdFixer>) -> Expr {
+    let lhs_type = lhs_expr.typ.clone();
+    let if_exprx = ExprX::If(ssa_value_to_expr(&condition_id, dfg, result_id_fixer), binary_expr, Some(lhs_expr));
+    SpannedTyped::new(&build_span(&condition_id, format!("Enable side effects if")), &lhs_type, if_exprx)
 }
 
 fn binary_op_to_vir_binary_op(
@@ -182,7 +195,6 @@ fn return_values_to_expr(
     }
 }
 
-
 fn binary_instruction_to_expr(
     instruction_id: InstructionId,
     binary: &Binary,
@@ -198,15 +210,27 @@ fn binary_instruction_to_expr(
         lhs_expr.clone(),
         rhs_expr.clone(),
     );
+    
     // Special cases for operations between booleans
-    if let Some(exprx) = is_operation_between_bools(lhs, operator, rhs, lhs_expr, rhs_expr, dfg) {
+    if let Some(exprx) = is_operation_between_bools(lhs, operator, rhs, lhs_expr.clone(), rhs_expr, dfg) {
         binary_exprx = exprx;
+        return SpannedTyped::new(
+            &build_span(&instruction_id, format!("lhs({}) binary_op({}) rhs({})", lhs, operator, rhs)),
+            &instr_res_type_to_vir_type(binary.result_type(), dfg),
+            binary_exprx,
+        );
     }
-    SpannedTyped::new(
+
+    let binary_expr = SpannedTyped::new(
         &build_span(&instruction_id, format!("lhs({}) binary_op({}) rhs({})", lhs, operator, rhs)),
         &instr_res_type_to_vir_type(binary.result_type(), dfg),
         binary_exprx,
-    )
+    );
+
+    if let Some(condition_id) = current_context.side_effects_condition {
+        return wrap_with_an_if_logic(condition_id, binary_expr, lhs_expr, dfg, current_context.result_id_fixer)
+    }
+    binary_expr
 }
 /// Depending on the bit width size we want to either return a
 /// `unary boolean not` expression or a `unary bit not` expression.
@@ -636,6 +660,21 @@ fn is_instruction_enable_side_effects(instruction_id: &InstructionId, dfg: &Data
     }
 }
 
+fn get_enable_side_effects_value_id(
+    instruction_id: &InstructionId,
+    dfg: &DataFlowGraph,
+) -> Option<ValueId> {
+    match dfg[*instruction_id] {
+        Instruction::EnableSideEffectsIf { condition } => match &dfg[condition] {
+            Value::NumericConstant { constant: _, typ: _ } => None,
+            Value::Instruction { instruction: _, position: _, typ: _ } => Some(condition),
+            Value::Param { block: _, position: _, typ: _ } => Some(condition),
+            _ => unreachable!(),
+        },
+        _ => unreachable!(),
+    }
+}
+
 fn is_instruction_call_to_print(instruction_id: &InstructionId, dfg: &DataFlowGraph) -> bool {
     match &dfg[*instruction_id] {
         Instruction::Call { func, arguments: _ } => {
@@ -661,6 +700,11 @@ pub(crate) fn basic_block_to_exprx(
     current_context.result_id_fixer = None;
 
     for instruction_id in basic_block.instructions() {
+        if is_instruction_enable_side_effects(instruction_id, dfg) {
+            current_context.side_effects_condition =
+                get_enable_side_effects_value_id(instruction_id, dfg);
+        }
+
         if !is_instruction_enable_side_effects(instruction_id, dfg)
             && !is_instruction_call_to_print(instruction_id, dfg)
         {
