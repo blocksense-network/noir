@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
-
+mod context;
 use acvm::{AcirField, FieldElement};
+use context::{CurrentContext, ResultIdFixer};
 use num_bigint::{BigInt, BigUint};
 use vir::{
     ast::{
@@ -452,7 +453,8 @@ fn numeric_const_to_expr(numeric_const: &FieldElement, noir_type: &Type) -> Expr
     }
     // It's an actual numeric constant
     let const_big_uint: BigUint = numeric_const.into_repr().into();
-    let mut const_big_int: BigInt = BigInt::from_biguint(num_bigint::Sign::Plus, const_big_uint.clone());
+    let mut const_big_int: BigInt =
+        BigInt::from_biguint(num_bigint::Sign::Plus, const_big_uint.clone());
     if let Type::Numeric(NumericType::Signed { bit_size }) = noir_type {
         if const_big_int > BigInt::from(2_u128.pow(*bit_size - 1)) {
             const_big_int -= BigInt::from(2_u128.pow(*bit_size));
@@ -552,11 +554,11 @@ fn binary_instruction_to_expr(
     binary: &Binary,
     mode: Mode,
     dfg: &DataFlowGraph,
-    result_id_fixer: Option<&ResultIdFixer>,
+    current_context: &mut CurrentContext,
 ) -> Expr {
     let Binary { lhs, rhs, operator } = binary;
-    let lhs_expr = ssa_value_to_expr(lhs, dfg, result_id_fixer);
-    let rhs_expr = ssa_value_to_expr(rhs, dfg, result_id_fixer);
+    let lhs_expr = ssa_value_to_expr(lhs, dfg, current_context.result_id_fixer);
+    let rhs_expr = ssa_value_to_expr(rhs, dfg, current_context.result_id_fixer);
     let mut binary_exprx = ExprX::Binary(
         binary_op_to_vir_binary_op(operator, mode, lhs, dfg),
         lhs_expr.clone(),
@@ -912,35 +914,50 @@ fn instruction_to_expr(
     instruction: &Instruction,
     mode: Mode,
     dfg: &DataFlowGraph,
-    result_id_fixer: Option<&ResultIdFixer>,
+    current_context: &mut CurrentContext,
 ) -> Expr {
     match instruction {
         Instruction::Binary(binary) => {
-            binary_instruction_to_expr(instruction_id, binary, mode, dfg, result_id_fixer)
+            binary_instruction_to_expr(instruction_id, binary, mode, dfg, current_context)
         }
         Instruction::Cast(val_id, noir_type) => {
-            cast_instruction_to_expr(val_id, noir_type, dfg, result_id_fixer)
+            cast_instruction_to_expr(val_id, noir_type, dfg, current_context.result_id_fixer)
         }
-        Instruction::Not(val_id) => bitwise_not_instr_to_expr(val_id, dfg, result_id_fixer),
+        Instruction::Not(val_id) => {
+            bitwise_not_instr_to_expr(val_id, dfg, current_context.result_id_fixer)
+        }
         Instruction::Truncate { value: val_id, bit_size, max_bit_size: _ } => {
-            range_limit_to_expr(val_id, *bit_size, true, dfg, result_id_fixer)
+            range_limit_to_expr(val_id, *bit_size, true, dfg, current_context.result_id_fixer)
         }
-        Instruction::Constrain(lhs, rhs, _) => {
-            constrain_instruction_to_expr(instruction_id, lhs, rhs, dfg, result_id_fixer)
-        }
+        Instruction::Constrain(lhs, rhs, _) => constrain_instruction_to_expr(
+            instruction_id,
+            lhs,
+            rhs,
+            dfg,
+            current_context.result_id_fixer,
+        ),
         Instruction::RangeCheck { value: val_id, max_bit_size, assert_message: _ } => {
-            range_limit_to_expr(val_id, *max_bit_size, false, dfg, result_id_fixer)
+            range_limit_to_expr(val_id, *max_bit_size, false, dfg, current_context.result_id_fixer)
         }
-        Instruction::Call { func, arguments } => {
-            call_instruction_to_expr(instruction_id, func, arguments, dfg, result_id_fixer)
-        }
+        Instruction::Call { func, arguments } => call_instruction_to_expr(
+            instruction_id,
+            func,
+            arguments,
+            dfg,
+            current_context.result_id_fixer,
+        ),
         Instruction::Allocate => unreachable!(), // Optimized away
         Instruction::Load { address: _ } => unreachable!(), // Optimized away
         Instruction::Store { address: _, value: _ } => unreachable!(), // Optimized away
         Instruction::EnableSideEffectsIf { condition: _ } => todo!(), //TODO(totel) Support for mutability
-        Instruction::ArrayGet { array, index } => {
-            array_get_to_expr(array, index, instruction_id, mode, dfg, result_id_fixer)
-        }
+        Instruction::ArrayGet { array, index } => array_get_to_expr(
+            array,
+            index,
+            instruction_id,
+            mode,
+            dfg,
+            current_context.result_id_fixer,
+        ),
         Instruction::ArraySet { array: _, index: _, value: _, mutable: _ } => {
             todo!("Array set not implemented")
         }
@@ -1031,7 +1048,7 @@ fn instruction_to_stmt(
     dfg: &DataFlowGraph,
     instruction_id: Id<Instruction>,
     mode: Mode,
-    result_id_fixer: Option<&ResultIdFixer>,
+    current_context: &mut CurrentContext,
 ) -> Stmt {
     let instruction_span =
         build_span(&instruction_id, format!("Instruction({}) statement", instruction_id));
@@ -1044,7 +1061,7 @@ fn instruction_to_stmt(
                 instruction,
                 mode,
                 dfg,
-                result_id_fixer,
+                current_context,
             )),
         ),
         _ => Spanned::new(
@@ -1057,7 +1074,7 @@ fn instruction_to_stmt(
                     instruction,
                     mode,
                     dfg,
-                    result_id_fixer,
+                    current_context,
                 )),
             },
         ),
@@ -1086,16 +1103,21 @@ fn is_instruction_call_to_print(instruction_id: &InstructionId, dfg: &DataFlowGr
 
 /// Returns a SSA block as an expression and
 /// the type of the SSA block's terminating instruction
-fn basic_block_to_exprx(basic_block_id: Id<BasicBlock>, dfg: &DataFlowGraph) -> (ExprX, Typ) {
+fn basic_block_to_exprx(
+    basic_block_id: Id<BasicBlock>,
+    dfg: &DataFlowGraph,
+    current_context: &mut CurrentContext,
+) -> (ExprX, Typ) {
     let basic_block = dfg[basic_block_id].clone();
     let mut vir_statements: Vec<Stmt> = Vec::new();
+    current_context.result_id_fixer = None;
 
     for instruction_id in basic_block.instructions() {
         if !is_instruction_enable_side_effects(instruction_id, dfg)
             && !is_instruction_call_to_print(instruction_id, dfg)
         {
             let statement =
-                instruction_to_stmt(&dfg[*instruction_id], dfg, *instruction_id, Mode::Exec, None);
+                instruction_to_stmt(&dfg[*instruction_id], dfg, *instruction_id, Mode::Exec, current_context);
             vir_statements.push(statement);
         }
     }
@@ -1114,8 +1136,9 @@ fn basic_block_to_exprx(basic_block_id: Id<BasicBlock>, dfg: &DataFlowGraph) -> 
     )
 }
 
-fn func_body_to_vir_expr(func: &Function) -> Expr {
-    let (block_exprx, block_type) = basic_block_to_exprx(func.entry_block(), &func.dfg);
+fn func_body_to_vir_expr(func: &Function, current_context: &mut CurrentContext) -> Expr {
+    let (block_exprx, block_type) =
+        basic_block_to_exprx(func.entry_block(), &func.dfg, current_context);
     SpannedTyped::new(
         &build_span(&func.id(), format!("Function's({}) basic block body", func.id())),
         &block_type,
@@ -1126,7 +1149,7 @@ fn func_body_to_vir_expr(func: &Function) -> Expr {
 fn func_attributes_to_vir_expr(
     attribute_instructions: Vec<(Id<Instruction>, Instruction)>,
     dfg: &DataFlowGraph,
-    result_id_fixer: Option<&ResultIdFixer>,
+    current_context: &mut CurrentContext,
 ) -> Vec<Expr> {
     if let Some((last_instruction_id, last_instruction)) = attribute_instructions.last() {
         let mut vir_statements: Vec<Stmt> = Vec::new();
@@ -1139,7 +1162,7 @@ fn func_attributes_to_vir_expr(
                 continue;
             }
             let statement =
-                instruction_to_stmt(&instruction, dfg, instruction_id, Mode::Spec, result_id_fixer);
+                instruction_to_stmt(&instruction, dfg, instruction_id, Mode::Spec, current_context);
             vir_statements.push(statement);
         }
 
@@ -1148,7 +1171,7 @@ fn func_attributes_to_vir_expr(
             last_instruction,
             Mode::Spec,
             dfg,
-            result_id_fixer,
+            current_context,
         );
         vec![SpannedTyped::new(
             &build_span(last_instruction_id, "Formal verification expression".to_string()),
@@ -1160,7 +1183,7 @@ fn func_attributes_to_vir_expr(
     }
 }
 
-fn func_requires_to_vir_expr(func: &Function, result_id_fixer: Option<&ResultIdFixer>) -> Exprs {
+fn func_requires_to_vir_expr(func: &Function, current_context: &mut CurrentContext) -> Exprs {
     let attr_instrs: Vec<(Id<Instruction>, Instruction)> = func
         .dfg
         .fv_instructions
@@ -1175,10 +1198,10 @@ fn func_requires_to_vir_expr(func: &Function, result_id_fixer: Option<&ResultIdF
             }
         })
         .collect();
-    Arc::new(func_attributes_to_vir_expr(attr_instrs, &func.dfg, result_id_fixer))
+    Arc::new(func_attributes_to_vir_expr(attr_instrs, &func.dfg, current_context))
 }
 
-fn func_ensures_to_vir_expr(func: &Function, result_id_fixer: Option<&ResultIdFixer>) -> Exprs {
+fn func_ensures_to_vir_expr(func: &Function, current_context: &mut CurrentContext) -> Exprs {
     let attr_instrs: Vec<(Id<Instruction>, Instruction)> = func
         .dfg
         .fv_instructions
@@ -1193,80 +1216,7 @@ fn func_ensures_to_vir_expr(func: &Function, result_id_fixer: Option<&ResultIdFi
             }
         })
         .collect();
-    Arc::new(func_attributes_to_vir_expr(attr_instrs, &func.dfg, result_id_fixer))
-}
-
-struct ResultIdFixer {
-    dt_tuple: Dt,
-    dt_typs: Vec<Typ>,
-    dt_len: Ident,
-    result_span: Expr,
-    id_map: HashMap<ValueId, Ident>,
-}
-
-impl ResultIdFixer {
-    fn result_variable_map(func: &Function) -> Result<HashMap<ValueId, Ident>, BuildingKrateError> {
-        let return_values = get_function_return_values(func)?;
-        let mut result: HashMap<ValueId, Ident> = HashMap::new();
-
-        for (i, &vid) in return_values.iter().enumerate() {
-            result.insert(vid, Arc::new(i.to_string()));
-        }
-
-        Ok(result)
-    }
-
-    fn new(func: &Function, ret: &Param) -> Result<ResultIdFixer, BuildingKrateError> {
-        let (mut dt_len, dt_typs, dt_tuple) = match &*ret.x.typ.clone() {
-            TypX::Datatype(Dt::Tuple(len), typs, _) => {
-                (len.to_string(), (**typs).clone(), Dt::Tuple(len.clone()))
-            }
-            _ => {
-                return Err(BuildingKrateError::SomeError(
-                    "Function return type is not a tuple".to_string(),
-                ))
-            }
-        };
-
-        dt_len.insert_str(0, "tuple%");
-        let dt_len = Arc::new(dt_len);
-
-        Ok(ResultIdFixer {
-            dt_tuple,
-            dt_typs,
-            dt_len,
-            result_span: SpannedTyped::new(
-                &empty_span(),
-                &ret.x.typ.clone(),
-                ExprX::Var(VarIdent(
-                    Arc::new("result".to_string()),
-                    vir::ast::VarIdentDisambiguate::NoBodyParam,
-                )),
-            ),
-            id_map: Self::result_variable_map(func).unwrap(),
-        })
-    }
-
-    fn fix_id(&self, id: &ValueId) -> Option<Expr> {
-        if !self.id_map.contains_key(id) {
-            return None;
-        }
-
-        Some(SpannedTyped::new(
-            &empty_span(),
-            &self.dt_typs[(*self.id_map[id]).parse::<usize>().unwrap()],
-            ExprX::UnaryOpr(
-                vir::ast::UnaryOpr::Field(FieldOpr {
-                    datatype: self.dt_tuple.clone(),
-                    variant: self.dt_len.clone(),
-                    field: self.id_map[id].clone(),
-                    get_variant: false,
-                    check: vir::ast::VariantCheck::None,
-                }),
-                self.result_span.clone(),
-            ),
-        ))
-    }
+    Arc::new(func_attributes_to_vir_expr(attr_instrs, &func.dfg, current_context))
 }
 
 fn build_funx(
@@ -1278,6 +1228,7 @@ fn build_funx(
 
     let ret = get_function_return_param(func)?;
     let result_id_fixer = ResultIdFixer::new(func, &ret).ok();
+    let mut current_context = CurrentContext { result_id_fixer: result_id_fixer.as_ref() };
 
     let funx: FunctionX = FunctionX {
         name: func_id_into_funx_name(func_id),
@@ -1291,8 +1242,8 @@ fn build_funx(
         typ_bounds: empty_vec_generic_bounds(), // There are no generics in SSA
         params: function_params.clone(),
         ret,
-        require: func_requires_to_vir_expr(func, result_id_fixer.as_ref()),
-        ensure: func_ensures_to_vir_expr(func, result_id_fixer.as_ref()),
+        require: func_requires_to_vir_expr(func, &mut current_context),
+        ensure: func_ensures_to_vir_expr(func, &mut current_context),
         decrease: Arc::new(vec![]), // No such feature in the prototype
         decrease_when: None,        // No such feature in the prototype
         decrease_by: None,          // No such feature in the prototype
@@ -1302,8 +1253,8 @@ fn build_funx(
         item_kind: ItemKind::Function,
         publish: None, // Only if we use None we pass Verus checks.
         attrs: build_default_funx_attrs(function_params.is_empty()),
-        body: Some(func_body_to_vir_expr(func)), // Functions in SSA always have a boyd
-        extra_dependencies: vec![],              // Not needed for the prototype
+        body: Some(func_body_to_vir_expr(func, &mut current_context)), // Functions in SSA always have a boyd
+        extra_dependencies: vec![], // Not needed for the prototype
         ens_has_return: is_function_return_void(func), // Should be true if the function returns a value
         returns: None, // SSA functions (I believe) always return values and never expressions. They could also return zero values.
     };
