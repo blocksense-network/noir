@@ -1,6 +1,5 @@
 use std::{
     io::Write,
-    ops::Not,
     process::{Command, Stdio},
 };
 

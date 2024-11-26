@@ -2,9 +2,9 @@ use std::{collections::HashMap, sync::Arc};
 
 use vir::ast::{Dt, Expr, ExprX, FieldOpr, Ident, Param, SpannedTyped, Typ, TypX, VarIdent};
 
-use super::{empty_span, get_function_return_values, BuildingKrateError, Function, ValueId};
+use super::{empty_span, function::get_function_return_values, BuildingKrateError, Function, ValueId};
 
-pub(crate) struct ResultIdFixer { //temp pub
+pub(crate) struct ResultIdFixer {
     dt_tuple: Dt,
     dt_typs: Vec<Typ>,
     dt_len: Ident,
@@ -23,7 +23,7 @@ impl ResultIdFixer {
 
         Ok(result)
     }
-    //temp pub;
+
     pub(crate) fn new(func: &Function, ret: &Param) -> Result<ResultIdFixer, BuildingKrateError> {
         let (mut dt_len, dt_typs, dt_tuple) = match &*ret.x.typ.clone() {
             TypX::Datatype(Dt::Tuple(len), typs, _) => {
