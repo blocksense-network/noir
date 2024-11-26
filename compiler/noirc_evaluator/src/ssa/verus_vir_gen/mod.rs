@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 mod context;
 use acvm::{AcirField, FieldElement};
 use context::{CurrentContext, ResultIdFixer};
@@ -6,11 +6,11 @@ use num_bigint::{BigInt, BigUint};
 use vir::{
     ast::{
         ArithOp, AutospecUsage, Binders, BitwiseOp, CallTarget, CallTargetKind, Constant, Dt, Expr,
-        ExprX, Exprs, FieldOpr, Fun, FunX, FunctionAttrs, FunctionAttrsX, FunctionKind, FunctionX,
-        GenericBounds, Ident, Idents, ImplPath, ImplPaths, InequalityOp, IntRange,
-        IntegerTypeBitwidth, ItemKind, Krate, KrateX, Mode, Module, ModuleX, Param, ParamX, Params,
-        PathX, Pattern, PatternX, Primitive, SpannedTyped, Stmt, StmtX, Typ, TypDecoration, TypX,
-        Typs, UnaryOp, VarIdent, Visibility,
+        ExprX, Exprs, Fun, FunX, FunctionAttrs, FunctionAttrsX, FunctionKind, FunctionX,
+        GenericBounds, Idents, ImplPath, ImplPaths, InequalityOp, IntRange, IntegerTypeBitwidth,
+        ItemKind, Krate, KrateX, Mode, Module, ModuleX, Param, ParamX, Params, PathX, Pattern,
+        PatternX, Primitive, SpannedTyped, Stmt, StmtX, Typ, TypDecoration, TypX, Typs, UnaryOp,
+        VarIdent, Visibility,
     },
     ast_util::mk_tuple,
     def::{prefix_tuple_variant, Spanned},
@@ -1116,8 +1116,13 @@ fn basic_block_to_exprx(
         if !is_instruction_enable_side_effects(instruction_id, dfg)
             && !is_instruction_call_to_print(instruction_id, dfg)
         {
-            let statement =
-                instruction_to_stmt(&dfg[*instruction_id], dfg, *instruction_id, Mode::Exec, current_context);
+            let statement = instruction_to_stmt(
+                &dfg[*instruction_id],
+                dfg,
+                *instruction_id,
+                Mode::Exec,
+                current_context,
+            );
             vir_statements.push(statement);
         }
     }
