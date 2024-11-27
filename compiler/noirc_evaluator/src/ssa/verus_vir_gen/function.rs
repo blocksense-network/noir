@@ -12,7 +12,7 @@ use super::{
         exprs::basic_block_to_exprx,
         params::{get_function_params, get_function_return_param},
     },
-    func_id_into_funx_name, get_func_kind, BuildingKrateError, CurrentContext, Function,
+    func_id_into_funx_name, get_func_kind, BuildingKrateError, SSAContext, Function,
     FunctionId, ResultIdFixer, TerminatorInstruction, ValueId,
 };
 
@@ -77,7 +77,7 @@ fn build_default_funx_attrs(zero_args: bool) -> FunctionAttrs {
     })
 }
 
-fn func_body_to_vir_expr(func: &Function, current_context: &mut CurrentContext) -> Expr {
+fn func_body_to_vir_expr(func: &Function, current_context: &mut SSAContext) -> Expr {
     let (block_exprx, block_type) =
         basic_block_to_exprx(func.entry_block(), &func.dfg, current_context);
     SpannedTyped::new(
@@ -97,7 +97,7 @@ pub(crate) fn build_funx(
     let ret = get_function_return_param(func)?;
     let result_id_fixer = ResultIdFixer::new(func, &ret).ok();
     let mut current_context =
-        CurrentContext { result_id_fixer: result_id_fixer.as_ref(), side_effects_condition: None };
+        SSAContext { result_id_fixer: result_id_fixer.as_ref(), side_effects_condition: None };
 
     let funx: FunctionX = FunctionX {
         name: func_id_into_funx_name(func_id),

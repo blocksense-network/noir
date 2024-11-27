@@ -4,7 +4,7 @@ mod expr_to_vir;
 mod function;
 
 use acvm::{AcirField, FieldElement};
-use context::{CurrentContext, ResultIdFixer};
+use context::{SSAContext, ResultIdFixer};
 use function::build_funx;
 use num_bigint::{BigInt, BigUint};
 use std::sync::Arc;

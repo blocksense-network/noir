@@ -200,7 +200,7 @@ fn binary_instruction_to_expr(
     binary: &Binary,
     mode: Mode,
     dfg: &DataFlowGraph,
-    current_context: &mut CurrentContext,
+    current_context: &mut SSAContext,
 ) -> Expr {
     let Binary { lhs, rhs, operator } = binary;
     let lhs_expr = ssa_value_to_expr(lhs, dfg, current_context.result_id_fixer);
@@ -572,7 +572,7 @@ pub(crate) fn instruction_to_expr(
     instruction: &Instruction,
     mode: Mode,
     dfg: &DataFlowGraph,
-    current_context: &mut CurrentContext,
+    current_context: &mut SSAContext,
 ) -> Expr {
     match instruction {
         Instruction::Binary(binary) => {
@@ -693,7 +693,7 @@ fn is_instruction_call_to_print(instruction_id: &InstructionId, dfg: &DataFlowGr
 pub(crate) fn basic_block_to_exprx(
     basic_block_id: Id<BasicBlock>,
     dfg: &DataFlowGraph,
-    current_context: &mut CurrentContext,
+    current_context: &mut SSAContext,
 ) -> (ExprX, Typ) {
     let basic_block = dfg[basic_block_id].clone();
     let mut vir_statements: Vec<Stmt> = Vec::new();

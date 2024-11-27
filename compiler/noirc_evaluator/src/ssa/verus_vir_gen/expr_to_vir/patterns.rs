@@ -59,7 +59,7 @@ pub(crate) fn instruction_to_stmt(
     dfg: &DataFlowGraph,
     instruction_id: Id<Instruction>,
     mode: Mode,
-    current_context: &mut CurrentContext,
+    current_context: &mut SSAContext,
 ) -> Stmt {
     let instruction_span =
         build_span(&instruction_id, format!("Instruction({}) statement", instruction_id));
