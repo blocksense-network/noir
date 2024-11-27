@@ -9,12 +9,12 @@ use crate::ssa::verus_vir_gen::{
     },
 };
 
-use super::{CurrentContext, DataFlowGraph, Function, FvInstruction, Id, Instruction};
+use super::{SSAContext, DataFlowGraph, Function, FvInstruction, Id, Instruction};
 
 fn func_attributes_to_vir_expr(
     attribute_instructions: Vec<(Id<Instruction>, Instruction)>,
     dfg: &DataFlowGraph,
-    current_context: &mut CurrentContext,
+    current_context: &mut SSAContext,
 ) -> Vec<Expr> {
     if let Some((last_instruction_id, last_instruction)) = attribute_instructions.last() {
         let mut vir_statements: Vec<Stmt> = Vec::new();
@@ -50,7 +50,7 @@ fn func_attributes_to_vir_expr(
 
 pub(crate) fn func_requires_to_vir_expr(
     func: &Function,
-    current_context: &mut CurrentContext,
+    current_context: &mut SSAContext,
 ) -> Exprs {
     let attr_instrs: Vec<(Id<Instruction>, Instruction)> = func
         .dfg
@@ -71,7 +71,7 @@ pub(crate) fn func_requires_to_vir_expr(
 
 pub(crate) fn func_ensures_to_vir_expr(
     func: &Function,
-    current_context: &mut CurrentContext,
+    current_context: &mut SSAContext,
 ) -> Exprs {
     let attr_instrs: Vec<(Id<Instruction>, Instruction)> = func
         .dfg
