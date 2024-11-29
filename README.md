@@ -4,7 +4,7 @@ We want to provide smart contract engineers with powerful tools that they can us
 
 ## What is formal verification?
 
-With unit tests, software can be verified according to a number of specific and hand-mande inputs. On the other hand, formal verification is able to mathematically ensure that all possible scenarios are accounted for, thus covering more possibilities than hand-made test normally would and eliminating entire categories of bugs.
+With unit tests, software can be verified according to a number of specific and hand-made inputs. On the other hand, formal verification is able to mathematically ensure that all possible scenarios are accounted for, thus covering more possibilities than hand-made test normally would and eliminating entire categories of bugs.
 
 ## Why we use Verus as a back-end
 
