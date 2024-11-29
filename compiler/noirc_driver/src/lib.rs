@@ -134,6 +134,10 @@ pub struct CompileOptions {
     /// This check should always be run on production code.
     #[arg(long)]
     pub skip_underconstrained_check: bool,
+
+    /// Emit debug information for the intermediate Verus VIR to stdout
+    #[arg(long, hide = true)]
+    pub show_vir: bool,
 }
 
 pub fn parse_expression_width(input: &str) -> Result<ExpressionWidth, std::io::Error> {
@@ -357,6 +361,10 @@ pub fn compile_main(
     if options.print_acir {
         println!("Compiled ACIR for main (unoptimized):");
         println!("{}", compiled_program.program);
+    }
+    if let Some(Some(vir)) = options.show_vir.then_some(compiled_program.verus_vir.clone()) {
+        println!("Generated VIR:");
+        println!("{:#?}", vir);
     }
 
     Ok((compiled_program, warnings))
