@@ -3,6 +3,7 @@ use expr_to_vir::{
     types::{from_noir_type, get_function_ret_type},
 };
 use vir::ast::Binders;
+use vir::ast_util::ident_binder;
 
 use crate::ssa::verus_vir_gen::*;
 
@@ -21,11 +22,16 @@ fn lhs_values_to_pattern(
     dfg: &DataFlowGraph,
     instruction_id: Id<Instruction>,
 ) -> Pattern {
-    // I am not sure if the code below works
-    // TODO(totel) Test if we ever reach multiple return values
     let tuple_count = lhs_values.len();
-    // TODO(totel) I have no idea what binders are
-    let binders: Binders<Pattern> = Arc::new(vec![]);
+    let binders: Binders<Pattern> = Arc::new(
+        lhs_values
+            .iter()
+            .enumerate()
+            .map(|(ind, id)| {
+                ident_binder(&Arc::new(ind.to_string()), &lhs_value_to_pattern(id, dfg))
+            })
+            .collect(),
+    );
     let tuple_patternx =
         PatternX::Constructor(Dt::Tuple(tuple_count), prefix_tuple_variant(tuple_count), binders);
     SpannedTyped::new(
