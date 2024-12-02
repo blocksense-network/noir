@@ -17,10 +17,24 @@ fn get_value_bitwidth(value_id: &ValueId, dfg: &DataFlowGraph) -> IntegerTypeBit
     }
 }
 
-fn wrap_with_an_if_logic(condition_id: ValueId, binary_expr: Expr, lhs_expr: Expr, dfg: &DataFlowGraph, result_id_fixer: Option<&ResultIdFixer>) -> Expr {
+fn wrap_with_an_if_logic(
+    condition_id: ValueId,
+    binary_expr: Expr,
+    lhs_expr: Expr,
+    dfg: &DataFlowGraph,
+    result_id_fixer: Option<&ResultIdFixer>,
+) -> Expr {
     let lhs_type = lhs_expr.typ.clone();
-    let if_exprx = ExprX::If(ssa_value_to_expr(&condition_id, dfg, result_id_fixer), binary_expr, Some(lhs_expr));
-    SpannedTyped::new(&build_span(&condition_id, format!("Enable side effects if")), &lhs_type, if_exprx)
+    let if_exprx = ExprX::If(
+        ssa_value_to_expr(&condition_id, dfg, result_id_fixer),
+        binary_expr,
+        Some(lhs_expr),
+    );
+    SpannedTyped::new(
+        &build_span(&condition_id, format!("Enable side effects if")),
+        &lhs_type,
+        if_exprx,
+    )
 }
 
 fn binary_op_to_vir_binary_op(
@@ -210,12 +224,17 @@ fn binary_instruction_to_expr(
         lhs_expr.clone(),
         rhs_expr.clone(),
     );
-    
+
     // Special cases for operations between booleans
-    if let Some(exprx) = is_operation_between_bools(lhs, operator, rhs, lhs_expr.clone(), rhs_expr, dfg) {
+    if let Some(exprx) =
+        is_operation_between_bools(lhs, operator, rhs, lhs_expr.clone(), rhs_expr, dfg)
+    {
         binary_exprx = exprx;
         return SpannedTyped::new(
-            &build_span(&instruction_id, format!("lhs({}) binary_op({}) rhs({})", lhs, operator, rhs)),
+            &build_span(
+                &instruction_id,
+                format!("lhs({}) binary_op({}) rhs({})", lhs, operator, rhs),
+            ),
             &instr_res_type_to_vir_type(binary.result_type(), dfg),
             binary_exprx,
         );
@@ -228,7 +247,13 @@ fn binary_instruction_to_expr(
     );
 
     if let Some(condition_id) = current_context.side_effects_condition {
-        return wrap_with_an_if_logic(condition_id, binary_expr, lhs_expr, dfg, current_context.result_id_fixer)
+        return wrap_with_an_if_logic(
+            condition_id,
+            binary_expr,
+            lhs_expr,
+            dfg,
+            current_context.result_id_fixer,
+        );
     }
     binary_expr
 }
@@ -550,7 +575,9 @@ fn array_get_to_expr(
     let array_get_vir_exprx: ExprX = ExprX::Call(
         CallTarget::Fun(
             call_target_kind.clone(),
-            Arc::new(FunX { path: Arc::new(PathX { krate: vstd_krate.clone(), segments: segments.clone() }) }),
+            Arc::new(FunX {
+                path: Arc::new(PathX { krate: vstd_krate.clone(), segments: segments.clone() }),
+            }),
             typs_for_vstd_func_call.clone(),
             trait_impl_paths.clone(),
             autospec_usage,
@@ -573,19 +600,30 @@ fn array_get_to_expr(
             ExprX::Call(
                 CallTarget::Fun(
                     call_target_kind,
-                    Arc::new(FunX { path: Arc::new(PathX { krate: vstd_krate, segments: segments }) }),
+                    Arc::new(FunX {
+                        path: Arc::new(PathX { krate: vstd_krate, segments: segments }),
+                    }),
                     typs_for_vstd_func_call,
                     trait_impl_paths,
                     autospec_usage,
                 ),
-                Arc::new(vec![array_as_vir_expr, SpannedTyped::new(
-                    &empty_span(),
-                    &Arc::new(TypX::Int(IntRange::U(32))),
-                    ExprX::Const(Constant::Int(BigInt::default())),
-                )]),
+                Arc::new(vec![
+                    array_as_vir_expr,
+                    SpannedTyped::new(
+                        &empty_span(),
+                        &Arc::new(TypX::Int(IntRange::U(32))),
+                        ExprX::Const(Constant::Int(BigInt::default())),
+                    ),
+                ]),
             ),
         );
-        return wrap_with_an_if_logic(condition_id, array_get_vir_expr, array_get_dummy, dfg, current_context.result_id_fixer)
+        return wrap_with_an_if_logic(
+            condition_id,
+            array_get_vir_expr,
+            array_get_dummy,
+            dfg,
+            current_context.result_id_fixer,
+        );
     }
 
     array_get_vir_expr
@@ -632,14 +670,9 @@ pub(crate) fn instruction_to_expr(
         Instruction::Load { address: _ } => unreachable!(), // Optimized away
         Instruction::Store { address: _, value: _ } => unreachable!(), // Optimized away
         Instruction::EnableSideEffectsIf { condition: _ } => todo!(), //TODO(totel) Support for mutability
-        Instruction::ArrayGet { array, index } => array_get_to_expr(
-            array,
-            index,
-            instruction_id,
-            mode,
-            dfg,
-            current_context,
-        ),
+        Instruction::ArrayGet { array, index } => {
+            array_get_to_expr(array, index, instruction_id, mode, dfg, current_context)
+        }
         Instruction::ArraySet { array: _, index: _, value: _, mutable: _ } => {
             todo!("Array set not implemented")
         }
