@@ -9,7 +9,7 @@ use crate::ssa::verus_vir_gen::{
     },
 };
 
-use super::{SSAContext, DataFlowGraph, Function, FvInstruction, Id, Instruction};
+use super::{DataFlowGraph, Function, FvInstruction, Id, Instruction, SSAContext};
 
 fn func_attributes_to_vir_expr(
     attribute_instructions: Vec<(Id<Instruction>, Instruction)>,
@@ -39,7 +39,11 @@ fn func_attributes_to_vir_expr(
             current_context,
         );
         vec![SpannedTyped::new(
-            &build_span(last_instruction_id, "Formal verification expression".to_string()),
+            &build_span(
+                last_instruction_id,
+                "Formal verification expression".to_string(),
+                Some(dfg.get_call_stack(*last_instruction_id)),
+            ),
             &get_function_ret_type(dfg.instruction_results(*last_instruction_id), dfg),
             ExprX::Block(Arc::new(vir_statements), Some(last_expr)),
         )]
@@ -69,10 +73,7 @@ pub(crate) fn func_requires_to_vir_expr(
     Arc::new(func_attributes_to_vir_expr(attr_instrs, &func.dfg, current_context))
 }
 
-pub(crate) fn func_ensures_to_vir_expr(
-    func: &Function,
-    current_context: &mut SSAContext,
-) -> Exprs {
+pub(crate) fn func_ensures_to_vir_expr(func: &Function, current_context: &mut SSAContext) -> Exprs {
     let attr_instrs: Vec<(Id<Instruction>, Instruction)> = func
         .dfg
         .fv_instructions

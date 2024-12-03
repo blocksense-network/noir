@@ -31,7 +31,11 @@ fn wrap_with_an_if_logic(
         Some(lhs_expr),
     );
     SpannedTyped::new(
-        &build_span(&condition_id, format!("Enable side effects if")),
+        &build_span(
+            &condition_id,
+            format!("Enable side effects if"),
+            Some(dfg.get_value_call_stack(condition_id)),
+        ),
         &lhs_type,
         if_exprx,
     )
@@ -102,6 +106,7 @@ fn array_to_expr(
                 array_id.to_string(),
                 array_values.iter().map(|x| x.to_string()).collect::<Vec<String>>().join(", ")
             ),
+            Some(dfg.get_value_call_stack(*array_id)),
         ),
         &from_noir_type(noir_type.clone(), None),
         ExprX::ArrayLiteral(Arc::new(vals_to_expr)),
@@ -113,6 +118,7 @@ fn param_to_expr(
     position: usize,
     noir_type: &Type,
     result_id_fixer: Option<&ResultIdFixer>,
+    dfg: &DataFlowGraph,
 ) -> Expr {
     if let Some(result_id_fixer) = result_id_fixer {
         if let Some(expr) = result_id_fixer.fix_id(value_id) {
@@ -120,7 +126,11 @@ fn param_to_expr(
         }
     }
     SpannedTyped::new(
-        &build_span(value_id, "param position ".to_owned() + &position.to_string()),
+        &build_span(
+            value_id,
+            "param position ".to_owned() + &position.to_string(),
+            Some(dfg.get_value_call_stack(*value_id)),
+        ),
         &from_noir_type(noir_type.clone(), None),
         ExprX::Var(id_into_var_ident(value_id.clone())),
     )
@@ -169,9 +179,11 @@ fn ssa_value_to_expr(
     let value = &dfg[*value_id];
     match value {
         Value::Instruction { instruction: _, position, typ } => {
-            param_to_expr(value_id, *position, typ, result_id_fixer)
+            param_to_expr(value_id, *position, typ, result_id_fixer, dfg)
         }
-        Value::Param { block: _, position, typ } => param_to_expr(value_id, *position, typ, None),
+        Value::Param { block: _, position, typ } => {
+            param_to_expr(value_id, *position, typ, None, dfg)
+        }
         Value::NumericConstant { constant, typ } => numeric_const_to_expr(constant, typ),
         Value::Array { array, typ } => array_to_expr(value_id, array, typ, dfg), //TODO(totel) See if there is an other way to represent arrays
         Value::Function(_) => unreachable!(), // The only possible way to have a Value::Function is through Instruction::Call
@@ -202,6 +214,7 @@ fn return_values_to_expr(
                 &build_span(
                     &basic_block_id,
                     format!("Tuple of terminating instr of block({})", basic_block_id),
+                    Some(dfg.get_value_call_stack(*return_values_ids.last().unwrap())),
                 ),
                 &tuple_exprs,
             ))
@@ -234,6 +247,7 @@ fn binary_instruction_to_expr(
             &build_span(
                 &instruction_id,
                 format!("lhs({}) binary_op({}) rhs({})", lhs, operator, rhs),
+                Some(dfg.get_call_stack(instruction_id)),
             ),
             &instr_res_type_to_vir_type(binary.result_type(), dfg),
             binary_exprx,
@@ -241,7 +255,11 @@ fn binary_instruction_to_expr(
     }
 
     let binary_expr = SpannedTyped::new(
-        &build_span(&instruction_id, format!("lhs({}) binary_op({}) rhs({})", lhs, operator, rhs)),
+        &build_span(
+            &instruction_id,
+            format!("lhs({}) binary_op({}) rhs({})", lhs, operator, rhs),
+            Some(dfg.get_call_stack(instruction_id)),
+        ),
         &instr_res_type_to_vir_type(binary.result_type(), dfg),
         binary_exprx,
     );
@@ -286,7 +304,11 @@ fn bitwise_not_instr_to_expr(
     };
     let bitnot_exprx = bitwise_not_instr_to_exprx(value_id, dfg, bit_width, result_id_fixer);
     SpannedTyped::new(
-        &build_span(value_id, format!("Unary negation on({})", value_id.to_string())),
+        &build_span(
+            value_id,
+            format!("Unary negation on({})", value_id.to_string()),
+            Some(dfg.get_value_call_stack(*value_id)),
+        ),
         &from_noir_type(value.get_type().clone(), None),
         bitnot_exprx,
     )
@@ -294,7 +316,7 @@ fn bitwise_not_instr_to_expr(
 
 fn build_const_expr(const_num: i64, value_id: &ValueId, noir_type: &Type) -> Expr {
     SpannedTyped::new(
-        &build_span(value_id, format!("Const {const_num}")),
+        &build_span(value_id, format!("Const {const_num}"), None),
         &from_noir_type(noir_type.clone(), None),
         ExprX::Const(Constant::Int(BigInt::from(const_num))),
     )
@@ -313,18 +335,30 @@ fn cast_bool_to_integer(
     let const_false = build_const_expr(0, value_id, noir_type);
 
     let if_true_expr = SpannedTyped::new(
-        &build_span(value_id, format!("Then condition of if")),
+        &build_span(
+            value_id,
+            format!("Then condition of if"),
+            Some(dfg.get_value_call_stack(*value_id)),
+        ),
         &if_return_type,
         ExprX::Block(Arc::new(vec![]), Some(const_true)),
     );
     let if_false_expr = SpannedTyped::new(
-        &build_span(value_id, format!("Then condition of if")),
+        &build_span(
+            value_id,
+            format!("Then condition of if"),
+            Some(dfg.get_value_call_stack(*value_id)),
+        ),
         &if_return_type,
         ExprX::Block(Arc::new(vec![]), Some(const_false)),
     );
 
     let if_expr = SpannedTyped::new(
-        &build_span(value_id, format!("If expr because bool to int cast")),
+        &build_span(
+            value_id,
+            format!("If expr because bool to int cast"),
+            Some(dfg.get_value_call_stack(*value_id)),
+        ),
         &if_return_type,
         ExprX::If(condition, if_true_expr, Some(if_false_expr)),
     );
@@ -343,7 +377,11 @@ fn cast_integer_to_integer(
         ssa_value_to_expr(value_id, dfg, result_id_fixer),
     );
     SpannedTyped::new(
-        &build_span(value_id, format!("Cast({}) to type({})", value_id, noir_type)),
+        &build_span(
+            value_id,
+            format!("Cast({}) to type({})", value_id, noir_type),
+            Some(dfg.get_value_call_stack(*value_id)),
+        ),
         &from_noir_type(noir_type.clone(), None),
         cast_exprx,
     )
@@ -391,7 +429,7 @@ fn range_limit_to_expr(
         format!("Range check var({}) to bit size({})", value_id, target_bit_size)
     };
     SpannedTyped::new(
-        &build_span(value_id, debug_string),
+        &build_span(value_id, debug_string, Some(dfg.get_value_call_stack(*value_id))),
         &from_noir_type(value_type.clone(), None),
         clip_exprx,
     )
@@ -405,7 +443,11 @@ fn constrain_instruction_to_expr(
     result_id_fixer: Option<&ResultIdFixer>,
 ) -> Expr {
     let binary_equals_expr = SpannedTyped::new(
-        &build_span(&instruction_id, format!("lhs({}) == rhs({})", lhs, rhs)),
+        &build_span(
+            &instruction_id,
+            format!("lhs({}) == rhs({})", lhs, rhs),
+            Some(dfg.get_call_stack(instruction_id)),
+        ),
         &Arc::new(TypX::Bool),
         ExprX::Binary(
             VirBinaryOp::Eq(Mode::Spec), // Verus uses Spec for Eq expressions in asserts
@@ -418,17 +460,26 @@ fn constrain_instruction_to_expr(
         &build_span(
             &instruction_id,
             format!("Constrain({}) lhs({}) == rhs({})", instruction_id, lhs, rhs),
+            Some(dfg.get_call_stack(instruction_id)),
         ),
         &get_empty_vir_type(),
         assert_exprx,
     );
     let block_wrap = SpannedTyped::new(
-        &build_span(&instruction_id, format!("Block wrapper for AssertAssume")),
+        &build_span(
+            &instruction_id,
+            format!("Block wrapper for AssertAssume"),
+            Some(dfg.get_call_stack(instruction_id)),
+        ),
         &get_empty_vir_type(),
         ExprX::Block(Arc::new(vec![]), Some(assert_expr)),
     );
     SpannedTyped::new(
-        &build_span(&instruction_id, format!("Ghost wrapper for AssertAssume")),
+        &build_span(
+            &instruction_id,
+            format!("Ghost wrapper for AssertAssume"),
+            Some(dfg.get_call_stack(instruction_id)),
+        ),
         &get_empty_vir_type(),
         ExprX::Ghost { alloc_wrapper: false, tracked: false, expr: block_wrap },
     )
@@ -473,6 +524,7 @@ fn call_instruction_to_expr(
                 func_id,
                 arguments.iter().map(|x| x.to_string()).collect::<Vec<String>>().join(", ")
             ),
+            Some(dfg.get_call_stack(call_id)),
         ),
         &function_return_type,
         call_exprx,
@@ -505,7 +557,11 @@ fn array_get_to_expr(
         Arc::new(vec![array_return_type.clone(), array_length_as_type.clone()]),
     ));
     let array_as_vir_expr: Expr = SpannedTyped::new(
-        &build_span(array_id, format!("Array{} as expr", array_id)),
+        &build_span(
+            array_id,
+            format!("Array{} as expr", array_id),
+            Some(dfg.get_call_stack(instruction_id)),
+        ),
         &Arc::new(TypX::Decorate(TypDecoration::Ref, None, array_as_primary_vir_type.clone())),
         (*ssa_value_to_expr(array_id, dfg, current_context.result_id_fixer)).x.clone(),
     );
@@ -588,14 +644,22 @@ fn array_get_to_expr(
         Arc::new(TypX::Decorate(TypDecoration::Ref, None, array_return_type));
 
     let array_get_vir_expr = SpannedTyped::new(
-        &build_span(&instruction_id, format!("Array get with index {}", index)),
+        &build_span(
+            &instruction_id,
+            format!("Array get with index {}", index),
+            Some(dfg.get_call_stack(instruction_id)),
+        ),
         &ref_wrapped_array_return_type,
         array_get_vir_exprx,
     );
 
     if let Some(condition_id) = current_context.side_effects_condition {
         let array_get_dummy = SpannedTyped::new(
-            &build_span(&instruction_id, format!("Array get with index {}", index)),
+            &build_span(
+                &instruction_id,
+                format!("Array get with index {}", index),
+                Some(dfg.get_call_stack(instruction_id)),
+            ),
             &ref_wrapped_array_return_type,
             ExprX::Call(
                 CallTarget::Fun(
@@ -697,7 +761,7 @@ fn terminating_instruction_to_expr(
     dfg: &DataFlowGraph,
 ) -> Expr {
     match terminating_instruction {
-        TerminatorInstruction::Return { return_values, call_stack: _ } => {
+        TerminatorInstruction::Return { return_values, call_stack } => {
             let return_type = get_function_ret_type(&return_values, dfg);
             let return_exprx =
                 ExprX::Return(return_values_to_expr(return_values, dfg, basic_block_id));
@@ -705,6 +769,7 @@ fn terminating_instruction_to_expr(
                 &build_span(
                     &basic_block_id,
                     format!("Terminating instruction of block({}) return vals", basic_block_id),
+                    Some(call_stack.clone()),
                 ),
                 &return_type,
                 return_exprx,

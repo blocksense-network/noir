@@ -4,7 +4,7 @@ mod expr_to_vir;
 mod function;
 
 use acvm::{AcirField, FieldElement};
-use context::{SSAContext, ResultIdFixer};
+use context::{ResultIdFixer, SSAContext};
 use function::build_funx;
 use num_bigint::{BigInt, BigUint};
 use std::sync::Arc;
@@ -26,7 +26,7 @@ use vir::ast::BinaryOp as VirBinaryOp;
 use super::{
     ir::{
         basic_block::BasicBlock,
-        dfg::DataFlowGraph,
+        dfg::{CallStack, DataFlowGraph},
         function::{Function, FunctionId},
         instruction::{
             Binary, BinaryOp, FvInstruction, Instruction, InstructionId, InstructionResultType,
@@ -65,12 +65,25 @@ fn empty_span() -> Span {
     Span { raw_span: Arc::new(()), id: 0, data: vec![], as_string: String::new() }
 }
 
-fn build_span<A>(ast_id: &Id<A>, debug_string: String) -> Span {
+fn encode_span_to_string(call_stack: CallStack) -> String {
+    if let Some(last_call) = call_stack.last() {
+        let stringified_span: String =
+            last_call.span.start().to_string() + ", " + &last_call.span.end().to_string();
+        let stringified_file_id: String = last_call.file.as_usize().to_string();
+        String::from("(") + &stringified_span + ", " + &stringified_file_id + ")"
+    } else {
+        String::new()
+    }
+}
+
+fn build_span<A>(ast_id: &Id<A>, debug_string: String, span: Option<CallStack>) -> Span {
+    let encoded_span =
+        if let Some(call_stack) = span { encode_span_to_string(call_stack) } else { String::new() };
     Span {
-        raw_span: Arc::new(()),       // No idea
+        raw_span: Arc::new(()),       // Currently unusable because of unknown bug
         id: ast_id.to_usize() as u64, // AST id
         data: Vec::new(),             // No idea
-        as_string: debug_string, // It's used as backup if there is no other way to show where the error comes from.
+        as_string: encoded_span + &debug_string, // It's used as backup if there is no other way to show where the error comes from.
     }
 }
 
@@ -125,7 +138,7 @@ pub(crate) fn build_krate(ssa: Ssa) -> Result<Krate, BuildingKrateError> {
         arch: vir::ast::Arch { word_bits: vir::ast::ArchWordBits::Either32Or64 }, // Don't know what bits to use
     };
     let ssa_module = Spanned::new(
-        build_span(&Id::<Value>::new(0), format!("SSA module")),
+        build_span(&Id::<Value>::new(0), format!("SSA module"), None),
         ModuleX {
             path: Arc::new(PathX {
                 krate: None,
@@ -137,7 +150,7 @@ pub(crate) fn build_krate(ssa: Ssa) -> Result<Krate, BuildingKrateError> {
     for (id, func) in &ssa.functions {
         let func_x = build_funx(*id, func, ssa_module.clone())?;
         let function = Spanned::new(
-            build_span(id, format!("Function({}) with name {}", id, func.name())),
+            build_span(id, format!("Function({}) with name {}", id, func.name()), None), //TODO See if we could get the function's span
             func_x,
         );
         vir.functions.push(function);

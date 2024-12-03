@@ -12,8 +12,8 @@ use super::{
         exprs::basic_block_to_exprx,
         params::{get_function_params, get_function_return_param},
     },
-    func_id_into_funx_name, get_func_kind, BuildingKrateError, SSAContext, Function,
-    FunctionId, ResultIdFixer, TerminatorInstruction, ValueId,
+    func_id_into_funx_name, get_func_kind, BuildingKrateError, Function, FunctionId, ResultIdFixer,
+    SSAContext, TerminatorInstruction, ValueId,
 };
 
 fn empty_vec_generic_bounds() -> GenericBounds {
@@ -81,7 +81,7 @@ fn func_body_to_vir_expr(func: &Function, current_context: &mut SSAContext) -> E
     let (block_exprx, block_type) =
         basic_block_to_exprx(func.entry_block(), &func.dfg, current_context);
     SpannedTyped::new(
-        &build_span(&func.id(), format!("Function's({}) basic block body", func.id())),
+        &build_span(&func.id(), format!("Function's({}) basic block body", func.id()), None), //TODO See if could get basic block span
         &block_type,
         block_exprx,
     )
