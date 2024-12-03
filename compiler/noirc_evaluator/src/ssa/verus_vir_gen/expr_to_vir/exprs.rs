@@ -115,7 +115,7 @@ fn array_to_expr(
 
 fn param_to_expr(
     value_id: &ValueId,
-    position: usize,
+    position: Option<usize>,
     noir_type: &Type,
     result_id_fixer: Option<&ResultIdFixer>,
     dfg: &DataFlowGraph,
@@ -125,10 +125,15 @@ fn param_to_expr(
             return expr;
         }
     }
+    let debug_string = if let Some(position_index) = position {
+        "param position ".to_owned() + &position_index.to_string()
+    } else {
+        value_id.to_string()
+    };
     SpannedTyped::new(
         &build_span(
             value_id,
-            "param position ".to_owned() + &position.to_string(),
+            debug_string,
             Some(dfg.get_value_call_stack(*value_id)),
         ),
         &from_noir_type(noir_type.clone(), None),
@@ -178,11 +183,11 @@ fn ssa_value_to_expr(
     let value_id = &dfg.resolve(*value_id);
     let value = &dfg[*value_id];
     match value {
-        Value::Instruction { instruction: _, position, typ } => {
-            param_to_expr(value_id, *position, typ, result_id_fixer, dfg)
+        Value::Instruction { instruction: _, position: _, typ } => {
+            param_to_expr(value_id, None, typ, result_id_fixer, dfg)
         }
         Value::Param { block: _, position, typ } => {
-            param_to_expr(value_id, *position, typ, None, dfg)
+            param_to_expr(value_id, Some(*position), typ, None, dfg)
         }
         Value::NumericConstant { constant, typ } => numeric_const_to_expr(constant, typ),
         Value::Array { array, typ } => array_to_expr(value_id, array, typ, dfg), //TODO(totel) See if there is an other way to represent arrays
