@@ -15,7 +15,7 @@ use crate::{
     errors::RuntimeError,
     ssa::{
         function_builder::{data_bus::DataBusBuilder, FvBuilder},
-        ir::instruction::Intrinsic,
+        ir::instruction::{ Intrinsic, Instruction },
     },
 };
 
@@ -134,7 +134,33 @@ impl<'a> FunctionContext<'a> {
         formal_verification_expressions: &Vec<FvExpression>,
     ) -> Result<(), RuntimeError> {
         let entry_block = self.increment_parameter_rcs();
-        let return_value = self.codegen_expression(body)?;
+
+        let block_id = self.builder.current_function.entry_block();
+        let return_value = self.codegen_expression(body)?.map(|value| {
+            let value_id = match value {
+                value::Value::Normal(ir_value_id)     => ir_value_id,
+                value::Value::Mutable(ir_value_id, _) => ir_value_id,
+            };
+
+            let new_instruction = self.builder.current_function
+                .dfg.make_instruction(
+                    Instruction::Load {
+                        address: value_id
+                    },
+                    Some(vec![self.builder.current_function.dfg.type_of_value(value_id)])
+                );
+
+            self.builder.current_function
+                .dfg[block_id].insert_instruction(new_instruction);
+            let new_value_id = self.builder.current_function
+                .dfg.instruction_results(new_instruction)[0];
+
+            Tree::Leaf(match value {
+                value::Value::Normal(_)       => value::Value::Normal(new_value_id),
+                value::Value::Mutable(_, typ) => value::Value::Mutable(new_value_id, typ),
+            })
+        });
+
         self.return_value = return_value.clone();
         let results = return_value.into_value_list(self);
         self.end_scope(entry_block, &results);
