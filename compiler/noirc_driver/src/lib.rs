@@ -613,6 +613,22 @@ pub fn compile_no_check(
         skip_underconstrained_check: options.skip_underconstrained_check,
     };
 
+    if context.perform_formal_verification {
+        return Ok(CompiledProgram {
+            hash,
+            program: acvm::acir::circuit::Program::default(),
+            plonky2_circuit: None,
+            debug: vec![],
+            abi: noirc_abi::Abi::default(),
+            file_map: std::collections::BTreeMap::default(),
+            noir_version: NOIR_ARTIFACT_VERSION_STRING.to_string(),
+            warnings: vec![],
+            names: vec![],
+            brillig_names: vec![],
+            verus_vir: create_verus_vir(monomorph, &ssa_evaluator_options).ok(),
+        });
+    }
+
     let SsaProgramArtifact { program, debug, warnings, names, brillig_names, error_types, .. } =
         create_program(monomorph.clone(), &ssa_evaluator_options)?;
 
@@ -631,12 +647,6 @@ pub fn compile_no_check(
         None
     };
 
-    let verus_vir = if context.perform_formal_verification {
-        Some(create_verus_vir(monomorph, &ssa_evaluator_options)?)
-    } else {
-        None
-    };
-
     Ok(CompiledProgram {
         hash,
         program,
@@ -648,6 +658,6 @@ pub fn compile_no_check(
         warnings,
         names,
         brillig_names,
-        verus_vir,
+        verus_vir: None,
     })
 }
