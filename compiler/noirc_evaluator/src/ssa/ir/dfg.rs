@@ -323,6 +323,8 @@ impl DataFlowGraph {
             for id in (0..self.fv_instructions.len()).rev().map(|x| self.fv_start_id + x) {
                 let res = self.results.remove(&InstructionId::new(id)).unwrap();
                 self.results.insert(InstructionId::new(id + 1), res);
+                // Update span for the moved instruction
+                self.locations.insert(InstructionId::new(id + 1), self.locations.get(&InstructionId::new(id)).unwrap().clone());
             }
             self.fv_start_id += 1;
         }
@@ -418,6 +420,8 @@ impl DataFlowGraph {
                         FvBuilder::Requires => FvInstruction::Requires(instruction),
                         FvBuilder::None => unreachable!(), // The if condition ensures this
                     });
+                    // Insert fv instruction's span
+                    self.locations.insert(instruction_id, call_stack.clone());
                 }
 
                 InsertInstructionResult::Results(
