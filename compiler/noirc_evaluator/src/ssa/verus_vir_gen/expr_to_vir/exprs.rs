@@ -629,7 +629,11 @@ pub(crate) fn instruction_to_expr(
             current_context.result_id_fixer,
         ),
         Instruction::Allocate => unreachable!(), // Optimized away
-        Instruction::Load { address: _ } => unreachable!(), // Optimized away
+        Instruction::Load { address: value_id } => ssa_value_to_expr(
+            value_id,
+            dfg,
+            current_context.result_id_fixer
+        ),
         Instruction::Store { address: _, value: _ } => unreachable!(), // Optimized away
         Instruction::EnableSideEffectsIf { condition: _ } => todo!(), //TODO(totel) Support for mutability
         Instruction::ArrayGet { array, index } => array_get_to_expr(
