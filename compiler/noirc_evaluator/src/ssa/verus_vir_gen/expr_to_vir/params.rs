@@ -12,6 +12,7 @@ fn build_param(
     is_mut: bool,
     unwrapped_info: Option<(Mode, VarIdent)>,
     position: Option<usize>, // In some cases there is no way to indicate a position
+    dfg: &DataFlowGraph,
 ) -> Param {
     let paramx = ParamX {
         name: id_into_var_ident(value_id),
@@ -20,8 +21,13 @@ fn build_param(
         is_mut: is_mut,                 // As far as I understand there is no &mut in SSA
         unwrapped_info: unwrapped_info, // Only if the parameter uses Ghost(x)/Tracked(x) pattern
     };
+    let debug_string = if let Some(position_index) = position {
+        "param position ".to_owned() + &position_index.to_string()
+    } else {
+        value_id.to_string()
+    };
     Spanned::new(
-        build_span(&value_id, "param position ".to_owned() + &position.unwrap_or(0).to_string()),
+        build_span(&value_id, debug_string, Some(dfg.get_value_call_stack(value_id))),
         paramx,
     )
 }
@@ -39,6 +45,7 @@ fn build_tuple_return_param(
             false,
             None,
             None,
+            dfg,
         );
     }
 
@@ -49,7 +56,15 @@ fn build_tuple_return_param(
         is_mut: false,
         unwrapped_info: None,
     };
-    Spanned::new(build_span(&basic_block_id, "Tuple param".to_string()), paramx)
+    Spanned::new(
+        build_span(
+            &basic_block_id,
+            "Tuple param".to_string(),
+            None,
+            // Some(dfg.get_value_call_stack(*values.last().unwrap())),
+        ),
+        paramx,
+    )
 }
 
 fn ssa_param_into_vir_param(
@@ -60,7 +75,15 @@ fn ssa_param_into_vir_param(
     match value {
         Value::Param { block: _, position, typ } => {
             let vir_type = from_noir_type(typ, None);
-            return Ok(build_param(value_id, vir_type, Mode::Exec, false, None, Some(position)));
+            return Ok(build_param(
+                value_id,
+                vir_type,
+                Mode::Exec,
+                false,
+                None,
+                Some(position),
+                dfg,
+            ));
         }
         _ => {
             return Err(BuildingKrateError::SomeError(

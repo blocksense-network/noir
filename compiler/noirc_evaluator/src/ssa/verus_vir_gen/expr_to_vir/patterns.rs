@@ -10,7 +10,11 @@ use crate::ssa::verus_vir_gen::*;
 fn lhs_value_to_pattern(value_id: &ValueId, dfg: &DataFlowGraph) -> Pattern {
     let value_patternx = PatternX::Var { name: id_into_var_ident(*value_id), mutable: false }; // Mutability not supported for the prototype
     SpannedTyped::new(
-        &build_span(value_id, format!("Lhs value({})", value_id)),
+        &build_span(
+            value_id,
+            format!("Lhs value({})", value_id),
+            Some(dfg.get_value_call_stack(*value_id)),
+        ),
         &from_noir_type(dfg[*value_id].get_type().clone(), None),
         value_patternx,
     )
@@ -42,6 +46,7 @@ fn lhs_values_to_pattern(
                 instruction_id,
                 lhs_values.iter().map(|x| x.to_string()).collect::<Vec<String>>().join(", ")
             ),
+            Some(dfg.get_call_stack(instruction_id))
         ),
         &get_function_ret_type(lhs_values, dfg),
         tuple_patternx,
@@ -67,12 +72,19 @@ pub(crate) fn instruction_to_stmt(
     mode: Mode,
     current_context: &mut SSAContext,
 ) -> Stmt {
-    let instruction_span =
-        build_span(&instruction_id, format!("Instruction({}) statement", instruction_id));
+    let instruction_span = build_span(
+        &instruction_id,
+        format!("Instruction({}) statement", instruction_id),
+        Some(dfg.get_call_stack(instruction_id)),
+    );
 
     match dfg.instruction_results(instruction_id).len() {
         0 => Spanned::new(
-            build_span(&instruction_id, format!("Instruction({})", instruction_id)),
+            build_span(
+                &instruction_id,
+                format!("Instruction({})", instruction_id),
+                Some(dfg.get_call_stack(instruction_id)),
+            ),
             StmtX::Expr(instruction_to_expr(
                 instruction_id,
                 instruction,
