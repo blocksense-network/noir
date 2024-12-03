@@ -258,6 +258,7 @@ pub(crate) fn optimize_into_verus_vir(
     .run_pass(Ssa::fold_constants_using_constraints, "After Constraint Folding:")
     .run_pass(Ssa::dead_instruction_elimination, "After Dead Instruction Elimination:")
     .run_pass(Ssa::array_set_optimization, "After Array Set Optimizations:")
+    .run_pass(Ssa::formal_verifications_optimization, "After Formal Verification Optimizations:")
     .finish();
 
     drop(ssa_gen_span_guard);
