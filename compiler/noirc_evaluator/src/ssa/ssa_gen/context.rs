@@ -48,6 +48,9 @@ pub(super) struct FunctionContext<'a> {
     /// requires attributes, so in the SSA we can replace it with the return value
     /// of the function. We use this inside codegen_ident to do just that.
     pub(super) return_value: Values,
+
+    /// Flag which indicates if we are generating SSA for formal verification
+    pub(super) is_formal_verification: bool,
 }
 
 /// Shared context for all functions during ssa codegen. This is the only
@@ -106,6 +109,7 @@ impl<'a> FunctionContext<'a> {
         parameters: &Parameters,
         runtime: RuntimeType,
         shared_context: &'a SharedContext,
+        is_formal_verification: bool,
     ) -> Self {
         let function_id = shared_context
             .pop_next_function_in_queue()
@@ -121,6 +125,7 @@ impl<'a> FunctionContext<'a> {
             shared_context,
             loops: Vec::new(),
             return_value: Tree::empty(),
+            is_formal_verification,
         };
         this.add_parameters_to_scope(parameters);
         this

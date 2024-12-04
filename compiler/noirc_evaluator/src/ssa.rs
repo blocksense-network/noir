@@ -103,6 +103,7 @@ pub(crate) fn optimize_into_acir(
         options.force_brillig_output,
         options.print_codegen_timings,
         &options.emit_ssa,
+        false,
     )?
     .run_pass(Ssa::defunctionalize, "After Defunctionalization:")
     .run_pass(Ssa::remove_paired_rc, "After Removing Paired rc_inc & rc_decs:")
@@ -174,6 +175,7 @@ pub(crate) fn optimize_into_plonky2(
         false,
         options.print_codegen_timings,
         &options.emit_ssa,
+        false,
     )?
     .run_pass(Ssa::defunctionalize, "After Defunctionalization:")
     .run_pass(Ssa::remove_paired_rc, "After Removing Paired rc_inc & rc_decs:")
@@ -230,6 +232,7 @@ pub(crate) fn optimize_into_verus_vir(
         false,
         options.print_codegen_timings,
         &options.emit_ssa,
+        true,
     )?
     .run_pass(Ssa::defunctionalize, "After Defunctionalization:")
     .run_pass(Ssa::remove_paired_rc, "After Removing Paired rc_inc & rc_decs:")
@@ -526,8 +529,9 @@ impl SsaBuilder {
         force_brillig_runtime: bool,
         print_codegen_timings: bool,
         emit_ssa: &Option<PathBuf>,
+        is_formal_verification: bool,
     ) -> Result<SsaBuilder, RuntimeError> {
-        let ssa = ssa_gen::generate_ssa(program, force_brillig_runtime)?;
+        let ssa = ssa_gen::generate_ssa(program, force_brillig_runtime, is_formal_verification)?;
         if let Some(emit_ssa) = emit_ssa {
             let mut emit_ssa_dir = emit_ssa.clone();
             // We expect the full package artifact path to be passed in here,
