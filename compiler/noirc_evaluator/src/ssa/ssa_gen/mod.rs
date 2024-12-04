@@ -15,7 +15,7 @@ use crate::{
     errors::RuntimeError,
     ssa::{
         function_builder::{data_bus::DataBusBuilder, FvBuilder},
-        ir::instruction::{ Intrinsic, Instruction },
+        ir::instruction::{Instruction, Intrinsic},
     },
 };
 
@@ -135,28 +135,34 @@ impl<'a> FunctionContext<'a> {
     ) -> Result<(), RuntimeError> {
         let entry_block = self.increment_parameter_rcs();
 
-        let block_id = self.builder.current_function.entry_block();
-        let return_value = self.codegen_expression(body)?.map(|value| {
+        let return_value = self.codegen_expression(body)?;
+        let block_id = self
+            .builder
+            .current_function
+            .dfg
+            .basic_blocks_iter()
+            .filter(|(_, block)| matches!(block.terminator(), None))
+            .map(|(id, _)| id)
+            .last()
+            .unwrap_or(self.builder.current_function.entry_block());
+
+        let return_value = return_value.map(|value| {
             let value_id = match value {
-                value::Value::Normal(ir_value_id)     => ir_value_id,
+                value::Value::Normal(ir_value_id) => ir_value_id,
                 value::Value::Mutable(ir_value_id, _) => ir_value_id,
             };
 
-            let new_instruction = self.builder.current_function
-                .dfg.make_instruction(
-                    Instruction::Load {
-                        address: value_id
-                    },
-                    Some(vec![self.builder.current_function.dfg.type_of_value(value_id)])
-                );
+            let new_instruction = self.builder.current_function.dfg.make_instruction(
+                Instruction::Load { address: value_id },
+                Some(vec![self.builder.current_function.dfg.type_of_value(value_id)]),
+            );
 
-            self.builder.current_function
-                .dfg[block_id].insert_instruction(new_instruction);
-            let new_value_id = self.builder.current_function
-                .dfg.instruction_results(new_instruction)[0];
+            self.builder.current_function.dfg[block_id].insert_instruction(new_instruction);
+            let new_value_id =
+                self.builder.current_function.dfg.instruction_results(new_instruction)[0];
 
             Tree::Leaf(match value {
-                value::Value::Normal(_)       => value::Value::Normal(new_value_id),
+                value::Value::Normal(_) => value::Value::Normal(new_value_id),
                 value::Value::Mutable(_, typ) => value::Value::Mutable(new_value_id, typ),
             })
         });
