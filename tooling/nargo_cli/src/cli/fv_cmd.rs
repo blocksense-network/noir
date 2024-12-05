@@ -123,7 +123,8 @@ pub(crate) fn z3_verify(
             println!("Failed to deserialize: {}", line);
         }
     }
-
+    smt_outputs.reverse();
+    
     let verification_diagnostics: Vec<FileDiagnostic> = smt_outputs
         .into_iter()
         .map(|smt_output| smt_output_to_diagnostic(smt_output, &workspace_file_manager))
