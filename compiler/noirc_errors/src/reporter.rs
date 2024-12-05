@@ -46,6 +46,18 @@ impl CustomDiagnostic {
             call_stack: Default::default(),
         }
     }
+    
+    pub fn from_message_kind(msg: &str, kind: DiagnosticKind) -> CustomDiagnostic {
+        Self {
+            message: msg.to_owned(),
+            secondaries: Vec::new(),
+            notes: Vec::new(),
+            kind,
+            deprecated: false,
+            unnecessary: false,
+            call_stack: Default::default(),
+        }
+    }
 
     fn simple_with_kind(
         primary_message: String,
