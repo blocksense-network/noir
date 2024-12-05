@@ -52,6 +52,10 @@ impl FileId {
     pub fn dummy() -> FileId {
         FileId(0)
     }
+
+    pub fn new(id: usize) -> FileId {
+        FileId(id)
+    }
 }
 
 pub struct File<'input>(&'input SimpleFile<PathString, String>);
