@@ -14,7 +14,7 @@ use crate::ssa::{
     ir::{
         basic_block::BasicBlockId,
         function::{Function, FunctionId, Signature},
-        instruction::{BinaryOp, Instruction},
+        instruction::{BinaryOp, FvInstruction, Instruction, InstructionId},
         types::{NumericType, Type},
         value::{Value, ValueId},
     },
@@ -78,11 +78,20 @@ impl DefunctionalizationContext {
     fn defunctionalize(&mut self, func: &mut Function) {
         let mut call_target_values = HashSet::new();
 
+        // Defunctionalize fv instructions
+        let fv_instructions_ids: Vec<InstructionId> = func
+            .dfg
+            .fv_instructions
+            .iter()
+            .enumerate()
+            .map(|(pos, _)| InstructionId::new(func.dfg.fv_start_id + pos))
+            .collect();
+
         for block_id in func.reachable_blocks() {
             let block = &func.dfg[block_id];
             let instructions = block.instructions().to_vec();
 
-            for instruction_id in instructions {
+            for instruction_id in [instructions, fv_instructions_ids.clone()].concat() {
                 let instruction = func.dfg[instruction_id].clone();
                 let mut replacement_instruction = None;
                 // Operate on call instructions
