@@ -5,7 +5,7 @@ use vir::ast::{Expr, ExprX, Exprs, Mode, SpannedTyped, Stmt};
 use crate::ssa::verus_vir_gen::{
     build_span,
     expr_to_vir::{
-        exprs::instruction_to_expr, patterns::instruction_to_stmt, types::get_function_ret_type,
+        exprs::{get_enable_side_effects_value_id, instruction_to_expr, is_instruction_call_to_print, is_instruction_enable_side_effects}, patterns::instruction_to_stmt, types::get_function_ret_type,
     },
 };
 
@@ -26,9 +26,22 @@ fn func_attributes_to_vir_expr(
             if let Instruction::RangeCheck { .. } = instruction {
                 continue;
             }
-            let statement =
-                instruction_to_stmt(&instruction, dfg, instruction_id, Mode::Spec, current_context);
-            vir_statements.push(statement);
+            if is_instruction_enable_side_effects(&instruction_id, dfg) {
+                current_context.side_effects_condition =
+                    get_enable_side_effects_value_id(&instruction_id, dfg);
+            }
+            if !is_instruction_enable_side_effects(&instruction_id, dfg)
+                && !is_instruction_call_to_print(&instruction_id, dfg)
+            {
+                let statement = instruction_to_stmt(
+                    &instruction,
+                    dfg,
+                    instruction_id,
+                    Mode::Spec,
+                    current_context,
+                );
+                vir_statements.push(statement);
+            }
         }
 
         let last_expr = instruction_to_expr(
