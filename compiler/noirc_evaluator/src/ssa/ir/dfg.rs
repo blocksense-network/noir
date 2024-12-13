@@ -324,7 +324,10 @@ impl DataFlowGraph {
                 let res = self.results.remove(&InstructionId::new(id)).unwrap();
                 self.results.insert(InstructionId::new(id + 1), res);
                 // Update span for the moved instruction
-                self.locations.insert(InstructionId::new(id + 1), self.locations.get(&InstructionId::new(id)).unwrap().clone());
+                self.locations.insert(
+                    InstructionId::new(id + 1),
+                    self.locations.get(&InstructionId::new(id)).unwrap().clone(),
+                );
             }
             self.fv_start_id += 1;
         }
@@ -338,6 +341,14 @@ impl DataFlowGraph {
         }
     }
 
+    pub(crate) fn direct_insert_to_result(
+        &mut self,
+        instruction_id: InstructionId,
+        value_ids: Vec<ValueId>,
+    ) {
+        self.results.insert(instruction_id, value_ids);
+    }
+    
     /// Return the result types of this instruction.
     ///
     /// In the case of Load, Call, and Intrinsic, the function's result
@@ -621,6 +632,15 @@ impl DataFlowGraph {
         } else {
             false
         }
+    }
+
+    /// Returns a vector fv instructions and their matching ids in the dfg.
+    pub(crate) fn get_fv_instructions_with_ids(&self) -> Vec<(InstructionId, &FvInstruction)> {
+        self.fv_instructions
+            .iter()
+            .enumerate()
+            .map(|(pos, instr)| (InstructionId::new(self.fv_start_id + pos), instr))
+            .collect()
     }
 }
 

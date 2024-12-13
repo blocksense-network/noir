@@ -765,6 +765,16 @@ pub(crate) enum FvInstruction {
     Ensures(Instruction),
 }
 
+impl FvInstruction {
+    pub(crate) fn give_inner_as_ref(&self) -> &Instruction {
+        match self {
+            FvInstruction::Requires(instruction) | FvInstruction::Ensures(instruction) => {
+                instruction
+            }
+        }
+    }
+}
+
 /// Given a chain of operations like:
 /// v1 = array_set [10, 11, 12], index 1, value: 5
 /// v2 = array_set v1, index 2, value: 6
