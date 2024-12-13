@@ -60,8 +60,12 @@ impl Ssa {
 
         for function in self.functions.values() {
             let dfg = &function.dfg;
-            let mut next_id =
-                dfg.values_iter().map(|(id, _)| id.to_usize()).max().expect("Values can't be empty") + 1;
+            let mut next_id = dfg
+                .values_iter()
+                .map(|(id, _)| id.to_usize())
+                .max()
+                .expect("Values can't be empty")
+                + 1;
             let mut new_instructions: Vec<FvInstruction> = vec![];
             let mut index = 0;
             // First element in the tuple is the starting index for the right shift.
@@ -177,7 +181,7 @@ impl Ssa {
                     new_instructions.push(wrap_instruction(instruction.clone()))
                 } else {
                     let instruction_id = InstructionId::new(dfg.fv_start_id + index);
-                    let result_id = dfg.instruction_results(instruction_id)[0];
+                    let result_id = dfg.instruction_results(instruction_id);
                     let callee = match dfg[*func] {
                         Value::Function(inner_id) => {
                             self.functions.get(&inner_id).expect("Functions should have the id")
@@ -187,7 +191,7 @@ impl Ssa {
                     let (expanded_call_instructions, values_to_create, new_instr_ids) =
                         inline_expand(
                             arguments,
-                            result_id,
+                            result_id.to_vec(),
                             callee,
                             instruction_id.to_usize(),
                             next_id,
@@ -214,7 +218,7 @@ impl Ssa {
 
 fn inline_expand(
     arguments: &Vec<Id<Value>>,
-    result_id: Id<Value>,
+    result_ids: Vec<Id<Value>>,
     callee: &Function,
     starting_index: usize,
     next_id: &mut usize,
@@ -421,11 +425,14 @@ fn inline_expand(
 
         new_instructions.push((instruction_id.clone(), new_instruction));
     }
-    value_id_map.insert(
-        callee_dfg
-            .instruction_results(new_instructions.last().expect("Call must have been expand").0)[0],
-        result_id,
-    );
+
+    result_ids
+        .iter()
+        .zip(new_instructions[new_instructions.len().saturating_sub(result_ids.len())..].iter())
+        .for_each(|(result_id, (instruction_id, _))| {
+            value_id_map.insert(callee_dfg.instruction_results(*instruction_id)[0], *result_id);
+        });
+
     for (instruction_id, _) in new_instructions.iter() {
         let instr_id = InstructionId::new(current_instr_index);
         instr_id_to_returned_vals.push((
@@ -438,9 +445,9 @@ fn inline_expand(
                 })
                 .collect(),
         ));
-
         current_instr_index += 1;
     }
+    println!("instr ids and return vals{:?}", instr_id_to_returned_vals);
 
     (
         new_instructions.into_iter().map(|(_, instr)| instr).collect(),
