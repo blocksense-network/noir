@@ -784,14 +784,14 @@ fn terminating_instruction_to_expr(
     }
 }
 
-fn is_instruction_enable_side_effects(instruction_id: &InstructionId, dfg: &DataFlowGraph) -> bool {
+pub(crate) fn is_instruction_enable_side_effects(instruction_id: &InstructionId, dfg: &DataFlowGraph) -> bool {
     match dfg[*instruction_id] {
         Instruction::EnableSideEffectsIf { condition: _ } => true,
         _ => false,
     }
 }
 
-fn get_enable_side_effects_value_id(
+pub(crate) fn get_enable_side_effects_value_id(
     instruction_id: &InstructionId,
     dfg: &DataFlowGraph,
 ) -> Option<ValueId> {
@@ -806,7 +806,7 @@ fn get_enable_side_effects_value_id(
     }
 }
 
-fn is_instruction_call_to_print(instruction_id: &InstructionId, dfg: &DataFlowGraph) -> bool {
+pub(crate) fn is_instruction_call_to_print(instruction_id: &InstructionId, dfg: &DataFlowGraph) -> bool {
     match &dfg[*instruction_id] {
         Instruction::Call { func, arguments: _ } => {
             if let Value::ForeignFunction(func_name) = &dfg[*func] {
