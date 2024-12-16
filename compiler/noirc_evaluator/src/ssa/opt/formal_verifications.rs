@@ -2,10 +2,15 @@ use std::collections::HashMap;
 
 use crate::ssa::ir::dfg::DataFlowGraph;
 use crate::ssa::ir::function::{Function, FunctionId};
-use crate::ssa::ir::instruction::{Binary, FvInstruction, Instruction, InstructionId};
+use crate::ssa::ir::instruction::{FvInstruction, Instruction, InstructionId};
 use crate::ssa::ir::map::Id;
 use crate::ssa::ir::value::{Value, ValueId};
 use crate::ssa::ssa_gen::Ssa;
+
+struct RightShiftInfo {
+    pub start_index: usize,
+    pub shift_amount: usize,
+}
 
 impl Ssa {
     pub(crate) fn formal_verifications_optimization(mut self) -> Self {
@@ -20,23 +25,19 @@ impl Ssa {
     }
 
     fn has_call_instruction(&self) -> bool {
-        let mut is_done = true;
+        let is_done = true;
         for function in self.functions.values() {
             let dfg = &function.dfg;
             for fv_instruction in dfg.fv_instructions.iter() {
                 match fv_instruction {
-                    FvInstruction::Requires(instruction) => match instruction {
-                        Instruction::Call { func: _, arguments: _ } => {
-                            is_done = false;
+                    FvInstruction::Requires(instruction) | FvInstruction::Ensures(instruction) => {
+                        match instruction {
+                            Instruction::Call { func: _, arguments: _ } => {
+                                return true;
+                            }
+                            _ => {}
                         }
-                        _ => {}
-                    },
-                    FvInstruction::Ensures(instruction) => match instruction {
-                        Instruction::Call { func: _, arguments: _ } => {
-                            is_done = false;
-                        }
-                        _ => {}
-                    },
+                    }
                 }
             }
         }
@@ -52,7 +53,7 @@ impl Ssa {
 
         // For each function that will be modified we have to right shift the fv instructions which will not be inlined
         // so we could make "space" for the ones which will be added by the inlining.
-        let mut update_func_fv_right_shift: Vec<(FunctionId, Vec<(usize, usize)>)> = Vec::new();
+        let mut update_func_fv_right_shift: Vec<(FunctionId, Vec<RightShiftInfo>)> = Vec::new();
 
         // We also have to update the results map, because we need to update the indexes which
         let mut update_func_dfg_results: Vec<(FunctionId, Vec<(InstructionId, Vec<ValueId>)>)> =
@@ -70,44 +71,32 @@ impl Ssa {
             let mut index = 0;
             // First element in the tuple is the starting index for the right shift.
             // Second element is how much we have to right shift the instructions in dfg.results.
-            let mut shift_fv_instructions: Vec<(usize, usize)> = Vec::new();
+            let mut shift_fv_instructions: Vec<RightShiftInfo> = Vec::new();
             let mut current_needed_right_shifts = 0;
             let mut is_done = false;
             for fv_instruction in dfg.fv_instructions.iter() {
-                match fv_instruction {
-                    FvInstruction::Requires(instruction) => {
-                        self.handle_fv_instruction(
-                            function,
-                            instruction,
-                            index,
-                            &mut is_done,
-                            &mut new_instructions,
-                            dfg,
-                            &mut update_func_with_values,
-                            &mut update_func_dfg_results,
-                            &mut shift_fv_instructions,
-                            &mut current_needed_right_shifts,
-                            &mut next_id,
-                            |instr| FvInstruction::Requires(instr),
-                        );
+                let wrapper_function = match fv_instruction {
+                    FvInstruction::Requires(_) => {
+                            |instr| FvInstruction::Requires(instr)
                     }
-                    FvInstruction::Ensures(instruction) => {
-                        self.handle_fv_instruction(
-                            function,
-                            instruction,
-                            index,
-                            &mut is_done,
-                            &mut new_instructions,
-                            dfg,
-                            &mut update_func_with_values,
-                            &mut update_func_dfg_results,
-                            &mut shift_fv_instructions,
-                            &mut current_needed_right_shifts,
-                            &mut next_id,
-                            |instr| FvInstruction::Ensures(instr),
-                        );
+                    FvInstruction::Ensures(_) => {
+                            |instr| FvInstruction::Ensures(instr)
                     }
-                }
+                };
+                self.handle_fv_instruction(
+                    function,
+                    fv_instruction.give_inner_as_ref(),
+                    index,
+                    &mut is_done,
+                    &mut new_instructions,
+                    dfg,
+                    &mut update_func_with_values,
+                    &mut update_func_dfg_results,
+                    &mut shift_fv_instructions,
+                    &mut current_needed_right_shifts,
+                    &mut next_id,
+                    wrapper_function,
+                );
                 index += 1;
             }
             update_func_fv_instructions.push((function.id(), new_instructions));
@@ -126,13 +115,14 @@ impl Ssa {
         // Right shift all instructions which are after the call instruction which we are inlining.
         for (func_id, right_shift_info) in update_func_fv_right_shift {
             let function = self.functions.get_mut(&func_id).expect("No function should be missing");
-            for (starting_index, amount_to_shift) in right_shift_info {
+            for right_shift_info in right_shift_info {
                 let last_instruction_index =
                     function.dfg.fv_start_id + function.dfg.fv_instructions.len() - 1;
 
-                for i in (starting_index..=last_instruction_index).rev() {
+                for i in (right_shift_info.start_index..=last_instruction_index).rev() {
                     let instruction_id = InstructionId::new(i);
-                    let new_instruction_id = InstructionId::new(i + amount_to_shift - 1);
+                    let new_instruction_id =
+                        InstructionId::new(i + right_shift_info.shift_amount - 1);
                     let instr_results = function.dfg.instruction_results(instruction_id);
                     function
                         .dfg
@@ -168,7 +158,7 @@ impl Ssa {
         dfg: &DataFlowGraph,
         update_func_with_values: &mut Vec<(FunctionId, Vec<(usize, Value)>)>,
         update_func_dfg_results: &mut Vec<(FunctionId, Vec<(InstructionId, Vec<ValueId>)>)>,
-        shift_fv_instructions: &mut Vec<(usize, usize)>,
+        shift_fv_instructions: &mut Vec<RightShiftInfo>,
         current_needed_right_shifts: &mut usize,
         next_id: &mut usize,
         wrap_instruction: F,
@@ -199,10 +189,10 @@ impl Ssa {
                     *is_done = true;
 
                     update_func_with_values.push((function.id(), values_to_create));
-                    shift_fv_instructions.push((
-                        instruction_id.to_usize() + *current_needed_right_shifts,
-                        expanded_call_instructions.len(),
-                    ));
+                    shift_fv_instructions.push(RightShiftInfo {
+                        start_index: instruction_id.to_usize() + *current_needed_right_shifts,
+                        shift_amount: expanded_call_instructions.len(),
+                    });
                     *current_needed_right_shifts += expanded_call_instructions.len();
                     update_func_dfg_results.push((function.id(), new_instr_ids));
 
@@ -217,8 +207,8 @@ impl Ssa {
 }
 
 fn inline_expand(
-    arguments: &Vec<Id<Value>>,
-    result_ids: Vec<Id<Value>>,
+    arguments: &Vec<ValueId>,
+    result_ids: Vec<ValueId>,
     callee: &Function,
     starting_index: usize,
     next_id: &mut usize,
@@ -231,199 +221,17 @@ fn inline_expand(
     // Instruction ids and their returned values.
     let mut instr_id_to_returned_vals: Vec<(InstructionId, Vec<ValueId>)> = Vec::new();
     // Maps value ids in the callee to new value ids to be created for the caller.
-    let mut value_id_map: HashMap<Id<Value>, Id<Value>> = HashMap::new();
+    let mut value_id_map: HashMap<ValueId, ValueId> = HashMap::new();
     value_id_map.extend(callee_parameters.iter().zip(arguments.iter()));
 
     let mut values_to_create: Vec<(usize, Value)> = vec![];
     let mut current_instr_index = starting_index;
 
     for instruction_id in callee_entry_block.instructions() {
-        let new_instruction = match &callee_dfg[*instruction_id] {
-            Instruction::Binary(Binary { lhs, rhs, operator }) => {
-                let new_lhs = map_value_id(
-                    *lhs,
-                    callee_dfg,
-                    &mut values_to_create,
-                    &mut value_id_map,
-                    next_id,
-                );
-
-                let new_rhs = map_value_id(
-                    *rhs,
-                    callee_dfg,
-                    &mut values_to_create,
-                    &mut value_id_map,
-                    next_id,
-                );
-
-                Instruction::binary(*operator, new_lhs, new_rhs)
-            }
-            Instruction::Cast(value_id, target_type) => {
-                let new_value_id = map_value_id(
-                    *value_id,
-                    callee_dfg,
-                    &mut values_to_create,
-                    &mut value_id_map,
-                    next_id,
-                );
-
-                Instruction::Cast(new_value_id, target_type.clone())
-            }
-            Instruction::Not(value_id) => {
-                let new_value_id = map_value_id(
-                    *value_id,
-                    callee_dfg,
-                    &mut values_to_create,
-                    &mut value_id_map,
-                    next_id,
-                );
-
-                Instruction::Not(new_value_id)
-            }
-            Instruction::Truncate { value, bit_size, max_bit_size } => {
-                let new_value = map_value_id(
-                    *value,
-                    callee_dfg,
-                    &mut values_to_create,
-                    &mut value_id_map,
-                    next_id,
-                );
-                Instruction::Truncate {
-                    value: new_value,
-                    bit_size: *bit_size,
-                    max_bit_size: *max_bit_size,
-                }
-            }
-            Instruction::Constrain(val_1, val_2, constrain_error) => {
-                let new_val_1 = map_value_id(
-                    *val_1,
-                    callee_dfg,
-                    &mut values_to_create,
-                    &mut value_id_map,
-                    next_id,
-                );
-                let new_val_2 = map_value_id(
-                    *val_2,
-                    callee_dfg,
-                    &mut values_to_create,
-                    &mut value_id_map,
-                    next_id,
-                );
-                Instruction::Constrain(new_val_1, new_val_2, constrain_error.clone())
-            }
-            Instruction::RangeCheck { value, max_bit_size, assert_message } => {
-                let new_value = map_value_id(
-                    *value,
-                    callee_dfg,
-                    &mut values_to_create,
-                    &mut value_id_map,
-                    next_id,
-                );
-                Instruction::RangeCheck {
-                    value: new_value,
-                    max_bit_size: *max_bit_size,
-                    assert_message: assert_message.clone(),
-                }
-            }
-            Instruction::Call { func, arguments } => {
-                let new_arguments: Vec<ValueId> = arguments
-                    .iter()
-                    .map(|argument| {
-                        map_value_id(
-                            *argument,
-                            callee_dfg,
-                            &mut values_to_create,
-                            &mut value_id_map,
-                            next_id,
-                        )
-                    })
-                    .collect();
-                let new_func = map_value_id(
-                    *func,
-                    callee_dfg,
-                    &mut values_to_create,
-                    &mut value_id_map,
-                    next_id,
-                );
-                let res = Instruction::Call { func: new_func, arguments: new_arguments };
-                res
-            }
-            Instruction::Allocate => unreachable!(), // Optimized away
-            Instruction::Load { address } => {
-                let new_address = map_value_id(
-                    *address,
-                    callee_dfg,
-                    &mut values_to_create,
-                    &mut value_id_map,
-                    next_id,
-                );
-
-                Instruction::Load { address: new_address }
-            }
-            Instruction::Store { .. } => unreachable!(), // Optimized away
-            Instruction::EnableSideEffectsIf { condition } => {
-                let new_condition = map_value_id(
-                    *condition,
-                    callee_dfg,
-                    &mut values_to_create,
-                    &mut value_id_map,
-                    next_id,
-                );
-
-                Instruction::EnableSideEffectsIf { condition: new_condition }
-            }
-            Instruction::ArrayGet { array, index } => {
-                let new_array = map_value_id(
-                    *array,
-                    callee_dfg,
-                    &mut values_to_create,
-                    &mut value_id_map,
-                    next_id,
-                );
-                let new_index = map_value_id(
-                    *index,
-                    callee_dfg,
-                    &mut values_to_create,
-                    &mut value_id_map,
-                    next_id,
-                );
-                Instruction::ArrayGet { array: new_array, index: new_index }
-            }
-            Instruction::ArraySet { array, index, value, mutable } => {
-                let new_array = map_value_id(
-                    *array,
-                    callee_dfg,
-                    &mut values_to_create,
-                    &mut value_id_map,
-                    next_id,
-                );
-                let new_index = map_value_id(
-                    *index,
-                    callee_dfg,
-                    &mut values_to_create,
-                    &mut value_id_map,
-                    next_id,
-                );
-                let new_value = map_value_id(
-                    *value,
-                    callee_dfg,
-                    &mut values_to_create,
-                    &mut value_id_map,
-                    next_id,
-                );
-                Instruction::ArraySet {
-                    array: new_array,
-                    index: new_index,
-                    value: new_value,
-                    mutable: *mutable,
-                }
-            }
-            Instruction::IncrementRc { .. } => unreachable!(), // Optimized away
-            Instruction::DecrementRc { .. } => unreachable!(), // Optimized away
-            Instruction::IfElse { .. } => unreachable!(),      // Optimized away
-        };
-
-        new_instructions.push((instruction_id.clone(), new_instruction));
+        let new_instruction = &callee_dfg[*instruction_id].map_values(|val_id| {
+            map_value_id(val_id, callee_dfg, &mut values_to_create, &mut value_id_map, next_id)
+        });
+        new_instructions.push((instruction_id.clone(), new_instruction.clone()));
     }
 
     result_ids
@@ -460,18 +268,18 @@ fn inline_expand(
 /// a new value_id and add a new value to the `values_to_create` vector.
 /// The new value is a copy of the older one but it has a new value_id.
 fn map_value_id(
-    lhs: Id<Value>,
+    lhs: ValueId,
     callee_dfg: &DataFlowGraph,
     values_to_create: &mut Vec<(usize, Value)>,
-    value_id_map: &mut HashMap<Id<Value>, Id<Value>>,
+    value_id_map: &mut HashMap<ValueId, ValueId>,
     next_id: &mut usize,
-) -> Id<Value> {
+) -> ValueId {
     match value_id_map.get(&lhs) {
         Some(mapped_value) => mapped_value.clone(),
         None => {
             let lhs_value = callee_dfg[lhs].clone();
             values_to_create.push((*next_id, lhs_value));
-            let new_lhs: Id<Value> = Id::new(*next_id);
+            let new_lhs: ValueId = Id::new(*next_id);
             value_id_map.insert(lhs, new_lhs);
             *next_id += 1;
             new_lhs
