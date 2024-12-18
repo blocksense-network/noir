@@ -19,6 +19,7 @@ path = "src/main.rs"
 
 [dependencies]
 bn254_blackbox_solver.workspace = true
+goldilocks_blackbox_solver.workspace = true
 color-eyre.workspace = true
 clap.workspace = true
 fxhash.workspace = true
@@ -35,6 +36,8 @@ noirc_errors.workspace = true
 noirc_abi.workspace = true
 noirc_evaluator.workspace = true
 
+cfg-if.workspace = true
+
 # Logs
 tracing-subscriber.workspace = true
 tracing-appender = "0.2.3"
@@ -44,3 +47,6 @@ noirc_abi.workspace = true
 noirc_driver.workspace = true
 tempfile.workspace = true
 
+[features]
+bn254 = []
+goldilocks = []

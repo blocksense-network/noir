@@ -1,5 +1,11 @@
 use acvm::acir::circuit::ExpressionWidth;
-use bn254_blackbox_solver::Bn254BlackBoxSolver;
+cfg_if::cfg_if! {
+    if #[cfg(feature = "goldilocks")] {
+        use goldilocks_blackbox_solver::GoldilocksBlackBoxSolver as Bn254BlackBoxSolver;
+    } else {
+        use bn254_blackbox_solver::Bn254BlackBoxSolver;
+    }
+}
 use clap::Args;
 use iter_extended::vecmap;
 use nargo::{

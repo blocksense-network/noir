@@ -26,7 +26,13 @@ use acvm::{
     brillig_vm::{MemoryValue, VMStatus, VM},
     FieldElement,
 };
-use bn254_blackbox_solver::Bn254BlackBoxSolver;
+cfg_if::cfg_if! {
+    if #[cfg(feature = "goldilocks")] {
+        use goldilocks_blackbox_solver::GoldilocksBlackBoxSolver as Bn254BlackBoxSolver;
+    } else {
+        use bn254_blackbox_solver::Bn254BlackBoxSolver;
+    }
+}
 use im::Vector;
 use iter_extended::vecmap;
 

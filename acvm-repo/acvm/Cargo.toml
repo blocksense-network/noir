@@ -31,6 +31,8 @@ bls12_381 = [
     "brillig_vm/bls12_381",
     "acvm_blackbox_solver/bls12_381",
 ]
+goldilocks = ["acir/goldilocks", "brillig_vm/goldilocks", "acvm_blackbox_solver/goldilocks"]
+
 
 [dev-dependencies]
 ark-bls12-381 = { version = "^0.4.0", default-features = false, features = [

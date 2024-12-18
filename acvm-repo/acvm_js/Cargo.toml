@@ -47,3 +47,4 @@ wasm-bindgen-test.workspace = true
 default = ["bn254"]
 bn254 = ["acvm/bn254", "dep:bn254_blackbox_solver"]
 bls12_381 = ["acvm/bls12_381"]
+goldilocks = ["acvm/goldilocks"]

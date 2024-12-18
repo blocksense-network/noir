@@ -3,7 +3,13 @@ use std::io::{self, Write};
 use acir::circuit::Program;
 use acir::native_types::{WitnessMap, WitnessStack};
 use acir::FieldElement;
-use bn254_blackbox_solver::Bn254BlackBoxSolver;
+cfg_if::cfg_if! {
+    if #[cfg(feature = "goldilocks")] {
+        use goldilocks_blackbox_solver::GoldilocksBlackBoxSolver as Bn254BlackBoxSolver;
+    } else {
+        use bn254_blackbox_solver::Bn254BlackBoxSolver;
+    }
+}
 use clap::Args;
 
 use crate::cli::fs::inputs::{read_bytecode_from_file, read_inputs_from_file};

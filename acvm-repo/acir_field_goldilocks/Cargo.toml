@@ -1,6 +1,6 @@
 [package]
-name = "brillig"
-description = "Brillig is the bytecode ACIR uses for non-determinism."
+name = "acir_field_goldilocks"
+description = "The Goldilocks field implementation being used by ACIR."
 # x-release-please-start-version
 version = "1.0.0-beta.0"
 # x-release-please-end
@@ -16,10 +16,18 @@ workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-acir_field.workspace = true
+hex.workspace = true
+num-bigint.workspace = true
 serde.workspace = true
 
+ark-ff.workspace = true
+ark-serialize.workspace = true
+zeroize.workspace = true
+rand.workspace = true
+
+cfg-if.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
 [features]
-bn254 = ["acir_field/bn254"]
-bls12_381 = ["acir_field/bls12_381"]
-goldilocks = ["acir_field/goldilocks"]

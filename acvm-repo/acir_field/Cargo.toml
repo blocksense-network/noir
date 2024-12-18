@@ -23,6 +23,7 @@ serde.workspace = true
 ark-bn254.workspace = true
 ark-bls12-381 = { workspace = true, optional = true }
 ark-ff.workspace = true
+acir_field_goldilocks = {workspace = true, optional = true }
 
 cfg-if.workspace = true
 
@@ -32,3 +33,4 @@ proptest.workspace = true
 [features]
 bn254 = []
 bls12_381 = ["dep:ark-bls12-381"]
+goldilocks = ["dep:acir_field_goldilocks"]

@@ -11,6 +11,7 @@ license.workspace = true
 [dependencies]
 acvm.workspace = true
 bn254_blackbox_solver.workspace = true
+goldilocks_blackbox_solver.workspace = true
 noirc_arena.workspace = true
 noirc_errors.workspace = true
 noirc_printable_type.workspace = true
@@ -42,3 +43,4 @@ proptest-derive = "0.5.0"
 experimental_parser = []
 bn254 = []
 bls12_381 = []
+goldilocks = []

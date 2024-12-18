@@ -14,6 +14,8 @@ pub use field_element::FieldElement as GenericFieldElement;
 cfg_if::cfg_if! {
     if #[cfg(feature = "bls12_381")] {
         pub type FieldElement = field_element::FieldElement<ark_bls12_381::Fr>;
+    } else if #[cfg(feature = "goldilocks")] {
+        pub type FieldElement = field_element::FieldElement<acir_field_goldilocks::goldilocks_field::GoldilocksField>;
     } else {
         pub type FieldElement = field_element::FieldElement<ark_bn254::Fr>;
     }
@@ -34,4 +36,4 @@ macro_rules! assert_unique_feature {
 }
 // https://internals.rust-lang.org/t/mutually-exclusive-feature-flags/8601/7
 // If another field/feature is added, we add it here too
-assert_unique_feature!("bn254", "bls12_381");
+assert_unique_feature!("bn254", "bls12_381", "goldilocks");
