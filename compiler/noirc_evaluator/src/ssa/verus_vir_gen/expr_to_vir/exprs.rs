@@ -1,11 +1,12 @@
 use expr_to_vir::{
     patterns::instruction_to_stmt,
     types::{
-        from_noir_type, get_empty_vir_type, get_function_ret_type, get_int_range,
-        get_integer_bit_width, instr_res_type_to_vir_type, into_vir_const_int,
+        from_composite_type, from_noir_type, get_empty_vir_type, get_function_ret_type,
+        get_int_range, get_integer_bit_width, instr_res_type_to_vir_type, into_vir_const_int,
         trunc_target_int_range,
     },
 };
+use vir::ast::FieldOpr;
 
 use crate::ssa::verus_vir_gen::*;
 
@@ -536,6 +537,154 @@ fn call_instruction_to_expr(
     )
 }
 
+/// In some cases we have to reverse engineer the actual value of the index.
+/// This is because SSA flattens the array. Therefore an array of tuples with length n
+/// we will have length of 2*n because it has been flattened.
+/// For composite inner types we also have to calculate the index for the tuple.
+fn calculate_index_and_tuple_index(
+    index: &ValueId,
+    instruction_id: &InstructionId,
+    inner_type_length: usize,
+    dfg: &DataFlowGraph,
+    result_id_fixer: Option<&ResultIdFixer>,
+    mode: Mode,
+) -> (Expr, Option<BigInt>) {
+    // If the inner_type_length is less than 2, then the array hasn't been flattened.
+    // So we just return the index transformed into a VIR expression
+    if inner_type_length < 2 {
+        return (ssa_value_to_expr(index, dfg, result_id_fixer), None);
+    }
+
+    let mut index_value = dfg[*index].clone();
+    // Temporary hack to circumvent the value map bug.
+    // We have this if check because there is a chance that dfg[index] won't return the actual value.
+    // This is a bug which only occurs if the array_get is located in a fv attribute.
+    if instruction_id.to_usize() > dfg.fv_start_id {
+        let previous_fv_id = InstructionId::new(instruction_id.to_usize() - 1); //Get last FV instruction
+        if let Some(index) = // Check if it returns the value id of the index
+            dfg.instruction_results(previous_fv_id).iter().position(|&res| res == *index)
+        {
+            index_value = Value::Instruction {
+                instruction: previous_fv_id,
+                position: 0,
+                typ: dfg.type_of_value(dfg.instruction_results(previous_fv_id)[index]),
+            };
+        }
+    } //TODO Delete this `if` when we fix the value map bug
+
+    // There are two possible options for the index.
+    // It's either a numeric constant or a Value::Instruction
+    match &index_value {
+        Value::Instruction { instruction, position: _, typ: noir_type } => {
+            let bit_size = 32; // This is the index bit size
+
+            let tuple_index = match &dfg[*instruction] {
+                Instruction::Binary(binary) => match binary.operator {
+                    BinaryOp::Add => match &dfg[binary.rhs] {
+                        Value::NumericConstant { constant: numeric_const, typ: _ } => {
+                            let const_big_uint: BigUint = numeric_const.into_repr().into();
+                            BigInt::from_biguint(num_bigint::Sign::Plus, const_big_uint.clone())
+                        }
+                        _ => unreachable!(
+                            "Expected auto generated \"add\" instruction to have const rhs"
+                        ),
+                    },
+                    _ => BigInt::ZERO,
+                },
+                _ => BigInt::ZERO,
+            };
+            let tuple_index_as_expr = SpannedTyped::new(
+                &empty_span(),
+                &Arc::new(TypX::Int(IntRange::U(bit_size))),
+                ExprX::Const(Constant::Int(tuple_index.clone())),
+            );
+
+            // lhs == (index - tuple_index)
+            let lhs_expr = SpannedTyped::new(
+                &empty_span(),
+                &from_noir_type(noir_type.clone(), None),
+                ExprX::Binary(
+                    VirBinaryOp::Arith(ArithOp::Sub, mode),
+                    ssa_value_to_expr(index, dfg, result_id_fixer),
+                    tuple_index_as_expr.clone(),
+                ),
+            );
+
+            // rhs == inner_type_length
+            let rhs_expr = SpannedTyped::new(
+                &empty_span(),
+                &Arc::new(TypX::Int(IntRange::U(bit_size))),
+                ExprX::Const(Constant::Int(BigInt::from(inner_type_length))),
+            );
+
+            // actual_index = (index - tuple_index)/inner_type_length
+            let actual_index_expr = SpannedTyped::new(
+                &empty_span(),
+                &from_noir_type(noir_type.clone(), None),
+                ExprX::Binary(VirBinaryOp::Arith(ArithOp::EuclideanDiv, mode), lhs_expr, rhs_expr),
+            );
+            // If we are inside of an attribute we early return because we don't have to make
+            // assume statments and wrap with ghost blocks. There is no overflowing in Spec code.
+            match mode {
+                Mode::Spec | Mode::Proof => return (actual_index_expr, Some(tuple_index)),
+                Mode::Exec => {}
+            };
+
+            let comparison_expr = SpannedTyped::new(
+                &empty_span(),
+                &Arc::new(TypX::Bool),
+                ExprX::Binary(
+                    VirBinaryOp::Inequality(InequalityOp::Ge),
+                    ssa_value_to_expr(index, dfg, result_id_fixer),
+                    tuple_index_as_expr,
+                ),
+            );
+
+            // Assume that (index > inner_types.len())
+            // This is true in SSA because SSA flattens the arrays and increases the index to match the flattened array.
+            let assume_expr = SpannedTyped::new(
+                &empty_span(),
+                &get_empty_vir_type(),
+                ExprX::AssertAssume { is_assume: true, expr: comparison_expr },
+            );
+
+            let ghost_wrap_assume_expr = SpannedTyped::new(
+                &empty_span(),
+                &get_empty_vir_type(),
+                ExprX::Ghost { alloc_wrapper: false, tracked: false, expr: assume_expr },
+            );
+
+            let assume_stmt = Spanned::new(empty_span(), StmtX::Expr(ghost_wrap_assume_expr));
+            let wrap_with_assume = SpannedTyped::new(
+                &empty_span(),
+                &from_noir_type(noir_type.clone(), None),
+                ExprX::Block(Arc::new(vec![assume_stmt]), Some(actual_index_expr)),
+            );
+
+            (wrap_with_assume, Some(tuple_index))
+        }
+        Value::NumericConstant { constant: numeric_const, typ: noir_type } => {
+            let const_big_uint: BigUint = numeric_const.into_repr().into();
+            let const_big_int: BigInt =
+                BigInt::from_biguint(num_bigint::Sign::Plus, const_big_uint.clone());
+
+            let divisor = BigInt::from(inner_type_length);
+            let tuple_index = const_big_int.clone() % divisor.clone();
+            let actual_index = (const_big_int - tuple_index.clone()) / divisor;
+
+            let actual_index_as_expr = SpannedTyped::new(
+                &empty_span(),
+                &from_noir_type(noir_type.clone(), None),
+                ExprX::Const(Constant::Int(actual_index)),
+            );
+            (actual_index_as_expr, Some(tuple_index))
+        }
+        _ => unreachable!(
+            "For a flatten array you can only index it using a constant or an instruction"
+        ),
+    }
+}
+
 /// Transforming an array_get instruction is tricky because we have to use a
 /// function from the verus standard library. The way we do it is we generate a
 /// function call to the needed vstd function. This function becomes available
@@ -555,11 +704,19 @@ fn array_get_to_expr(
 
     let array_length = dfg.try_get_array_length(*array_id).unwrap();
     let array_length_as_type = into_vir_const_int(array_length);
+    let inner_type_noir = match dfg.type_of_value(*array_id) {
+        Type::Array(inner_types, _) => inner_types,
+        _ => unreachable!("You can only index an array in SSA"),
+    };
+    let inner_type_length = inner_type_noir.as_ref().len();
+    let inner_type = from_composite_type(inner_type_noir);
+
     let array_inner_type_and_length_type: Typs =
-        Arc::new(vec![array_return_type.clone(), array_length_as_type.clone()]);
+        Arc::new(vec![inner_type.clone(), array_length_as_type.clone()]);
+
     let array_as_primary_vir_type = Arc::new(TypX::Primitive(
         Primitive::Array,
-        Arc::new(vec![array_return_type.clone(), array_length_as_type.clone()]),
+        Arc::new(vec![inner_type.clone(), array_length_as_type.clone()]),
     ));
     let array_as_vir_expr: Expr = SpannedTyped::new(
         &build_span(
@@ -570,12 +727,14 @@ fn array_get_to_expr(
         &Arc::new(TypX::Decorate(TypDecoration::Ref, None, array_as_primary_vir_type.clone())),
         (*ssa_value_to_expr(array_id, dfg, current_context.result_id_fixer)).x.clone(),
     );
+
     let index_as_vir_expr: Expr;
     let segments: Idents;
     let call_target_kind: CallTargetKind;
     let typs_for_vstd_func_call: Typs;
     let trait_impl_paths: ImplPaths;
     let autospec_usage: AutospecUsage;
+    let tuple_index: Option<BigInt>;
     match mode {
         Mode::Spec => {
             segments = Arc::new(vec![
@@ -599,8 +758,7 @@ fn array_get_to_expr(
                 impl_paths: Arc::new(vec![]),
                 is_trait_default: false,
             };
-            typs_for_vstd_func_call =
-                Arc::new(vec![array_as_primary_vir_type, array_return_type.clone()]);
+            typs_for_vstd_func_call = Arc::new(vec![array_as_primary_vir_type, inner_type.clone()]);
             let trait_impl_path1 = ImplPath::TraitImplPath(Arc::new(PathX {
                 krate: vstd_krate.clone(),
                 segments: Arc::new(vec![
@@ -617,7 +775,14 @@ fn array_get_to_expr(
             }));
             trait_impl_paths = Arc::new(vec![trait_impl_path1, trait_impl_path2]);
             autospec_usage = AutospecUsage::IfMarked;
-            index_as_vir_expr = ssa_value_to_expr(index, dfg, current_context.result_id_fixer);
+            (index_as_vir_expr, tuple_index) = calculate_index_and_tuple_index(
+                index,
+                &instruction_id,
+                inner_type_length,
+                dfg,
+                current_context.result_id_fixer,
+                mode,
+            );
         }
         Mode::Exec => {
             segments = Arc::new(vec![
@@ -628,7 +793,14 @@ fn array_get_to_expr(
             typs_for_vstd_func_call = array_inner_type_and_length_type;
             trait_impl_paths = Arc::new(vec![]);
             autospec_usage = AutospecUsage::Final;
-            index_as_vir_expr = ssa_value_to_expr(index, dfg, current_context.result_id_fixer);
+            (index_as_vir_expr, tuple_index) = calculate_index_and_tuple_index(
+                index,
+                &instruction_id,
+                inner_type_length,
+                dfg,
+                current_context.result_id_fixer,
+                mode,
+            );
         }
         Mode::Proof => unreachable!(), // Out of scope for the prototype
     };
@@ -646,9 +818,9 @@ fn array_get_to_expr(
         Arc::new(vec![array_as_vir_expr.clone(), index_as_vir_expr]),
     );
     let ref_wrapped_array_return_type: Typ =
-        Arc::new(TypX::Decorate(TypDecoration::Ref, None, array_return_type));
+        Arc::new(TypX::Decorate(TypDecoration::Ref, None, inner_type.clone()));
 
-    let array_get_vir_expr = SpannedTyped::new(
+    let mut array_get_vir_expr = SpannedTyped::new(
         &build_span(
             &instruction_id,
             format!("Array get with index {}", index),
@@ -657,6 +829,23 @@ fn array_get_to_expr(
         &ref_wrapped_array_return_type,
         array_get_vir_exprx,
     );
+
+    if let Some(tuple_index) = tuple_index {
+        array_get_vir_expr = SpannedTyped::new(
+            &empty_span(),
+            &array_return_type,
+            ExprX::UnaryOpr(
+                vir::ast::UnaryOpr::Field(FieldOpr {
+                    datatype: Dt::Tuple(inner_type_length),
+                    variant: Arc::new("tuple%".to_string() + &inner_type_length.to_string()),
+                    field: Arc::new(tuple_index.to_string()),
+                    get_variant: false,
+                    check: vir::ast::VariantCheck::None,
+                }),
+                array_get_vir_expr,
+            ),
+        )
+    }
 
     if let Some(condition_id) = current_context.side_effects_condition {
         let array_get_dummy = SpannedTyped::new(

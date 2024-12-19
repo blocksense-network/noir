@@ -26,6 +26,9 @@ fn func_attributes_to_vir_expr(
             if let Instruction::RangeCheck { .. } = instruction {
                 continue;
             }
+            if let Instruction::IncrementRc { .. } = instruction {
+                continue;
+            }
             if is_instruction_enable_side_effects(&instruction_id, dfg) {
                 current_context.side_effects_condition =
                     get_enable_side_effects_value_id(&instruction_id, dfg);
