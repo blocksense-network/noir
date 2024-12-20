@@ -578,4 +578,26 @@ mod tests {
         test_conversion_from_u32(2147483648, "2147483648");  // 2^31
         test_conversion_from_u32(4294967295, "4294967295");  // 2^32-1
     }
+
+    fn test_conversion_from_u64(u: u64, expect: &str) {
+        let gf: GoldilocksField = u.into();
+        assert_eq!(format!("{}", gf), expect);
+    }
+
+    #[test]
+    fn test_conversions_from_u64() {
+        test_conversion_from_u64(0, "0");
+        test_conversion_from_u64(1, "1");
+        test_conversion_from_u64(1234567890, "1234567890");
+        test_conversion_from_u64(2147483647, "2147483647");  // 2^31-1
+        test_conversion_from_u64(2147483648, "2147483648");  // 2^31
+        test_conversion_from_u64(4294967295, "4294967295");  // 2^32-1
+        test_conversion_from_u64(18446744069414584320, "18446744069414584320");  // the Goldilocks field modulus - 1
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_conversions_from_u64_too_big_number() {
+        test_conversion_from_u64(18446744069414584321, "18446744069414584321");  // the Goldilocks field modulus
+    }
 }
