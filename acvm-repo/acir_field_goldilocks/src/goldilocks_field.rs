@@ -24,7 +24,7 @@ impl Iterator for GoldilocksFieldIter {
 
 impl From<BigUint> for GoldilocksField {
     fn from(value: BigUint) -> Self {
-        // TODO: range checking
+        assert!(value < BigUint::from(GoldilocksField::MODULUS));
         GoldilocksField { data: value.try_into().unwrap() }
     }
 }
