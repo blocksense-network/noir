@@ -524,3 +524,19 @@ impl PrimeField for GoldilocksField {
         Self::BigInt::new([self.data])
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::GoldilocksField;
+
+    fn test_conversion_from_bool(b: bool, expect: &str) {
+        let gf: GoldilocksField = b.into();
+        assert_eq!(format!("{}", gf), expect);
+    }
+
+    #[test]
+    fn test_conversions_from_bool() {
+        test_conversion_from_bool(false, "0");
+        test_conversion_from_bool(true, "1");
+    }
+}
