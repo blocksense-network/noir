@@ -13,7 +13,7 @@ struct RightShiftInfo {
 }
 
 impl Ssa {
-    pub(crate) fn formal_verifications_optimization(mut self) -> Self {
+    pub(crate) fn inline_calls_in_attributes(mut self) -> Self {
         // There is a loop bound to avoid infinite run.
         for _ in 0..1000 {
             if !self.has_call_instruction() {

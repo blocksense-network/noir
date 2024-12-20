@@ -235,6 +235,10 @@ impl DataFlowGraph {
         }
     }
 
+    pub(crate) fn update_value_at_id(&mut self, value_to_replace: ValueId, new_value: Value) {
+        self.values[value_to_replace] = new_value;
+    }
+
     /// Set the type of value_id to the target_type.
     pub(crate) fn set_type_of_value(&mut self, value_id: ValueId, target_type: Type) {
         let value = &mut self.values[value_id];

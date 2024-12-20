@@ -543,7 +543,6 @@ fn call_instruction_to_expr(
 /// For composite inner types we also have to calculate the index for the tuple.
 fn calculate_index_and_tuple_index(
     index: &ValueId,
-    instruction_id: &InstructionId,
     inner_type_length: usize,
     dfg: &DataFlowGraph,
     result_id_fixer: Option<&ResultIdFixer>,
@@ -555,23 +554,8 @@ fn calculate_index_and_tuple_index(
         return (ssa_value_to_expr(index, dfg, result_id_fixer), None);
     }
 
-    let mut index_value = dfg[*index].clone();
-    // Temporary hack to circumvent the value map bug.
-    // We have this if check because there is a chance that dfg[index] won't return the actual value.
-    // This is a bug which only occurs if the array_get is located in a fv attribute.
-    if instruction_id.to_usize() > dfg.fv_start_id {
-        let previous_fv_id = InstructionId::new(instruction_id.to_usize() - 1); //Get last FV instruction
-        if let Some(index) = // Check if it returns the value id of the index
-            dfg.instruction_results(previous_fv_id).iter().position(|&res| res == *index)
-        {
-            index_value = Value::Instruction {
-                instruction: previous_fv_id,
-                position: 0,
-                typ: dfg.type_of_value(dfg.instruction_results(previous_fv_id)[index]),
-            };
-        }
-    } //TODO Delete this `if` when we fix the value map bug
-
+    let index_value = dfg[*index].clone();
+    
     // There are two possible options for the index.
     // It's either a numeric constant or a Value::Instruction
     match &index_value {
@@ -777,7 +761,6 @@ fn array_get_to_expr(
             autospec_usage = AutospecUsage::IfMarked;
             (index_as_vir_expr, tuple_index) = calculate_index_and_tuple_index(
                 index,
-                &instruction_id,
                 inner_type_length,
                 dfg,
                 current_context.result_id_fixer,
@@ -795,7 +778,6 @@ fn array_get_to_expr(
             autospec_usage = AutospecUsage::Final;
             (index_as_vir_expr, tuple_index) = calculate_index_and_tuple_index(
                 index,
-                &instruction_id,
                 inner_type_length,
                 dfg,
                 current_context.result_id_fixer,
