@@ -324,7 +324,7 @@ impl SubAssign for GoldilocksField {
 
 impl AddAssign for GoldilocksField {
     fn add_assign(&mut self, rhs: Self) {
-        todo!()
+        *self = *self + rhs;
     }
 }
 
@@ -728,8 +728,14 @@ mod tests {
     }
 
     fn test_single_add(f1: GoldilocksField, f2: GoldilocksField, expect: GoldilocksField) {
+        // test Add
         let fsum = f1 + f2;
         assert_eq!(fsum, expect);
+
+        // test AddAssign
+        let mut fsum2 = f1;
+        fsum2 += f2;
+        assert_eq!(fsum2, expect);
     }
 
     #[test]
