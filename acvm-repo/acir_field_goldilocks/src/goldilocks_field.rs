@@ -300,7 +300,7 @@ impl<'a> Add<&'a GoldilocksField> for GoldilocksField {
     type Output = Self;
 
     fn add(self, rhs: &'a GoldilocksField) -> Self::Output {
-        todo!()
+        self + *rhs
     }
 }
 
@@ -727,6 +727,11 @@ mod tests {
         test_conversion_to_bigint(18446744069414584320u64.into(), BigInt!("18446744069414584320"));  // the Goldilocks field modulus - 1
     }
 
+    fn test_single_add_borrow<'a>(f1: GoldilocksField, f2: &GoldilocksField, expect: GoldilocksField) {
+        let fsum = f1 + f2;
+        assert_eq!(fsum, expect);
+    }
+
     fn test_single_add_mut_borrow<'a>(f1: GoldilocksField, f2: &mut GoldilocksField, expect: GoldilocksField) {
         let fsum = f1 + f2;
         assert_eq!(fsum, expect);
@@ -741,6 +746,8 @@ mod tests {
         let mut fsum2 = f1;
         fsum2 += f2;
         assert_eq!(fsum2, expect);
+
+        test_single_add_borrow(f1, &f2, expect);
 
         let mut f2_mut = f2.clone();
         test_single_add_mut_borrow(f1, &mut f2_mut, expect);
