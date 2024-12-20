@@ -528,7 +528,10 @@ impl PrimeField for GoldilocksField {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use ark_ff::{BigInt, PrimeField};
+    use num_bigint::BigUint;
 
     use super::GoldilocksField;
 
@@ -662,5 +665,27 @@ mod tests {
         test_conversion_via_primefield_from_bigint(BigInt!("4294967295"), Some(4294967295u64.into()));  // 2^32-1
         test_conversion_via_primefield_from_bigint(BigInt!("18446744069414584320"), Some(18446744069414584320u64.into()));  // the Goldilocks field modulus - 1
         test_conversion_via_primefield_from_bigint(BigInt!("18446744069414584321"), None);  // the Goldilocks field modulus
+    }
+
+    fn test_conversion_from_biguint(u: BigUint, expect: &str) {
+        let gf: GoldilocksField = u.into();
+        assert_eq!(format!("{}", gf), expect);
+    }
+
+    #[test]
+    fn test_conversions_from_biguint() {
+        test_conversion_from_biguint(BigUint::from_str("0").unwrap(), "0");
+        test_conversion_from_biguint(BigUint::from_str("1").unwrap(), "1");
+        test_conversion_from_biguint(BigUint::from_str("1234567890").unwrap(), "1234567890");
+        test_conversion_from_biguint(BigUint::from_str("2147483647").unwrap(), "2147483647");  // 2^31-1
+        test_conversion_from_biguint(BigUint::from_str("2147483648").unwrap(), "2147483648");  // 2^31
+        test_conversion_from_biguint(BigUint::from_str("4294967295").unwrap(), "4294967295");  // 2^32-1
+        test_conversion_from_biguint(BigUint::from_str("18446744069414584320").unwrap(), "18446744069414584320");  // the Goldilocks field modulus - 1
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_conversions_from_biguint_too_big_number() {
+        test_conversion_from_biguint(BigUint::from_str("18446744069414584321").unwrap(), "18446744069414584321");  // the Goldilocks field modulus
     }
 }
