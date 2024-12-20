@@ -736,7 +736,7 @@ mod tests {
         assert_eq!(fsum, expect);
         let mut fsum2 = f1;
         fsum2 += f2;
-        assert_eq!(fsum, expect);
+        assert_eq!(fsum2, expect);
     }
 
     fn test_single_add_mut_borrow(f1: GoldilocksField, f2: &mut GoldilocksField, expect: GoldilocksField) {
@@ -744,7 +744,7 @@ mod tests {
         assert_eq!(fsum, expect);
         let mut fsum2 = f1;
         fsum2 += f2;
-        assert_eq!(fsum, expect);
+        assert_eq!(fsum2, expect);
     }
 
     fn test_single_add(f1: GoldilocksField, f2: GoldilocksField, expect: GoldilocksField) {
@@ -779,7 +779,7 @@ mod tests {
         assert_eq!(fdiff, expect);
         let mut fdiff2 = f1;
         fdiff2 -= f2;
-        assert_eq!(fdiff, expect);
+        assert_eq!(fdiff2, expect);
     }
 
     fn test_single_sub_mut_borrow(f1: GoldilocksField, f2: &mut GoldilocksField, expect: GoldilocksField) {
