@@ -5,7 +5,13 @@ use acvm::{
     acir::{AcirField, BlackBoxFunc},
     BlackBoxResolutionError, FieldElement,
 };
-use bn254_blackbox_solver::derive_generators;
+cfg_if::cfg_if! {
+    if #[cfg(feature = "goldilocks")] {
+        //use goldilocks_blackbox_solver::derive_generators;
+    } else {
+        use bn254_blackbox_solver::derive_generators;
+    }
+}
 use iter_extended::vecmap;
 use num_bigint::BigUint;
 
@@ -755,50 +761,64 @@ fn simplify_signature(
     }
 }
 
-fn simplify_derive_generators(
-    dfg: &mut DataFlowGraph,
-    arguments: &[ValueId],
-    num_generators: u32,
-    block: BasicBlockId,
-    call_stack: CallStackId,
-) -> SimplifyResult {
-    if arguments.len() == 2 {
-        let domain_separator_string = dfg.get_array_constant(arguments[0]);
-        let starting_index = dfg.get_numeric_constant(arguments[1]);
-        if let (Some(domain_separator_string), Some(starting_index)) =
-            (domain_separator_string, starting_index)
-        {
-            let domain_separator_bytes = domain_separator_string
-                .0
-                .iter()
-                .map(|&x| dfg.get_numeric_constant(x).unwrap().to_u128() as u8)
-                .collect::<Vec<u8>>();
-            let generators = derive_generators(
-                &domain_separator_bytes,
-                num_generators,
-                starting_index.try_to_u32().expect("argument is declared as u32"),
-            );
-            let is_infinite = dfg.make_constant(FieldElement::zero(), NumericType::bool());
-            let mut results = Vec::new();
-            for gen in generators {
-                let x_big: BigUint = gen.x.into();
-                let x = FieldElement::from_be_bytes_reduce(&x_big.to_bytes_be());
-                let y_big: BigUint = gen.y.into();
-                let y = FieldElement::from_be_bytes_reduce(&y_big.to_bytes_be());
-                results.push(dfg.make_constant(x, NumericType::NativeField));
-                results.push(dfg.make_constant(y, NumericType::NativeField));
-                results.push(is_infinite);
-            }
-            let len = results.len() as u32;
-            let typ =
-                Type::Array(vec![Type::field(), Type::field(), Type::unsigned(1)].into(), len / 3);
-            let result = make_array(dfg, results.into(), typ, block, call_stack);
-            SimplifyResult::SimplifiedTo(result)
-        } else {
-            SimplifyResult::None
+cfg_if::cfg_if! {
+    if #[cfg(feature = "goldilocks")] {
+        fn simplify_derive_generators(
+            dfg: &mut DataFlowGraph,
+            arguments: &[ValueId],
+            num_generators: u32,
+            block: BasicBlockId,
+            call_stack: CallStackId,
+        ) -> SimplifyResult {
+            todo!()
         }
     } else {
-        unreachable!("Unexpected number of arguments to derive_generators");
+        fn simplify_derive_generators(
+            dfg: &mut DataFlowGraph,
+            arguments: &[ValueId],
+            num_generators: u32,
+            block: BasicBlockId,
+            call_stack: CallStackId,
+        ) -> SimplifyResult {
+            if arguments.len() == 2 {
+                let domain_separator_string = dfg.get_array_constant(arguments[0]);
+                let starting_index = dfg.get_numeric_constant(arguments[1]);
+                if let (Some(domain_separator_string), Some(starting_index)) =
+                    (domain_separator_string, starting_index)
+                {
+                    let domain_separator_bytes = domain_separator_string
+                        .0
+                        .iter()
+                        .map(|&x| dfg.get_numeric_constant(x).unwrap().to_u128() as u8)
+                        .collect::<Vec<u8>>();
+                    let generators = derive_generators(
+                        &domain_separator_bytes,
+                        num_generators,
+                        starting_index.try_to_u32().expect("argument is declared as u32"),
+                    );
+                    let is_infinite = dfg.make_constant(FieldElement::zero(), NumericType::bool());
+                    let mut results = Vec::new();
+                    for gen in generators {
+                        let x_big: BigUint = gen.x.into();
+                        let x = FieldElement::from_be_bytes_reduce(&x_big.to_bytes_be());
+                        let y_big: BigUint = gen.y.into();
+                        let y = FieldElement::from_be_bytes_reduce(&y_big.to_bytes_be());
+                        results.push(dfg.make_constant(x, NumericType::NativeField));
+                        results.push(dfg.make_constant(y, NumericType::NativeField));
+                        results.push(is_infinite);
+                    }
+                    let len = results.len() as u32;
+                    let typ =
+                        Type::Array(vec![Type::field(), Type::field(), Type::unsigned(1)].into(), len / 3);
+                    let result = make_array(dfg, results.into(), typ, block, call_stack);
+                    SimplifyResult::SimplifiedTo(result)
+                } else {
+                    SimplifyResult::None
+                }
+            } else {
+                unreachable!("Unexpected number of arguments to derive_generators");
+            }
+        }
     }
 }
 

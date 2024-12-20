@@ -17,7 +17,8 @@ noirc_errors.workspace = true
 noirc_abi.workspace = true
 fm.workspace = true
 acvm.workspace = true
-bn254_blackbox_solver.workspace = true
+bn254_blackbox_solver = { workspace = true, optional = true }
+goldilocks_blackbox_solver = { workspace = true, optional = true }
 fxhash.workspace = true
 iter-extended.workspace = true
 thiserror.workspace = true
@@ -42,5 +43,6 @@ num-traits.workspace = true
 test-case.workspace = true
 
 [features]
-bn254 = ["noirc_frontend/bn254"]
+bn254 = ["noirc_frontend/bn254", "dep:bn254_blackbox_solver"]
 bls12_381 = []
+goldilocks = ["dep:goldilocks_blackbox_solver"]

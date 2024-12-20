@@ -26,6 +26,7 @@ members = [
     "tooling/profiler",
     "testing/format_trace",
     # ACVM
+    "acvm-repo/acir_field_goldilocks",
     "acvm-repo/acir_field",
     "acvm-repo/acir",
     "acvm-repo/acvm",
@@ -34,6 +35,7 @@ members = [
     "acvm-repo/brillig_vm",
     "acvm-repo/blackbox_solver",
     "acvm-repo/bn254_blackbox_solver",
+    "acvm-repo/goldilocks_blackbox_solver",
     # Utility crates
     "utils/iter-extended",
 ]
@@ -59,6 +61,7 @@ unused_qualifications = "warn"
 [workspace.dependencies]
 
 # ACVM workspace dependencies
+acir_field_goldilocks = { version = "1.0.0-beta.0", path = "acvm-repo/acir_field_goldilocks", default-features = false }
 acir_field = { version = "1.0.0-beta.0", path = "acvm-repo/acir_field", default-features = false }
 acir = { version = "1.0.0-beta.0", path = "acvm-repo/acir", default-features = false }
 acvm = { version = "1.0.0-beta.0", path = "acvm-repo/acvm" }
@@ -66,6 +69,7 @@ brillig = { version = "1.0.0-beta.0", path = "acvm-repo/brillig", default-featur
 brillig_vm = { version = "1.0.0-beta.0", path = "acvm-repo/brillig_vm", default-features = false }
 acvm_blackbox_solver = { version = "1.0.0-beta.0", path = "acvm-repo/blackbox_solver", default-features = false }
 bn254_blackbox_solver = { version = "1.0.0-beta.0", path = "acvm-repo/bn254_blackbox_solver", default-features = false }
+goldilocks_blackbox_solver = { version = "1.0.0-beta.0", path = "acvm-repo/goldilocks_blackbox_solver", default-features = false }
 
 # Noir compiler workspace dependencies
 fm = { path = "compiler/fm" }
@@ -101,6 +105,8 @@ grumpkin = { version = "0.1.0", package = "noir_grumpkin", features = ["std"] }
 ark-ec = { version = "^0.4.0", default-features = false }
 ark-ff = { version = "^0.4.0", default-features = false }
 ark-std = { version = "^0.4.0", default-features = false }
+ark-serialize = { version = "^0.4.0", default-features = false }
+zeroize = { version = "1", default-features = false, features = ["zeroize_derive"] }
 
 # Misc utils crates
 iter-extended = { path = "utils/iter-extended" }

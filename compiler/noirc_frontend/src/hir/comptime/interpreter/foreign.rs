@@ -3,7 +3,13 @@ use acvm::{
     blackbox_solver::{BigIntSolverWithId, BlackBoxFunctionSolver},
     AcirField, BlackBoxResolutionError, FieldElement,
 };
-use bn254_blackbox_solver::Bn254BlackBoxSolver; // Currently locked to only bn254!
+cfg_if::cfg_if! {
+    if #[cfg(feature = "goldilocks")] {
+        use goldilocks_blackbox_solver::GoldilocksBlackBoxSolver as Bn254BlackBoxSolver;
+    } else {
+        use bn254_blackbox_solver::Bn254BlackBoxSolver; // Currently locked to only bn254!
+    }
+}
 use im::Vector;
 use noirc_errors::Location;
 

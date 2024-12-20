@@ -28,6 +28,7 @@ dependencies = [
 name = "acir_field"
 version = "1.0.0-beta.0"
 dependencies = [
+ "acir_field_goldilocks",
  "ark-bls12-381",
  "ark-bn254",
  "ark-ff",
@@ -36,6 +37,21 @@ dependencies = [
  "num-bigint",
  "proptest",
  "serde",
+]
+
+[[package]]
+name = "acir_field_goldilocks"
+version = "1.0.0-beta.0"
+dependencies = [
+ "ark-ff",
+ "ark-serialize",
+ "cfg-if 1.0.0",
+ "hex",
+ "num-bigint",
+ "proptest",
+ "rand 0.8.5",
+ "serde",
+ "zeroize",
 ]
 
 [[package]]
@@ -82,9 +98,11 @@ dependencies = [
  "acir",
  "acvm",
  "bn254_blackbox_solver",
+ "cfg-if 1.0.0",
  "clap",
  "color-eyre",
  "const_format",
+ "goldilocks_blackbox_solver",
  "nargo",
  "paste",
  "proptest",
@@ -1868,6 +1886,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "goldilocks_blackbox_solver"
+version = "1.0.0-beta.0"
+dependencies = [
+ "acir",
+ "acir_field_goldilocks",
+ "acvm_blackbox_solver",
+ "ark-ec",
+ "ark-ff",
+ "ark-std",
+ "criterion",
+ "hex",
+ "lazy_static",
+ "noir_grumpkin",
+ "num-bigint",
+ "pprof",
+]
+
+[[package]]
 name = "group"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2873,6 +2909,7 @@ dependencies = [
  "async-lsp",
  "bn254_blackbox_solver",
  "build-data",
+ "cfg-if 1.0.0",
  "clap",
  "clap-markdown",
  "clap_complete",
@@ -2884,6 +2921,7 @@ dependencies = [
  "file-lock",
  "fm",
  "fxhash",
+ "goldilocks_blackbox_solver",
  "hex",
  "iai",
  "iter-extended",
@@ -3097,11 +3135,13 @@ version = "1.0.0-beta.0"
 dependencies = [
  "acir",
  "bn254_blackbox_solver",
+ "cfg-if 1.0.0",
  "clap",
  "color-eyre",
  "const_format",
  "fm",
  "fxhash",
+ "goldilocks_blackbox_solver",
  "im",
  "inferno",
  "nargo",
@@ -3258,6 +3298,7 @@ dependencies = [
  "codespan-reporting",
  "fm",
  "fxhash",
+ "goldilocks_blackbox_solver",
  "im",
  "iter-extended",
  "noirc_abi",
@@ -3288,6 +3329,7 @@ dependencies = [
  "bn254_blackbox_solver",
  "cfg-if 1.0.0",
  "fm",
+ "goldilocks_blackbox_solver",
  "im",
  "iter-extended",
  "noirc_arena",

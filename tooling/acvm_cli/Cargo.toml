@@ -28,8 +28,11 @@ clap.workspace = true
 acvm.workspace = true
 nargo.workspace = true
 const_format.workspace = true
-bn254_blackbox_solver.workspace = true
+bn254_blackbox_solver = { workspace = true, optional = true }
+goldilocks_blackbox_solver = { workspace = true, optional = true }
 acir.workspace = true
+
+cfg-if.workspace = true
 
 # Logs
 tracing-subscriber.workspace = true
@@ -41,3 +44,8 @@ time = "^0.3.35" # stanm: this is a dependency of tracing-appender and earlier
 rand.workspace = true
 proptest = "1.2.0"
 paste = "1.0.14"
+
+[features]
+default = ["bn254"]
+bn254 = ["dep:bn254_blackbox_solver"]
+goldilocks = ["dep:goldilocks_blackbox_solver"]
