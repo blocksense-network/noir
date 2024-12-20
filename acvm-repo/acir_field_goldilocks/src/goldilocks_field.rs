@@ -563,4 +563,19 @@ mod tests {
             test_conversion_from_u16(u as u16, u.to_string());
         }
     }
+
+    fn test_conversion_from_u32(u: u32, expect: &str) {
+        let gf: GoldilocksField = u.into();
+        assert_eq!(format!("{}", gf), expect);
+    }
+
+    #[test]
+    fn test_conversions_from_u32() {
+        test_conversion_from_u32(0, "0");
+        test_conversion_from_u32(1, "1");
+        test_conversion_from_u32(1234567890, "1234567890");
+        test_conversion_from_u32(2147483647, "2147483647");  // 2^31-1
+        test_conversion_from_u32(2147483648, "2147483648");  // 2^31
+        test_conversion_from_u32(4294967295, "4294967295");  // 2^32-1
+    }
 }
