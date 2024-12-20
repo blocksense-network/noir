@@ -160,11 +160,20 @@ impl Field for GoldilocksField {
     }
 
     fn inverse(&self) -> Option<Self> {
-        todo!()
+        if let Some(q) = Plonky2GoldilocksField::from_canonical_u64(self.data).try_inverse() {
+            Some(GoldilocksField { data: q.to_canonical_u64() })
+        } else {
+            None
+        }
     }
 
     fn inverse_in_place(&mut self) -> Option<&mut Self> {
-        todo!()
+        if let Some(q) = Plonky2GoldilocksField::from_canonical_u64(self.data).try_inverse() {
+            *self = GoldilocksField { data: q.to_canonical_u64() };
+            Some(self)
+        } else {
+            None
+        }
     }
 
     fn frobenius_map_in_place(&mut self, power: usize) {
@@ -1025,5 +1034,28 @@ mod tests {
         internal_test_square(0u64.into(), 0u64.into());
         internal_test_square(7u64.into(), 49u64.into());
         internal_test_square(18446744069414584320u64.into(), 1u64.into());
+    }
+
+    fn internal_test_inverse(f: GoldilocksField, expect: Option<GoldilocksField>) {
+        assert_eq!(f.inverse(), expect);
+        let mut f2 = f;
+        match f2.inverse_in_place() {
+            Some(f2_some) => {
+                assert!(expect.is_some());
+                assert_eq!(*f2_some, expect.unwrap());
+                assert_eq!(f2, expect.unwrap());
+            },
+            None => {
+                assert!(expect.is_none());
+                assert!(f2 == f);
+            }
+        }
+    }
+
+    #[test]
+    fn test_inverse() {
+        internal_test_inverse(0u64.into(), None);
+        internal_test_inverse(1u64.into(), Some(1u64.into()));
+        internal_test_inverse(2u64.into(), Some(9223372034707292161u64.into()));
     }
 }
