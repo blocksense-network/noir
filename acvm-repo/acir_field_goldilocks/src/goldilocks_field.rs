@@ -444,7 +444,11 @@ impl Add for GoldilocksField {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        todo!()
+        let mut s = (self.data as u128) + (rhs.data as u128);
+        if s > 18446744069414584321 {
+            s -= 18446744069414584321;
+        }
+        GoldilocksField { data: s as u64 }
     }
 }
 
@@ -721,5 +725,17 @@ mod tests {
         test_conversion_to_bigint(2147483648u64.into(), BigInt!("2147483648"));  // 2^31
         test_conversion_to_bigint(4294967295u64.into(), BigInt!("4294967295"));  // 2^32-1
         test_conversion_to_bigint(18446744069414584320u64.into(), BigInt!("18446744069414584320"));  // the Goldilocks field modulus - 1
+    }
+
+    fn test_single_add(f1: GoldilocksField, f2: GoldilocksField, expect: GoldilocksField) {
+        let fsum = f1 + f2;
+        assert_eq!(fsum, expect);
+    }
+
+    #[test]
+    fn test_add() {
+        test_single_add(3u64.into(), 2u64.into(), 5u64.into());
+        test_single_add(18446744069414584320u64.into(), 1000u64.into(), 999u64.into());
+        test_single_add(18446744069414584320u64.into(), 18446744069414584320u64.into(), 18446744069414584319u64.into());
     }
 }
