@@ -318,7 +318,7 @@ impl MulAssign for GoldilocksField {
 
 impl SubAssign for GoldilocksField {
     fn sub_assign(&mut self, rhs: Self) {
-        todo!()
+        *self = *self - rhs
     }
 }
 
@@ -778,6 +778,11 @@ mod tests {
         // test Sub
         let fdiff = f1 - f2;
         assert_eq!(fdiff, expect);
+
+        // test SubAssign
+        let mut fdiff2 = f1;
+        fdiff2 -= f2;
+        assert_eq!(fdiff2, expect);
     }
 
     #[test]
