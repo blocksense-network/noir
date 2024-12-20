@@ -527,6 +527,8 @@ impl PrimeField for GoldilocksField {
 
 #[cfg(test)]
 mod tests {
+    use ark_ff::BigInt;
+
     use super::GoldilocksField;
 
     fn test_conversion_from_bool(b: bool, expect: &str) {
@@ -621,5 +623,27 @@ mod tests {
     #[should_panic]
     fn test_conversions_from_u128_too_big_number() {
         test_conversion_from_u128(18446744069414584321, "18446744069414584321");  // the Goldilocks field modulus
+    }
+
+    fn test_conversion_from_bigint(u: BigInt<1>, expect: &str) {
+        let gf: GoldilocksField = u.into();
+        assert_eq!(format!("{}", gf), expect);
+    }
+
+    #[test]
+    fn test_conversions_from_bigint() {
+        test_conversion_from_bigint(BigInt!("0"), "0");
+        test_conversion_from_bigint(BigInt!("1"), "1");
+        test_conversion_from_bigint(BigInt!("1234567890"), "1234567890");
+        test_conversion_from_bigint(BigInt!("2147483647"), "2147483647");  // 2^31-1
+        test_conversion_from_bigint(BigInt!("2147483648"), "2147483648");  // 2^31
+        test_conversion_from_bigint(BigInt!("4294967295"), "4294967295");  // 2^32-1
+        test_conversion_from_bigint(BigInt!("18446744069414584320"), "18446744069414584320");  // the Goldilocks field modulus - 1
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_conversions_from_bigint_too_big_number() {
+        test_conversion_from_bigint(BigInt!("18446744069414584321"), "18446744069414584321");  // the Goldilocks field modulus
     }
 }
