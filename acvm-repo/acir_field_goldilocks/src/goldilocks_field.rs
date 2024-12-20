@@ -137,7 +137,8 @@ impl Field for GoldilocksField {
     }
 
     fn neg_in_place(&mut self) -> &mut Self {
-        todo!()
+        *self = - *self;
+        self
     }
 
     fn from_random_bytes_with_flags<F: Flags>(bytes: &[u8]) -> Option<(Self, F)> {
@@ -539,7 +540,7 @@ impl PrimeField for GoldilocksField {
 mod tests {
     use std::str::FromStr;
 
-    use ark_ff::{BigInt, PrimeField};
+    use ark_ff::{BigInt, Field, PrimeField};
     use num_bigint::BigUint;
 
     use super::GoldilocksField;
@@ -823,6 +824,11 @@ mod tests {
         // test Neg
         let fneg = -f1;
         assert_eq!(fneg, expect);
+
+        // test neg_in_place()
+        let mut fneg2 = f1;
+        fneg2.neg_in_place();
+        assert_eq!(fneg2, expect);
     }
 
     #[test]
