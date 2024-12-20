@@ -688,4 +688,20 @@ mod tests {
     fn test_conversions_from_biguint_too_big_number() {
         test_conversion_from_biguint(BigUint::from_str("18446744069414584321").unwrap(), "18446744069414584321");  // the Goldilocks field modulus
     }
+
+    fn test_conversion_to_biguint(u: GoldilocksField, expect: BigUint) {
+        let bu: BigUint = u.into();
+        assert_eq!(bu, expect);
+    }
+
+    #[test]
+    fn test_conversions_to_biguint() {
+        test_conversion_to_biguint(0u64.into(), BigUint::from_str("0").unwrap());
+        test_conversion_to_biguint(1u64.into(), BigUint::from_str("1").unwrap());
+        test_conversion_to_biguint(1234567890u64.into(), BigUint::from_str("1234567890").unwrap());
+        test_conversion_to_biguint(2147483647u64.into(), BigUint::from_str("2147483647").unwrap());  // 2^31-1
+        test_conversion_to_biguint(2147483648u64.into(), BigUint::from_str("2147483648").unwrap());  // 2^31
+        test_conversion_to_biguint(4294967295u64.into(), BigUint::from_str("4294967295").unwrap());  // 2^32-1
+        test_conversion_to_biguint(18446744069414584320u64.into(), BigUint::from_str("18446744069414584320").unwrap());  // the Goldilocks field modulus - 1
+    }
 }
