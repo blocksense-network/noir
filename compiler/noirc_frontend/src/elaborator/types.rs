@@ -1873,6 +1873,9 @@ fn try_eval_array_length_id_with_fuel(
                 BinaryOpKind::ShiftRight => Ok(lhs >> rhs),
                 BinaryOpKind::ShiftLeft => Ok(lhs << rhs),
                 BinaryOpKind::Modulo => Ok(lhs % rhs),
+                BinaryOpKind::Implication => {
+                    unreachable!("No implication token shoud have remained.")
+                }
             }
         }
         HirExpression::Cast(cast) => {

@@ -44,10 +44,7 @@ use super::{
 };
 use super::{spanned, Item, TopLevelStatement};
 use crate::ast::{
-    BinaryOp, BinaryOpKind, BlockExpression, Documented, ForLoopStatement, ForRange,
-    GenericTypeArgs, Ident, IfExpression, InfixExpression, LValue, Literal, ModuleDeclaration,
-    NoirTypeAlias, Param, Path, Pattern, Recoverable, Statement, TypeImpl, UnaryRhsMemberAccess,
-    UnaryRhsMethodCall, UseTree, UseTreeKind, Visibility,
+    BinaryOp, BinaryOpKind, BlockExpression, Documented, ForLoopStatement, ForRange, GenericTypeArgs, Ident, IfExpression, InfixExpression, LValue, Literal, ModuleDeclaration, NoirTypeAlias, Param, Path, Pattern, PrefixExpression, Recoverable, Statement, TypeImpl, UnaryOp, UnaryRhsMemberAccess, UnaryRhsMethodCall, UseTree, UseTreeKind, Visibility
 };
 use crate::ast::{
     Expression, ExpressionKind, LetStatement, StatementKind, UnresolvedType, UnresolvedTypeData,
@@ -731,7 +728,7 @@ fn call_data() -> impl NoirParser<Visibility> {
 pub fn expression() -> impl ExprParser {
     recursive(|expr| {
         expression_with_precedence(
-            Precedence::Lowest,
+            Precedence::Implication,
             expr.clone(),
             expression_no_constructors(expr.clone()),
             statement(expr.clone(), expression_no_constructors(expr)),
@@ -748,7 +745,7 @@ where
 {
     recursive(|expr_no_constructors| {
         expression_with_precedence(
-            Precedence::Lowest,
+            Precedence::Implication,
             expr_parser.clone(),
             expr_no_constructors.clone(),
             statement(expr_parser, expr_no_constructors),
@@ -823,7 +820,18 @@ where
 
 fn create_infix_expression(lhs: Expression, (operator, rhs): (BinaryOp, Expression)) -> Expression {
     let span = lhs.span.merge(rhs.span);
-    let infix = Box::new(InfixExpression { lhs, operator, rhs });
+    
+    // If we have an implication (lhs ==> rhs) we want to transform it to (!lhs | rhs)
+    let infix = if operator.contents == BinaryOpKind::Implication {
+        let new_lhs = Expression::new(
+            ExpressionKind::Prefix(Box::new(PrefixExpression { operator: UnaryOp::Not, rhs: lhs.clone() })),
+            lhs.span,
+        );
+        let new_operator = Spanned::from(operator.span(), BinaryOpKind::Or);
+        Box::new(InfixExpression { lhs: new_lhs, operator: new_operator, rhs })
+    } else {
+        Box::new(InfixExpression { lhs, operator, rhs })
+    };
 
     Expression { span, kind: ExpressionKind::Infix(infix) }
 }

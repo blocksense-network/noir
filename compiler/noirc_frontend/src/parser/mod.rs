@@ -455,6 +455,7 @@ impl SortedModule {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd)]
 pub enum Precedence {
+    Implication,
     Lowest,
     Or,
     And,
@@ -473,6 +474,7 @@ impl Precedence {
         let precedence = match tok {
             Token::Equal => Precedence::Lowest,
             Token::NotEqual => Precedence::Lowest,
+            Token::Implication => Precedence::Implication,
             Token::Pipe => Precedence::Or,
             Token::Ampersand => Precedence::And,
             Token::Caret => Precedence::Xor,
@@ -498,6 +500,7 @@ impl Precedence {
     fn next(self) -> Self {
         use Precedence::*;
         match self {
+            Implication => Lowest,
             Lowest => Or,
             Or => Xor,
             Xor => And,
