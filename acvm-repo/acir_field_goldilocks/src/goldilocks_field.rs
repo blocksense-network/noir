@@ -539,4 +539,16 @@ mod tests {
         test_conversion_from_bool(false, "0");
         test_conversion_from_bool(true, "1");
     }
+
+    fn test_conversion_from_u8(u: u8, expect: String) {
+        let gf: GoldilocksField = u.into();
+        assert_eq!(format!("{}", gf), expect);
+    }
+
+    #[test]
+    fn test_conversions_from_u8() {
+        for u in 0..=255 {
+            test_conversion_from_u8(u as u8, u.to_string());
+        }
+    }
 }
