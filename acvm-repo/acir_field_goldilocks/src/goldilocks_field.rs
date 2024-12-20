@@ -206,7 +206,7 @@ impl<'a> MulAssign<&'a mut GoldilocksField> for GoldilocksField {
 
 impl<'a> SubAssign<&'a mut GoldilocksField> for GoldilocksField {
     fn sub_assign(&mut self, rhs: &'a mut GoldilocksField) {
-        todo!()
+        *self = *self - rhs
     }
 }
 
@@ -236,7 +236,7 @@ impl<'a> Sub<&'a mut GoldilocksField> for GoldilocksField {
     type Output = Self;
 
     fn sub(self, rhs: &'a mut GoldilocksField) -> Self::Output {
-        todo!()
+        self - *rhs
     }
 }
 
@@ -782,6 +782,14 @@ mod tests {
         assert_eq!(fdiff, expect);
     }
 
+    fn test_single_sub_mut_borrow(f1: GoldilocksField, f2: &mut GoldilocksField, expect: GoldilocksField) {
+        let fdiff = f1 - f2.clone();
+        assert_eq!(fdiff, expect);
+        let mut fdiff2 = f1;
+        fdiff2 -= f2;
+        assert_eq!(fdiff2, expect);
+    }
+
     fn test_single_sub(f1: GoldilocksField, f2: GoldilocksField, expect: GoldilocksField) {
         // test Sub
         let fdiff = f1 - f2;
@@ -792,9 +800,14 @@ mod tests {
         fdiff2 -= f2;
         assert_eq!(fdiff2, expect);
 
+        // test impl<'a> Sub<&'a GoldilocksField> for GoldilocksField
+        // and  impl<'a> SubAssign<&'a GoldilocksField> for GoldilocksField
+        test_single_sub_borrow(f1, &f2, expect);
+
         // test impl<'a> Sub<&'a mut GoldilocksField> for GoldilocksField
         // and  impl<'a> SubAssign<&'a mut GoldilocksField> for GoldilocksField
-        test_single_sub_borrow(f1, &f2, expect);
+        let mut f2_mut = f2.clone();
+        test_single_sub_mut_borrow(f1, &mut f2_mut, expect);
     }
 
     #[test]
