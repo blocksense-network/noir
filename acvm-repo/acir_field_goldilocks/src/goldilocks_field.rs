@@ -350,7 +350,7 @@ impl Valid for GoldilocksField {
 }
 
 impl CanonicalSerialize for GoldilocksField {
-    fn serialize_with_mode<W: std::io::Write>(
+    fn serialize_with_mode<W>(
         &self,
         writer: W,
         compress: Compress,
@@ -364,7 +364,7 @@ impl CanonicalSerialize for GoldilocksField {
 }
 
 impl CanonicalSerializeWithFlags for GoldilocksField {
-    fn serialize_with_flags<W: std::io::Write, F: Flags>(
+    fn serialize_with_flags<W, F: Flags>(
         &self,
         writer: W,
         flags: F,
@@ -378,7 +378,7 @@ impl CanonicalSerializeWithFlags for GoldilocksField {
 }
 
 impl CanonicalDeserialize for GoldilocksField {
-    fn deserialize_with_mode<R: std::io::Read>(
+    fn deserialize_with_mode<R>(
         reader: R,
         compress: Compress,
         validate: Validate,
@@ -388,7 +388,7 @@ impl CanonicalDeserialize for GoldilocksField {
 }
 
 impl CanonicalDeserializeWithFlags for GoldilocksField {
-    fn deserialize_with_flags<R: std::io::Read, F: Flags>(
+    fn deserialize_with_flags<R, F: Flags>(
         reader: R,
     ) -> Result<(Self, F), SerializationError> {
         todo!()
