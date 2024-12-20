@@ -990,6 +990,13 @@ pub(crate) fn is_instruction_call_to_print(instruction_id: &InstructionId, dfg: 
     }
 }
 
+pub(crate) fn is_instruction_ind_dec_rc(instruction_id: &InstructionId, dfg: &DataFlowGraph) -> bool {
+    match &dfg[*instruction_id] {
+        Instruction::DecrementRc { .. } | Instruction::IncrementRc { .. } => true,
+        _ => false,
+    }
+}
+
 /// Returns a SSA block as an expression and
 /// the type of the SSA block's terminating instruction
 pub(crate) fn basic_block_to_exprx(
@@ -1009,6 +1016,7 @@ pub(crate) fn basic_block_to_exprx(
 
         if !is_instruction_enable_side_effects(instruction_id, dfg)
             && !is_instruction_call_to_print(instruction_id, dfg)
+            && !is_instruction_ind_dec_rc(instruction_id, dfg)
         {
             let statement = instruction_to_stmt(
                 &dfg[*instruction_id],
