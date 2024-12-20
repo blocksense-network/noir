@@ -151,11 +151,12 @@ impl Field for GoldilocksField {
     }
 
     fn square(&self) -> Self {
-        todo!()
+        *self * *self
     }
 
     fn square_in_place(&mut self) -> &mut Self {
-        todo!()
+        *self *= *self;
+        self
     }
 
     fn inverse(&self) -> Option<Self> {
@@ -1010,5 +1011,19 @@ mod tests {
         internal_test_double(1000u64.into(), 2000u64.into());
         internal_test_double(18446744069414584320u64.into(), 18446744069414584319u64.into());
         internal_test_double(9223372034707292163u64.into(), 5u64.into());
+    }
+
+    fn internal_test_square(f: GoldilocksField, expect: GoldilocksField) {
+        assert_eq!(f.square(), expect);
+        let mut f2 = f;
+        f2.square_in_place();
+        assert_eq!(f2, expect);
+    }
+
+    #[test]
+    fn test_square() {
+        internal_test_square(0u64.into(), 0u64.into());
+        internal_test_square(7u64.into(), 49u64.into());
+        internal_test_square(18446744069414584320u64.into(), 1u64.into());
     }
 }
