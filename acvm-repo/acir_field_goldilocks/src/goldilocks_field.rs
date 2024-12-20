@@ -404,7 +404,7 @@ impl Neg for GoldilocksField {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
-        todo!()
+        GoldilocksField { data: 0 } - self
     }
 }
 
@@ -816,5 +816,20 @@ mod tests {
         test_single_sub(0u64.into(), 1u64.into(), 18446744069414584320u64.into());
         test_single_sub(999u64.into(), 1000u64.into(), 18446744069414584320u64.into());
         test_single_sub(998u64.into(), 18446744069414584319u64.into(), 1000u64.into());
+    }
+
+    fn test_single_neg(f1: GoldilocksField, expect: GoldilocksField) {
+        // test Neg
+        let fneg = -f1;
+        assert_eq!(fneg, expect);
+    }
+
+    #[test]
+    fn test_neg() {
+        test_single_neg(0u64.into(), 0u64.into());
+        test_single_neg(1u64.into(), 18446744069414584320u64.into());
+        test_single_neg(18446744069414584320u64.into(), 1u64.into());
+        test_single_neg(9223372034707292160u64.into(), 9223372034707292161u64.into());
+        test_single_neg(9223372034707292161u64.into(), 9223372034707292160u64.into());
     }
 }
