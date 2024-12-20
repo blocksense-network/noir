@@ -132,11 +132,7 @@ fn param_to_expr(
         value_id.to_string()
     };
     SpannedTyped::new(
-        &build_span(
-            value_id,
-            debug_string,
-            Some(dfg.get_value_call_stack(*value_id)),
-        ),
+        &build_span(value_id, debug_string, Some(dfg.get_value_call_stack(*value_id))),
         &from_noir_type(noir_type.clone(), None),
         ExprX::Var(id_into_var_ident(value_id.clone())),
     )
@@ -323,6 +319,14 @@ fn bitwise_not_instr_to_expr(
 fn build_const_expr(const_num: i64, value_id: &ValueId, noir_type: &Type) -> Expr {
     SpannedTyped::new(
         &build_span(value_id, format!("Const {const_num}"), None),
+        &from_noir_type(noir_type.clone(), None),
+        ExprX::Const(Constant::Int(BigInt::from(const_num))),
+    )
+}
+
+fn usize_to_const_expr(const_num: usize, noir_type: &Type) -> Expr {
+    SpannedTyped::new(
+        &empty_span(),
         &from_noir_type(noir_type.clone(), None),
         ExprX::Const(Constant::Int(BigInt::from(const_num))),
     )
@@ -537,12 +541,27 @@ fn call_instruction_to_expr(
     )
 }
 
+#[derive(Debug)]
+enum Index {
+    SsaValue(ValueId),
+    ConstIndex(usize),
+}
+
+impl std::fmt::Display for Index {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Index::SsaValue(id) => write!(f, "{id}"),
+            Index::ConstIndex(const_index) => write!(f, "const {const_index}"),
+        }
+    }
+}
+
 /// In some cases we have to reverse engineer the actual value of the index.
 /// This is because SSA flattens the array. Therefore an array of tuples with length n
 /// we will have length of 2*n because it has been flattened.
 /// For composite inner types we also have to calculate the index for the tuple.
 fn calculate_index_and_tuple_index(
-    index: &ValueId,
+    index: &Index,
     inner_type_length: usize,
     dfg: &DataFlowGraph,
     result_id_fixer: Option<&ResultIdFixer>,
@@ -551,17 +570,39 @@ fn calculate_index_and_tuple_index(
     // If the inner_type_length is less than 2, then the array hasn't been flattened.
     // So we just return the index transformed into a VIR expression
     if inner_type_length < 2 {
-        return (ssa_value_to_expr(index, dfg, result_id_fixer), None);
+        match index {
+            Index::SsaValue(id) => {
+                return (ssa_value_to_expr(&id, dfg, result_id_fixer), None);
+            }
+            Index::ConstIndex(const_index) => {
+                return (
+                    usize_to_const_expr(
+                        *const_index,
+                        &Type::Numeric(NumericType::Unsigned { bit_size: 32 }),
+                    ),
+                    None,
+                );
+            }
+        };
     }
 
-    let index_value = dfg[*index].clone();
-    
+    let index_value = match index {
+        Index::SsaValue(id) => dfg[*id].clone(),
+        Index::ConstIndex(const_index) => Value::NumericConstant {
+            constant: FieldElement::from(*const_index),
+            typ: Type::Numeric(NumericType::Unsigned { bit_size: 32 }),
+        },
+    };
+
     // There are two possible options for the index.
     // It's either a numeric constant or a Value::Instruction
     match &index_value {
         Value::Instruction { instruction, position: _, typ: noir_type } => {
             let bit_size = 32; // This is the index bit size
-
+            let index = match index {
+                Index::SsaValue(id) => id,
+                Index::ConstIndex(_) => unreachable!(),
+            };
             let tuple_index = match &dfg[*instruction] {
                 Instruction::Binary(binary) => match binary.operator {
                     BinaryOp::Add => match &dfg[binary.rhs] {
@@ -589,7 +630,7 @@ fn calculate_index_and_tuple_index(
                 &from_noir_type(noir_type.clone(), None),
                 ExprX::Binary(
                     VirBinaryOp::Arith(ArithOp::Sub, mode),
-                    ssa_value_to_expr(index, dfg, result_id_fixer),
+                    ssa_value_to_expr(&index, dfg, result_id_fixer),
                     tuple_index_as_expr.clone(),
                 ),
             );
@@ -619,7 +660,7 @@ fn calculate_index_and_tuple_index(
                 &Arc::new(TypX::Bool),
                 ExprX::Binary(
                     VirBinaryOp::Inequality(InequalityOp::Ge),
-                    ssa_value_to_expr(index, dfg, result_id_fixer),
+                    ssa_value_to_expr(&index, dfg, result_id_fixer),
                     tuple_index_as_expr,
                 ),
             );
@@ -676,7 +717,7 @@ fn calculate_index_and_tuple_index(
 /// the function call becomes valid.
 fn array_get_to_expr(
     array_id: &ValueId,
-    index: &ValueId,
+    index: Index,
     instruction_id: InstructionId,
     mode: Mode,
     dfg: &DataFlowGraph,
@@ -760,7 +801,7 @@ fn array_get_to_expr(
             trait_impl_paths = Arc::new(vec![trait_impl_path1, trait_impl_path2]);
             autospec_usage = AutospecUsage::IfMarked;
             (index_as_vir_expr, tuple_index) = calculate_index_and_tuple_index(
-                index,
+                &index,
                 inner_type_length,
                 dfg,
                 current_context.result_id_fixer,
@@ -777,7 +818,7 @@ fn array_get_to_expr(
             trait_impl_paths = Arc::new(vec![]);
             autospec_usage = AutospecUsage::Final;
             (index_as_vir_expr, tuple_index) = calculate_index_and_tuple_index(
-                index,
+                &index,
                 inner_type_length,
                 dfg,
                 current_context.result_id_fixer,
@@ -869,6 +910,86 @@ fn array_get_to_expr(
     array_get_vir_expr
 }
 
+/// Because array mutability is not supported in Verus we are creating a new array
+/// every time there is an array mutation aka ArraySet instruction.
+/// We can do it this way because the size of Noir arrays are known at compile time.
+pub(crate) fn array_set_to_expr(
+    array: &ValueId,
+    index: &ValueId,
+    new_value: &ValueId,
+    instruction_id: &InstructionId,
+    mode: Mode,
+    current_context: &mut SSAContext,
+    dfg: &DataFlowGraph,
+) -> Expr {
+    let array_len = dfg.try_get_array_length(*array).expect("Array id must be of type array");
+    let call_stack = dfg.get_call_stack(*instruction_id);
+    let mut new_array_elements: Vec<Expr> = Vec::new();
+
+    for i in 0..array_len {
+        new_array_elements.push(if_expression_for_array_body(
+            &array,
+            i,
+            &index,
+            &new_value,
+            instruction_id,
+            &call_stack,
+            mode,
+            current_context,
+            dfg,
+        ));
+    }
+
+    SpannedTyped::new(
+        &build_span(&array, format!("array set"), Some(call_stack)),
+        &from_noir_type(dfg[*array].get_type().clone(), None),
+        ExprX::ArrayLiteral(Arc::new(new_array_elements)),
+    )
+}
+
+fn if_expression_for_array_body(
+    array_id: &ValueId,
+    position_in_array: usize,
+    index: &ValueId,
+    new_value: &ValueId,
+    instruction_id: &InstructionId,
+    call_stack: &CallStack,
+    mode: Mode,
+    current_context: &mut SSAContext,
+    dfg: &DataFlowGraph,
+) -> Expr {
+    let span = build_span(index, format!("If is index expression"), Some(call_stack.clone()));
+    let new_value_type = from_noir_type(dfg[*new_value].get_type().clone(), None);
+    let new_value_as_expr = ssa_value_to_expr(new_value, dfg, current_context.result_id_fixer);
+
+    let if_condition = SpannedTyped::new(
+        &span,
+        &Arc::new(TypX::Bool),
+        ExprX::Binary(
+            VirBinaryOp::Eq(mode),
+            ssa_value_to_expr(index, dfg, current_context.result_id_fixer),
+            usize_to_const_expr(position_in_array, &dfg[*index].get_type().clone()),
+        ),
+    );
+
+    let then_expr = SpannedTyped::new(
+        &span,
+        &new_value_type,
+        ExprX::Block(Arc::new(vec![]), Some(new_value_as_expr)),
+    );
+
+    let else_expr = array_get_to_expr(
+        array_id,
+        Index::ConstIndex(position_in_array),
+        *instruction_id,
+        mode,
+        dfg,
+        current_context,
+    );
+
+    SpannedTyped::new(&span, &new_value_type, ExprX::If(if_condition, then_expr, Some(else_expr)))
+}
+
 pub(crate) fn instruction_to_expr(
     instruction_id: InstructionId,
     instruction: &Instruction,
@@ -907,18 +1028,21 @@ pub(crate) fn instruction_to_expr(
             current_context.result_id_fixer,
         ),
         Instruction::Allocate => unreachable!(), // Optimized away
-        Instruction::Load { address: value_id } => ssa_value_to_expr(
-            value_id,
-            dfg,
-            current_context.result_id_fixer
-        ),
+        Instruction::Load { address: value_id } => {
+            ssa_value_to_expr(value_id, dfg, current_context.result_id_fixer)
+        }
         Instruction::Store { address: _, value: _ } => unreachable!(), // Optimized away
         Instruction::EnableSideEffectsIf { condition: _ } => todo!(), //TODO(totel) Support for mutability
-        Instruction::ArrayGet { array, index } => {
-            array_get_to_expr(array, index, instruction_id, mode, dfg, current_context)
-        }
-        Instruction::ArraySet { array: _, index: _, value: _, mutable: _ } => {
-            todo!("Array set not implemented")
+        Instruction::ArrayGet { array, index } => array_get_to_expr(
+            array,
+            Index::SsaValue(index.clone()),
+            instruction_id,
+            mode,
+            dfg,
+            current_context,
+        ),
+        Instruction::ArraySet { array, index, value: new_value, mutable: _ } => {
+            array_set_to_expr(array, index, new_value, &instruction_id, mode, current_context, dfg)
         }
         Instruction::IncrementRc { value: _ } => unreachable!(), // Only in Brillig
         Instruction::DecrementRc { value: _ } => unreachable!(), // Only in Brillig
@@ -955,7 +1079,10 @@ fn terminating_instruction_to_expr(
     }
 }
 
-pub(crate) fn is_instruction_enable_side_effects(instruction_id: &InstructionId, dfg: &DataFlowGraph) -> bool {
+pub(crate) fn is_instruction_enable_side_effects(
+    instruction_id: &InstructionId,
+    dfg: &DataFlowGraph,
+) -> bool {
     match dfg[*instruction_id] {
         Instruction::EnableSideEffectsIf { condition: _ } => true,
         _ => false,
@@ -977,7 +1104,10 @@ pub(crate) fn get_enable_side_effects_value_id(
     }
 }
 
-pub(crate) fn is_instruction_call_to_print(instruction_id: &InstructionId, dfg: &DataFlowGraph) -> bool {
+pub(crate) fn is_instruction_call_to_print(
+    instruction_id: &InstructionId,
+    dfg: &DataFlowGraph,
+) -> bool {
     match &dfg[*instruction_id] {
         Instruction::Call { func, arguments: _ } => {
             if let Value::ForeignFunction(func_name) = &dfg[*func] {
@@ -990,7 +1120,10 @@ pub(crate) fn is_instruction_call_to_print(instruction_id: &InstructionId, dfg: 
     }
 }
 
-pub(crate) fn is_instruction_ind_dec_rc(instruction_id: &InstructionId, dfg: &DataFlowGraph) -> bool {
+pub(crate) fn is_instruction_ind_dec_rc(
+    instruction_id: &InstructionId,
+    dfg: &DataFlowGraph,
+) -> bool {
     match &dfg[*instruction_id] {
         Instruction::DecrementRc { .. } | Instruction::IncrementRc { .. } => true,
         _ => false,
