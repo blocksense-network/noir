@@ -440,7 +440,7 @@ impl Mul for GoldilocksField {
     type Output = Self;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        todo!()
+        GoldilocksField { data: (((self.data as u128) * (rhs.data as u128)) % 18446744069414584321u128) as u64 }
     }
 }
 
@@ -831,5 +831,21 @@ mod tests {
         test_single_neg(18446744069414584320u64.into(), 1u64.into());
         test_single_neg(9223372034707292160u64.into(), 9223372034707292161u64.into());
         test_single_neg(9223372034707292161u64.into(), 9223372034707292160u64.into());
+    }
+
+    fn test_single_mul(f1: GoldilocksField, f2: GoldilocksField, expect: GoldilocksField) {
+        // test Mul
+        let fmul = f1 * f2;
+        assert_eq!(fmul, expect);
+    }
+
+    #[test]
+    fn test_mul() {
+        test_single_mul(7u64.into(), 8u64.into(), 56u64.into());
+        test_single_mul(0u64.into(), 0u64.into(), 0u64.into());
+        test_single_mul(0u64.into(), 18446744069414584320u64.into(), 0u64.into());
+        test_single_mul(18446744069414584320u64.into(), 0u64.into(), 0u64.into());
+        test_single_mul(18446744069414584320u64.into(), 18446744069414584320u64.into(), 1u64.into());
+        test_single_mul(9223372034707292163u64.into(), 2u64.into(), 5u64.into())
     }
 }
