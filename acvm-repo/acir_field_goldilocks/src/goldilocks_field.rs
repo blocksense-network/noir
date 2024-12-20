@@ -200,7 +200,7 @@ impl<'a> DivAssign<&'a mut GoldilocksField> for GoldilocksField {
 
 impl<'a> MulAssign<&'a mut GoldilocksField> for GoldilocksField {
     fn mul_assign(&mut self, rhs: &'a mut GoldilocksField) {
-        todo!()
+        *self = *self * rhs
     }
 }
 
@@ -228,7 +228,7 @@ impl<'a> Mul<&'a mut GoldilocksField> for GoldilocksField {
     type Output = Self;
 
     fn mul(self, rhs: &'a mut GoldilocksField) -> Self::Output {
-        todo!()
+        self * *rhs
     }
 }
 
@@ -256,7 +256,7 @@ impl<'a> DivAssign<&'a GoldilocksField> for GoldilocksField {
 
 impl<'a> MulAssign<&'a GoldilocksField> for GoldilocksField {
     fn mul_assign(&mut self, rhs: &'a GoldilocksField) {
-        todo!()
+        *self = *self * rhs
     }
 }
 
@@ -284,7 +284,7 @@ impl<'a> Mul<&'a GoldilocksField> for GoldilocksField {
     type Output = Self;
 
     fn mul(self, rhs: &'a GoldilocksField) -> Self::Output {
-        todo!()
+        self * *rhs
     }
 }
 
@@ -312,7 +312,7 @@ impl DivAssign for GoldilocksField {
 
 impl MulAssign for GoldilocksField {
     fn mul_assign(&mut self, rhs: Self) {
-        todo!()
+        *self = *self * rhs
     }
 }
 
@@ -833,10 +833,40 @@ mod tests {
         test_single_neg(9223372034707292161u64.into(), 9223372034707292160u64.into());
     }
 
+    fn test_single_mul_borrow(f1: GoldilocksField, f2: &GoldilocksField, expect: GoldilocksField) {
+        let fdiff = f1 * f2;
+        assert_eq!(fdiff, expect);
+        let mut fdiff2 = f1;
+        fdiff2 *= f2;
+        assert_eq!(fdiff2, expect);
+    }
+
+    fn test_single_mul_mut_borrow(f1: GoldilocksField, f2: &mut GoldilocksField, expect: GoldilocksField) {
+        let fdiff = f1 * f2.clone();
+        assert_eq!(fdiff, expect);
+        let mut fdiff2 = f1;
+        fdiff2 *= f2;
+        assert_eq!(fdiff2, expect);
+    }
+
     fn test_single_mul(f1: GoldilocksField, f2: GoldilocksField, expect: GoldilocksField) {
         // test Mul
         let fmul = f1 * f2;
         assert_eq!(fmul, expect);
+
+        // test MulAssign
+        let mut fmul2 = f1;
+        fmul2 *= f2;
+        assert_eq!(fmul2, expect);
+
+        // test impl<'a> Mul<&'a GoldilocksField> for GoldilocksField
+        // and  impl<'a> MulAssign<&'a GoldilocksField> for GoldilocksField
+        test_single_mul_borrow(f1, &f2, expect);
+
+        // test impl<'a> Mul<&'a mut GoldilocksField> for GoldilocksField
+        // and  impl<'a> MulAssign<&'a mut GoldilocksField> for GoldilocksField
+        let mut f2_mut = f2.clone();
+        test_single_mul_mut_borrow(f1, &mut f2_mut, expect);
     }
 
     #[test]
