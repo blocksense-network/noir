@@ -262,7 +262,7 @@ impl<'a> MulAssign<&'a GoldilocksField> for GoldilocksField {
 
 impl<'a> SubAssign<&'a GoldilocksField> for GoldilocksField {
     fn sub_assign(&mut self, rhs: &'a GoldilocksField) {
-        todo!()
+        *self = *self - rhs
     }
 }
 
@@ -292,7 +292,7 @@ impl<'a> Sub<&'a GoldilocksField> for GoldilocksField {
     type Output = Self;
 
     fn sub(self, rhs: &'a GoldilocksField) -> Self::Output {
-        todo!()
+        self - *rhs
     }
 }
 
@@ -774,6 +774,14 @@ mod tests {
         test_single_add(18446744069414584320u64.into(), 18446744069414584320u64.into(), 18446744069414584319u64.into());
     }
 
+    fn test_single_sub_borrow(f1: GoldilocksField, f2: &GoldilocksField, expect: GoldilocksField) {
+        let fdiff = f1 - f2;
+        assert_eq!(fdiff, expect);
+        let mut fdiff2 = f1;
+        fdiff2 -= f2;
+        assert_eq!(fdiff, expect);
+    }
+
     fn test_single_sub(f1: GoldilocksField, f2: GoldilocksField, expect: GoldilocksField) {
         // test Sub
         let fdiff = f1 - f2;
@@ -783,6 +791,10 @@ mod tests {
         let mut fdiff2 = f1;
         fdiff2 -= f2;
         assert_eq!(fdiff2, expect);
+
+        // test impl<'a> Sub<&'a mut GoldilocksField> for GoldilocksField
+        // and  impl<'a> SubAssign<&'a mut GoldilocksField> for GoldilocksField
+        test_single_sub_borrow(f1, &f2, expect);
     }
 
     #[test]
