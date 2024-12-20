@@ -27,6 +27,8 @@ rand.workspace = true
 
 cfg-if.workspace = true
 
+plonky2 = { git = "https://github.com/metacraft-labs/plonky2" }
+
 [dev-dependencies]
 proptest.workspace = true
 

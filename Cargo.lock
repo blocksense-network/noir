@@ -48,6 +48,7 @@ dependencies = [
  "cfg-if 1.0.0",
  "hex",
  "num-bigint",
+ "plonky2",
  "proptest",
  "rand 0.8.5",
  "serde",

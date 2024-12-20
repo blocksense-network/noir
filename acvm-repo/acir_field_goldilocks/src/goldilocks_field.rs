@@ -3,6 +3,7 @@ use std::{fmt::Display, iter::{Product, Sum}, num::ParseIntError, ops::{Add, Add
 use ark_ff::{BigInt, BigInteger, FftField, Field, One, PrimeField, Zero};
 use ark_serialize::{CanonicalDeserialize, CanonicalDeserializeWithFlags, CanonicalSerialize, CanonicalSerializeWithFlags, Compress, Flags, SerializationError, Valid, Validate};
 use num_bigint::BigUint;
+use plonky2::field::{goldilocks_field::GoldilocksField as Plonky2GoldilocksField, types::{Field as Plonky2Field, PrimeField64}};
 use rand::Rng;
 use zeroize::Zeroize;
 
@@ -194,7 +195,7 @@ impl<'a> Sum<&'a GoldilocksField> for GoldilocksField {
 
 impl<'a> DivAssign<&'a mut GoldilocksField> for GoldilocksField {
     fn div_assign(&mut self, rhs: &'a mut GoldilocksField) {
-        todo!()
+        *self = *self / rhs
     }
 }
 
@@ -220,7 +221,7 @@ impl<'a> Div<&'a mut GoldilocksField> for GoldilocksField {
     type Output = Self;
 
     fn div(self, rhs: &'a mut GoldilocksField) -> Self::Output {
-        todo!()
+        self / *rhs
     }
 }
 
@@ -250,7 +251,7 @@ impl<'a> Add<&'a mut GoldilocksField> for GoldilocksField {
 
 impl<'a> DivAssign<&'a GoldilocksField> for GoldilocksField {
     fn div_assign(&mut self, rhs: &'a GoldilocksField) {
-        todo!()
+        *self = *self / rhs
     }
 }
 
@@ -276,7 +277,7 @@ impl<'a> Div<&'a GoldilocksField> for GoldilocksField {
     type Output = Self;
 
     fn div(self, rhs: &'a GoldilocksField) -> Self::Output {
-        todo!()
+        self / *rhs
     }
 }
 
@@ -306,7 +307,7 @@ impl<'a> Add<&'a GoldilocksField> for GoldilocksField {
 
 impl DivAssign for GoldilocksField {
     fn div_assign(&mut self, rhs: Self) {
-        todo!()
+        *self = *self / rhs
     }
 }
 
@@ -332,7 +333,7 @@ impl Div for GoldilocksField {
     type Output = Self;
 
     fn div(self, rhs: Self) -> Self::Output {
-        todo!()
+        GoldilocksField { data: (Plonky2GoldilocksField::from_canonical_u64(self.data) / Plonky2GoldilocksField::from_canonical_u64(rhs.data)).to_canonical_u64() }
     }
 }
 
@@ -877,5 +878,114 @@ mod tests {
         test_single_mul(18446744069414584320u64.into(), 0u64.into(), 0u64.into());
         test_single_mul(18446744069414584320u64.into(), 18446744069414584320u64.into(), 1u64.into());
         test_single_mul(9223372034707292163u64.into(), 2u64.into(), 5u64.into())
+    }
+
+    fn test_single_div_borrow(f1: GoldilocksField, f2: &GoldilocksField, expect: GoldilocksField) {
+        let fdiff = f1 / f2;
+        assert_eq!(fdiff, expect);
+        let mut fdiff2 = f1;
+        fdiff2 /= f2;
+        assert_eq!(fdiff2, expect);
+    }
+
+    fn test_single_div_mut_borrow(f1: GoldilocksField, f2: &mut GoldilocksField, expect: GoldilocksField) {
+        let fdiff = f1 / f2.clone();
+        assert_eq!(fdiff, expect);
+        let mut fdiff2 = f1;
+        fdiff2 /= f2;
+        assert_eq!(fdiff2, expect);
+    }
+
+    fn test_single_div(f1: GoldilocksField, f2: GoldilocksField, expect: GoldilocksField) {
+        // test Div
+        let fdiv = f1 / f2;
+        assert_eq!(fdiv, expect);
+
+        // test DivAssign
+        let mut fdiv2 = f1;
+        fdiv2 /= f2;
+        assert_eq!(fdiv2, expect);
+
+        // test impl<'a> Div<&'a GoldilocksField> for GoldilocksField
+        // and  impl<'a> DivAssign<&'a GoldilocksField> for GoldilocksField
+        test_single_div_borrow(f1, &f2, expect);
+
+        // test impl<'a> Div<&'a mut GoldilocksField> for GoldilocksField
+        // and  impl<'a> DivAssign<&'a mut GoldilocksField> for GoldilocksField
+        let mut f2_mut = f2.clone();
+        test_single_div_mut_borrow(f1, &mut f2_mut, expect);
+    }
+
+    #[test]
+    fn test_div() {
+        test_single_div(42u64.into(), 6u64.into(), 7u64.into());
+        test_single_div(0u64.into(), 18446744069414584320u64.into(), 0u64.into());
+        test_single_div(5u64.into(), 2u64.into(), 9223372034707292163u64.into());
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_div_by_zero() {
+        let f1: GoldilocksField = 1u64.into();
+        let f2: GoldilocksField = 0u64.into();
+        let _fdiv = f1 / f2;
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_div_assign_by_zero() {
+        let mut f1: GoldilocksField = 1u64.into();
+        let f2: GoldilocksField = 0u64.into();
+        f1 /= f2;
+    }
+
+    fn internal_test_single_div_by_zero_borrow(f1: GoldilocksField, f2: &GoldilocksField) {
+        let _ = f1 / f2;
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_div_by_zero_borrow() {
+        let f1: GoldilocksField = 1u64.into();
+        let f2: GoldilocksField = 0u64.into();
+        internal_test_single_div_by_zero_borrow(f1, &f2);
+    }
+
+    fn internal_test_single_div_assign_by_zero_borrow(f1: GoldilocksField, f2: &GoldilocksField) {
+        let mut fdiff2 = f1;
+        fdiff2 /= f2;
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_div_assign_by_zero_borrow() {
+        let f1: GoldilocksField = 1u64.into();
+        let f2: GoldilocksField = 0u64.into();
+        internal_test_single_div_assign_by_zero_borrow(f1, &f2);
+    }
+
+    fn internal_test_single_div_by_zero_mut_borrow(f1: GoldilocksField, f2: &mut GoldilocksField) {
+        let _ = f1 / f2;
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_div_by_zero_mut_borrow() {
+        let f1: GoldilocksField = 1u64.into();
+        let mut f2: GoldilocksField = 0u64.into();
+        internal_test_single_div_by_zero_mut_borrow(f1, &mut f2);
+    }
+
+    fn internal_test_single_div_assign_by_zero_mut_borrow(f1: GoldilocksField, f2: &mut GoldilocksField) {
+        let mut fdiff2 = f1;
+        fdiff2 /= f2;
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_div_assign_by_zero_mut_borrow() {
+        let f1: GoldilocksField = 1u64.into();
+        let mut f2: GoldilocksField = 0u64.into();
+        internal_test_single_div_assign_by_zero_mut_borrow(f1, &mut f2);
     }
 }
