@@ -129,11 +129,12 @@ impl Field for GoldilocksField {
     }
 
     fn double(&self) -> Self {
-        todo!()
+        *self + *self
     }
 
     fn double_in_place(&mut self) -> &mut Self {
-        todo!()
+        *self += *self;
+        self
     }
 
     fn neg_in_place(&mut self) -> &mut Self {
@@ -993,5 +994,21 @@ mod tests {
         let f1: GoldilocksField = 1u64.into();
         let mut f2: GoldilocksField = 0u64.into();
         internal_test_single_div_assign_by_zero_mut_borrow(f1, &mut f2);
+    }
+
+    fn internal_test_double(f: GoldilocksField, expect: GoldilocksField) {
+        assert_eq!(f.double(), expect);
+        let mut f2 = f;
+        f2.double_in_place();
+        assert_eq!(f2, expect);
+    }
+
+    #[test]
+    fn test_double() {
+        internal_test_double(0u64.into(), 0u64.into());
+        internal_test_double(1u64.into(), 2u64.into());
+        internal_test_double(1000u64.into(), 2000u64.into());
+        internal_test_double(18446744069414584320u64.into(), 18446744069414584319u64.into());
+        internal_test_double(9223372034707292163u64.into(), 5u64.into());
     }
 }
