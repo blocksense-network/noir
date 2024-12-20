@@ -757,12 +757,12 @@ mod tests {
         fsum2 += f2;
         assert_eq!(fsum2, expect);
 
-        // test impl<'a> Add<&'a mut GoldilocksField> for GoldilocksField
-        // and  impl<'a> AddAssign<&'a mut GoldilocksField> for GoldilocksField
-        test_single_add_borrow(f1, &f2, expect);
-
         // test impl<'a> Add<&'a GoldilocksField> for GoldilocksField
         // and  impl<'a> AddAssign<&'a GoldilocksField> for GoldilocksField
+        test_single_add_borrow(f1, &f2, expect);
+
+        // test impl<'a> Add<&'a mut GoldilocksField> for GoldilocksField
+        // and  impl<'a> AddAssign<&'a mut GoldilocksField> for GoldilocksField
         let mut f2_mut = f2.clone();
         test_single_add_mut_borrow(f1, &mut f2_mut, expect);
     }
