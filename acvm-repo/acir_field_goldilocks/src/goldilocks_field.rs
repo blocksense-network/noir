@@ -268,7 +268,7 @@ impl<'a> SubAssign<&'a GoldilocksField> for GoldilocksField {
 
 impl<'a> AddAssign<&'a GoldilocksField> for GoldilocksField {
     fn add_assign(&mut self, rhs: &'a GoldilocksField) {
-        todo!()
+        *self = *self + rhs
     }
 }
 
@@ -730,6 +730,9 @@ mod tests {
     fn test_single_add_borrow(f1: GoldilocksField, f2: &GoldilocksField, expect: GoldilocksField) {
         let fsum = f1 + f2;
         assert_eq!(fsum, expect);
+        let mut fsum2 = f1;
+        fsum2 += f2;
+        assert_eq!(fsum, expect);
     }
 
     fn test_single_add_mut_borrow(f1: GoldilocksField, f2: &mut GoldilocksField, expect: GoldilocksField) {
@@ -751,6 +754,7 @@ mod tests {
         test_single_add_borrow(f1, &f2, expect);
 
         // test impl<'a> Add<&'a GoldilocksField> for GoldilocksField
+        // and  impl<'a> AddAssign<&'a GoldilocksField> for GoldilocksField
         let mut f2_mut = f2.clone();
         test_single_add_mut_borrow(f1, &mut f2_mut, expect);
     }
