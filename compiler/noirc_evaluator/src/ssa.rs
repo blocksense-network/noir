@@ -262,6 +262,7 @@ pub(crate) fn optimize_into_verus_vir(
     .run_pass(Ssa::dead_instruction_elimination, "After Dead Instruction Elimination:")
     .run_pass(Ssa::array_set_optimization, "After Array Set Optimizations:")
     .run_pass(Ssa::inline_calls_in_attributes, "After Inlining Calls in attributes:")
+    .run_pass(Ssa::update_value_map, "After Updating Values inside of DFGs:")
     .finish();
 
     drop(ssa_gen_span_guard);
