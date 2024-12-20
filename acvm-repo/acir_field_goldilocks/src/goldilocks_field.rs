@@ -31,6 +31,7 @@ impl From<BigUint> for GoldilocksField {
 
 impl From<BigInt<1>> for GoldilocksField {
     fn from(value: BigInt<1>) -> Self {
+        assert!(BigInt::from(value) < GoldilocksField::MODULUS);
         // TODO: better impl
         let s = value.to_string();
         GoldilocksField { data: u64::from_str(s.as_str()).unwrap() }
