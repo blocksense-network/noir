@@ -340,7 +340,11 @@ impl Sub for GoldilocksField {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        todo!()
+        if self.data >= rhs.data {
+            GoldilocksField { data: self.data - rhs.data }
+        } else {
+            GoldilocksField { data: 18446744069414584321u64 - (rhs.data - self.data) }
+        }
     }
 }
 
@@ -768,5 +772,19 @@ mod tests {
         test_single_add(3u64.into(), 2u64.into(), 5u64.into());
         test_single_add(18446744069414584320u64.into(), 1000u64.into(), 999u64.into());
         test_single_add(18446744069414584320u64.into(), 18446744069414584320u64.into(), 18446744069414584319u64.into());
+    }
+
+    fn test_single_sub(f1: GoldilocksField, f2: GoldilocksField, expect: GoldilocksField) {
+        // test Sub
+        let fdiff = f1 - f2;
+        assert_eq!(fdiff, expect);
+    }
+
+    #[test]
+    fn test_sub() {
+        test_single_sub(5u64.into(), 2u64.into(), 3u64.into());
+        test_single_sub(0u64.into(), 1u64.into(), 18446744069414584320u64.into());
+        test_single_sub(999u64.into(), 1000u64.into(), 18446744069414584320u64.into());
+        test_single_sub(998u64.into(), 18446744069414584319u64.into(), 1000u64.into());
     }
 }
