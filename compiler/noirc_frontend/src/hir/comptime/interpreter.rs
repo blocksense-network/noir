@@ -1102,6 +1102,9 @@ impl<'local, 'interner> Interpreter<'local, 'interner> {
                 (Value::U64(lhs), Value::U64(rhs)) => Ok(Value::U64(lhs % rhs)),
                 (lhs, rhs) => make_error(self, lhs, rhs, "%"),
             },
+            BinaryOpKind::Implication => {
+                unreachable!("All implications must have been transformed to !lsh | rhs")
+            }
         }
     }
 

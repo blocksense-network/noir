@@ -292,6 +292,7 @@ impl<'interner> TokenPrettyPrinter<'interner> {
             Token::EOF => Ok(()),
             Token::Requires => write!(f, "{token}"),
             Token::Ensures => write!(f, "{token}"),
+            Token::Implication => write!(f, " {token} ")
         }
     }
 

@@ -1000,6 +1000,7 @@ fn convert_operator(op: BinaryOpKind) -> BinaryOp {
         BinaryOpKind::Xor => BinaryOp::Xor,
         BinaryOpKind::ShiftLeft => BinaryOp::Shl,
         BinaryOpKind::ShiftRight => BinaryOp::Shr,
+        BinaryOpKind::Implication => unreachable!("No implication token should have remained."),
     }
 }
 

@@ -112,6 +112,8 @@ pub enum BorrowedToken<'input> {
     Requires,
     /// #[ensures
     Ensures,
+    /// ==>
+    Implication,
 
     #[allow(clippy::upper_case_acronyms)]
     EOF,
@@ -236,6 +238,8 @@ pub enum Token {
     Requires,
     /// #[ensures
     Ensures,
+    /// ==>
+    Implication,
 
     #[allow(clippy::upper_case_acronyms)]
     EOF,
@@ -317,6 +321,7 @@ pub fn token_to_borrowed_token(token: &Token) -> BorrowedToken<'_> {
         Token::UnquoteMarker(id) => BorrowedToken::UnquoteMarker(*id),
         Token::Requires => BorrowedToken::Requires,
         Token::Ensures => BorrowedToken::Ensures,
+        Token::Implication => BorrowedToken::Implication,
     }
 }
 
@@ -450,6 +455,7 @@ impl fmt::Display for Token {
             Token::UnquoteMarker(_) => write!(f, "(UnquoteMarker)"),
             Token::Requires => write!(f, "#[requires"),
             Token::Ensures => write!(f, "#[ensures"),
+            Token::Implication => write!(f, "==>"),
         }
     }
 }
@@ -564,6 +570,7 @@ impl Token {
             Token::Greater => Greater,
             Token::GreaterEqual => GreaterEqual,
             Token::Percent => Modulo,
+            Token::Implication => Implication,
             _ => return None,
         };
         Some(Spanned::from(span, binary_op))

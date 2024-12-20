@@ -216,7 +216,16 @@ impl<'a> Lexer<'a> {
                 }
             }
             Token::Bang => self.single_double_peek_token('=', prev_token, Token::NotEqual),
-            Token::Assign => self.single_double_peek_token('=', prev_token, Token::Equal),
+            Token::Assign => {
+                if self.peek_char_is('=') && self.peek2_char_is('>') {
+                    let start = self.position;
+                    self.next_char();
+                    self.next_char();
+                    Ok(Token::Implication.into_span(start, start + 2))
+                } else {
+                    self.single_double_peek_token('=', prev_token, Token::Equal)
+                }
+            }
             Token::Minus => self.single_double_peek_token('>', prev_token, Token::Arrow),
             Token::Colon => self.single_double_peek_token(':', prev_token, Token::DoubleColon),
             Token::Slash => {
