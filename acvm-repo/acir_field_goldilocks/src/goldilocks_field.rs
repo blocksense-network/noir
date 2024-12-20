@@ -551,4 +551,16 @@ mod tests {
             test_conversion_from_u8(u as u8, u.to_string());
         }
     }
+
+    fn test_conversion_from_u16(u: u16, expect: String) {
+        let gf: GoldilocksField = u.into();
+        assert_eq!(format!("{}", gf), expect);
+    }
+
+    #[test]
+    fn test_conversions_from_u16() {
+        for u in 0..=65535 {
+            test_conversion_from_u16(u as u16, u.to_string());
+        }
+    }
 }
