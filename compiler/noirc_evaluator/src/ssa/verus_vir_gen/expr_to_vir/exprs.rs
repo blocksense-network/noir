@@ -6,7 +6,8 @@ use expr_to_vir::{
         trunc_target_int_range,
     },
 };
-use vir::ast::FieldOpr;
+use num_bigint::ToBigInt;
+use vir::ast::{Binder, BinderX, FieldOpr};
 
 use crate::ssa::verus_vir_gen::*;
 
@@ -588,10 +589,18 @@ fn calculate_index_and_tuple_index(
 
     let index_value = match index {
         Index::SsaValue(id) => dfg[*id].clone(),
-        Index::ConstIndex(const_index) => Value::NumericConstant {
-            constant: FieldElement::from(*const_index),
-            typ: Type::Numeric(NumericType::Unsigned { bit_size: 32 }),
-        },
+        // If we have a Index::ConstIndex we don't calculate the indexes.
+        // This is needed when we want to extract the entire tuple instead of an element.
+        // This happens when we are handling a SSA array set instruction.
+        Index::ConstIndex(const_index) => {
+            return (
+                usize_to_const_expr(
+                    *const_index,
+                    &Type::Numeric(NumericType::Unsigned { bit_size: 32 }),
+                ),
+                None,
+            );
+        }
     };
 
     // There are two possible options for the index.
@@ -702,6 +711,7 @@ fn calculate_index_and_tuple_index(
                 &from_noir_type(noir_type.clone(), None),
                 ExprX::Const(Constant::Int(actual_index)),
             );
+
             (actual_index_as_expr, Some(tuple_index))
         }
         _ => unreachable!(
@@ -959,25 +969,94 @@ fn if_expression_for_array_body(
     dfg: &DataFlowGraph,
 ) -> Expr {
     let span = build_span(index, format!("If is index expression"), Some(call_stack.clone()));
-    let new_value_type = from_noir_type(dfg[*new_value].get_type().clone(), None);
     let new_value_as_expr = ssa_value_to_expr(new_value, dfg, current_context.result_id_fixer);
+    let inner_type_noir = match dfg.type_of_value(*array_id) {
+        Type::Array(inner_types, _) => inner_types,
+        _ => unreachable!("You can only array_set an array in SSA"),
+    };
+    let inner_type_length = inner_type_noir.as_ref().len();
+    let if_return_type = from_composite_type(inner_type_noir.clone());
+
+    let (calculated_actual_index, tuple_index) = calculate_index_and_tuple_index(
+        &Index::SsaValue(*index),
+        inner_type_length,
+        dfg,
+        current_context.result_id_fixer,
+        mode,
+    );
 
     let if_condition = SpannedTyped::new(
         &span,
         &Arc::new(TypX::Bool),
         ExprX::Binary(
             VirBinaryOp::Eq(mode),
-            ssa_value_to_expr(index, dfg, current_context.result_id_fixer),
+            calculated_actual_index,
             usize_to_const_expr(position_in_array, &dfg[*index].get_type().clone()),
         ),
     );
 
-    let then_expr = SpannedTyped::new(
-        &span,
-        &new_value_type,
-        ExprX::Block(Arc::new(vec![]), Some(new_value_as_expr)),
-    );
+    // Here we will have to do tuple building with "Ctor" from 0..inner_type_length.
+    // We need the calculated actual index and the special index for the ctor tuple which will be mutated.
+    // Rest of the elements of the tuple will have the value old_array[actual_index].i where i in 0..inner_type_length.
 
+    let then_expr = if let Some(tuple_index_to_be_mutated) = tuple_index {
+        let mut binders: Vec<Binder<Expr>> = Vec::new();
+        for current_tuple_index in 0..inner_type_length {
+            let typ_for_current_index =
+                from_noir_type(inner_type_noir.as_ref()[current_tuple_index].clone(), None);
+            let expr_at_current_tuple_index =
+                if current_tuple_index.to_bigint().expect("Failed to convert usize to BigInt")
+                    == tuple_index_to_be_mutated
+                {
+                    new_value_as_expr.clone()
+                } else {
+                    let array_get_expr = array_get_to_expr(
+                        array_id,
+                        Index::ConstIndex(position_in_array),
+                        *instruction_id,
+                        mode,
+                        dfg,
+                        current_context,
+                    );
+                    SpannedTyped::new(
+                        &span,
+                        &typ_for_current_index,
+                        ExprX::UnaryOpr(
+                            vir::ast::UnaryOpr::Field(FieldOpr {
+                                datatype: Dt::Tuple(inner_type_length),
+                                variant: Arc::new(
+                                    "tuple%".to_string() + &inner_type_length.to_string(),
+                                ),
+                                field: Arc::new(current_tuple_index.to_string()),
+                                get_variant: false,
+                                check: vir::ast::VariantCheck::None,
+                            }),
+                            array_get_expr,
+                        ),
+                    )
+                };
+            binders.push(Arc::new(BinderX {
+                name: Arc::new(current_tuple_index.to_string()),
+                a: expr_at_current_tuple_index,
+            }));
+        }
+        let build_tuple_exprx = ExprX::Ctor(
+            Dt::Tuple(inner_type_length),
+            Arc::new(format!("tuple%{inner_type_length}")),
+            Arc::new(binders),
+            None,
+        );
+        SpannedTyped::new(&span, &if_return_type, build_tuple_exprx)
+    } else {
+        SpannedTyped::new(
+            &span,
+            &if_return_type,
+            ExprX::Block(Arc::new(vec![]), Some(new_value_as_expr)),
+        )
+    };
+
+    // This array get call returns a literal array get for the given array
+    // where no calculations have been done for the index.
     let else_expr = array_get_to_expr(
         array_id,
         Index::ConstIndex(position_in_array),
@@ -987,7 +1066,7 @@ fn if_expression_for_array_body(
         current_context,
     );
 
-    SpannedTyped::new(&span, &new_value_type, ExprX::If(if_condition, then_expr, Some(else_expr)))
+    SpannedTyped::new(&span, &if_return_type, ExprX::If(if_condition, then_expr, Some(else_expr)))
 }
 
 pub(crate) fn instruction_to_expr(
