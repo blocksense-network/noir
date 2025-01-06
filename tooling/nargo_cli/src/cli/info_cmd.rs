@@ -9,8 +9,7 @@ cfg_if::cfg_if! {
 use clap::Args;
 use iter_extended::vecmap;
 use nargo::{
-    constants::PROVER_INPUT_FILE, foreign_calls::DefaultForeignCallExecutor, package::Package,
-    PrintOutput,
+    constants::PROVER_INPUT_FILE, foreign_calls::DefaultForeignCallBuilder, package::Package,
 };
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml};
 use noirc_abi::input_parser::Format;
@@ -261,7 +260,7 @@ fn profile_brillig_execution(
             &program_artifact.bytecode,
             initial_witness,
             &Bn254BlackBoxSolver,
-            &mut DefaultForeignCallExecutor::new(PrintOutput::None, None, None, None),
+            &mut DefaultForeignCallBuilder::default().build(),
         )?;
 
         let expression_width = get_target_width(package.expression_width, expression_width);

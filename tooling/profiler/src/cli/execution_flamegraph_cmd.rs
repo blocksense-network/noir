@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use acir::circuit::OpcodeLocation;
 use clap::Args;
 use color_eyre::eyre::{self, Context};
+use nargo::foreign_calls::DefaultForeignCallBuilder;
 use nargo::PrintOutput;
 
 use crate::flamegraph::{BrilligExecutionSample, FlamegraphGenerator, InfernoFlamegraphGenerator};
@@ -15,7 +16,6 @@ cfg_if::cfg_if! {
         use bn254_blackbox_solver::Bn254BlackBoxSolver;
     }
 }
-use nargo::foreign_calls::DefaultForeignCallExecutor;
 use noirc_abi::input_parser::Format;
 use noirc_artifacts::debug::DebugArtifact;
 
@@ -61,7 +61,7 @@ fn run_with_generator(
         &program.bytecode,
         initial_witness,
         &Bn254BlackBoxSolver,
-        &mut DefaultForeignCallExecutor::new(PrintOutput::Stdout, None, None, None),
+        &mut DefaultForeignCallBuilder::default().with_output(PrintOutput::Stdout).build(),
     )?;
     println!("Executed");
 
