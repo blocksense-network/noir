@@ -78,6 +78,36 @@ impl From<u128> for GoldilocksField {
     }
 }
 
+impl From<i8> for GoldilocksField {
+    fn from(value: i8) -> Self {
+        todo!()
+    }
+}
+
+impl From<i16> for GoldilocksField {
+    fn from(value: i16) -> Self {
+        todo!()
+    }
+}
+
+impl From<i32> for GoldilocksField {
+    fn from(value: i32) -> Self {
+        todo!()
+    }
+}
+
+impl From<i64> for GoldilocksField {
+    fn from(value: i64) -> Self {
+        todo!()
+    }
+}
+
+impl From<i128> for GoldilocksField {
+    fn from(value: i128) -> Self {
+        todo!()
+    }
+}
+
 impl FromStr for GoldilocksField {
     type Err = ParseIntError;
 
