@@ -1,6 +1,6 @@
 use std::{fmt::Display, iter::{Product, Sum}, num::ParseIntError, ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign}, str::FromStr};
 
-use ark_ff::{BigInt, BigInteger, FftField, Field, One, PrimeField, Zero};
+use ark_ff::{AdditiveGroup, BigInt, BigInteger, FftField, Field, One, PrimeField, Zero};
 use ark_serialize::{CanonicalDeserialize, CanonicalDeserializeWithFlags, CanonicalSerialize, CanonicalSerializeWithFlags, Compress, Flags, SerializationError, Valid, Validate};
 use num_bigint::BigUint;
 use plonky2::field::{goldilocks_field::GoldilocksField as Plonky2GoldilocksField, types::{Field as Plonky2Field, PrimeField64}};
@@ -118,6 +118,26 @@ impl FromStr for GoldilocksField {
     }
 }
 
+impl AdditiveGroup for GoldilocksField {
+    type Scalar = Self;
+
+    const ZERO: Self = GoldilocksField { data: 0 };
+
+    fn double(&self) -> Self {
+        *self + *self
+    }
+
+    fn double_in_place(&mut self) -> &mut Self {
+        *self += *self;
+        self
+    }
+
+    fn neg_in_place(&mut self) -> &mut Self {
+        *self = - *self;
+        self
+    }
+}
+
 impl FftField for GoldilocksField {
     // ???
     const GENERATOR: Self = GoldilocksField { data: 7 };
@@ -133,12 +153,8 @@ impl Field for GoldilocksField {
     // ???
     type BasePrimeField = Self;
 
-    type BasePrimeFieldIter = GoldilocksFieldIter;
-
     // ???
     const SQRT_PRECOMP: Option<ark_ff::SqrtPrecomputation<Self>> = None;
-
-    const ZERO: Self = GoldilocksField { data: 0 };
 
     const ONE: Self = GoldilocksField { data: 1 };
 
@@ -146,30 +162,19 @@ impl Field for GoldilocksField {
         todo!()
     }
 
-    fn to_base_prime_field_elements(&self) -> Self::BasePrimeFieldIter {
-        todo!()
+    fn to_base_prime_field_elements(&self) -> impl Iterator<Item = Self::BasePrimeField> {
+        todo!();
+        GoldilocksFieldIter { }
     }
 
-    fn from_base_prime_field_elems(elems: &[Self::BasePrimeField]) -> Option<Self> {
+    fn from_base_prime_field_elems(
+        elems: impl IntoIterator<Item = Self::BasePrimeField>,
+    ) -> Option<Self> {
         todo!()
     }
 
     fn from_base_prime_field(elem: Self::BasePrimeField) -> Self {
         todo!()
-    }
-
-    fn double(&self) -> Self {
-        *self + *self
-    }
-
-    fn double_in_place(&mut self) -> &mut Self {
-        *self += *self;
-        self
-    }
-
-    fn neg_in_place(&mut self) -> &mut Self {
-        *self = - *self;
-        self
     }
 
     fn from_random_bytes_with_flags<F: Flags>(bytes: &[u8]) -> Option<(Self, F)> {
@@ -207,6 +212,10 @@ impl Field for GoldilocksField {
     }
 
     fn frobenius_map_in_place(&mut self, power: usize) {
+        todo!()
+    }
+
+    fn mul_by_base_prime_field(&self, elem: &Self::BasePrimeField) -> Self {
         todo!()
     }
 }
@@ -581,7 +590,7 @@ impl PrimeField for GoldilocksField {
 mod tests {
     use std::str::FromStr;
 
-    use ark_ff::{BigInt, Field, PrimeField};
+    use ark_ff::{AdditiveGroup, BigInt, Field, PrimeField};
     use num_bigint::BigUint;
 
     use super::GoldilocksField;
@@ -1039,7 +1048,7 @@ mod tests {
     fn internal_test_double(f: GoldilocksField, expect: GoldilocksField) {
         assert_eq!(f.double(), expect);
         let mut f2 = f;
-        f2.double_in_place();
+        AdditiveGroup::double_in_place(&mut f2);
         assert_eq!(f2, expect);
     }
 
