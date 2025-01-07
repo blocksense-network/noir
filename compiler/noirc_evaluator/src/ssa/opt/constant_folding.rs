@@ -836,9 +836,12 @@ fn simplify(dfg: &DataFlowGraph, lhs: ValueId, rhs: ValueId) -> Option<(ValueId,
 mod test {
     use std::sync::Arc;
 
+    use noirc_frontend::monomorphization::ast::InlineType;
+
     use crate::ssa::{
         function_builder::FunctionBuilder,
         ir::{
+            function::RuntimeType,
             map::Id,
             types::{NumericType, Type},
         },
@@ -1051,7 +1054,7 @@ mod test {
                 return
             }
             ";
-        let ssa = Ssa::from_str(src).unwrap();
+        let ssa = Ssa::from_str_simplifying(src).unwrap();
 
         let expected = "
             acir(inline) fn main f0 {
@@ -1159,6 +1162,7 @@ mod test {
 
         // Compiling main
         let mut builder = FunctionBuilder::new("main".into(), main_id);
+        builder.set_runtime(RuntimeType::Brillig(InlineType::default()));
         let v0 = builder.add_parameter(Type::unsigned(64));
         let zero = builder.numeric_constant(0u128, NumericType::unsigned(64));
         let typ = Type::Array(Arc::new(vec![Type::unsigned(64)]), 25);
@@ -1556,7 +1560,7 @@ mod test {
     fn deduplicates_side_effecting_intrinsics() {
         let src = "
         // After EnableSideEffectsIf removal:
-        acir(inline) fn main f0 {
+        brillig(inline) fn main f0 {
           b0(v0: Field, v1: Field, v2: u1):
             v4 = call is_unconstrained() -> u1
             v7 = call to_be_radix(v0, u32 256) -> [u8; 1]    // `a.to_be_radix(256)`;
@@ -1573,7 +1577,7 @@ mod test {
         ";
         let ssa = Ssa::from_str(src).unwrap();
         let expected = "
-        acir(inline) fn main f0 {
+        brillig(inline) fn main f0 {
           b0(v0: Field, v1: Field, v2: u1):
             v4 = call is_unconstrained() -> u1
             v7 = call to_be_radix(v0, u32 256) -> [u8; 1]
