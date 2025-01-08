@@ -542,6 +542,36 @@ fn call_instruction_to_expr(
     )
 }
 
+fn gather_all_add_instructions(instruction_id: &InstructionId, dfg: &DataFlowGraph) -> BigInt {
+    match &dfg[*instruction_id] {
+        Instruction::Binary(binary) => match binary.operator {
+            BinaryOp::Add => match &dfg[binary.rhs] {
+                Value::NumericConstant { constant: numeric_const, typ: _ } => {
+                    let const_big_uint: BigUint = numeric_const.into_repr().into();
+                    let rhs_const =
+                        BigInt::from_biguint(num_bigint::Sign::Plus, const_big_uint.clone());
+                    // Lhs is an auto generated instruction. It's either an addition
+                    // or multiplication (the multiplication for correcting the index after the flattening)
+                    let lhs = if let Value::Instruction { instruction, position: _, typ: _ } =
+                        dfg[binary.lhs]
+                    {
+                        instruction
+                    } else {
+                        unreachable!("Expected auto generated \"add\" instruction to have lhs of type instruction");
+                    };
+
+                    rhs_const + gather_all_add_instructions(&lhs, dfg)
+                }
+                _ => unreachable!("Expected auto generated \"add\" instruction to have const rhs"),
+            },
+            // No more auto generated add instructions
+            _ => BigInt::ZERO,
+        },
+        // No more auto generated add instructions
+        _ => BigInt::ZERO,
+    }
+}
+
 #[derive(Debug)]
 enum Index {
     SsaValue(ValueId),
@@ -612,21 +642,7 @@ fn calculate_index_and_tuple_index(
                 Index::SsaValue(id) => id,
                 Index::ConstIndex(_) => unreachable!(),
             };
-            let tuple_index = match &dfg[*instruction] {
-                Instruction::Binary(binary) => match binary.operator {
-                    BinaryOp::Add => match &dfg[binary.rhs] {
-                        Value::NumericConstant { constant: numeric_const, typ: _ } => {
-                            let const_big_uint: BigUint = numeric_const.into_repr().into();
-                            BigInt::from_biguint(num_bigint::Sign::Plus, const_big_uint.clone())
-                        }
-                        _ => unreachable!(
-                            "Expected auto generated \"add\" instruction to have const rhs"
-                        ),
-                    },
-                    _ => BigInt::ZERO,
-                },
-                _ => BigInt::ZERO,
-            };
+            let tuple_index = gather_all_add_instructions(instruction, dfg);
             let tuple_index_as_expr = SpannedTyped::new(
                 &empty_span(),
                 &Arc::new(TypX::Int(IntRange::U(bit_size))),
