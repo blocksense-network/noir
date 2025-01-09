@@ -20,7 +20,8 @@ use acvm_blackbox_solver::{BlackBoxFunctionSolver, BlackBoxResolutionError};
 type FieldElement = acir::acir_field::GenericFieldElement<acir_field_goldilocks::goldilocks_field::GoldilocksField>;
 
 #[derive(Default)]
-pub struct GoldilocksBlackBoxSolver;
+// pedantic_solving: bool
+pub struct GoldilocksBlackBoxSolver(pub bool);
 
 impl BlackBoxFunctionSolver<FieldElement> for GoldilocksBlackBoxSolver {
     fn multi_scalar_mul(
@@ -56,5 +57,9 @@ impl BlackBoxFunctionSolver<FieldElement> for GoldilocksBlackBoxSolver {
     ) -> Result<Vec<FieldElement>, BlackBoxResolutionError> {
         todo!()
         //poseidon2_permutation(inputs, len)
+    }
+
+    fn pedantic_solving(&self) -> bool {
+        self.0
     }
 }
