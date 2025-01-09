@@ -91,7 +91,14 @@ pub(crate) fn run(args: DebugCommand, config: NargoConfig) -> Result<(), CliErro
 
     let compiled_program = nargo::ops::transform_program(compiled_program, target_width);
 
-    run_async(package, compiled_program, &args.prover_name, &args.witness_name, target_dir)
+    run_async(
+        package,
+        compiled_program,
+        &args.prover_name,
+        &args.witness_name,
+        target_dir,
+        args.compile_options.pedantic_solving,
+    )
 }
 
 pub(crate) fn compile_bin_package_for_debugging(
@@ -182,6 +189,7 @@ fn run_async(
     prover_name: &str,
     witness_name: &Option<String>,
     target_dir: &PathBuf,
+    pedantic_solving: bool,
 ) -> Result<(), CliError> {
     use tokio::runtime::Builder;
     let runtime = Builder::new_current_thread().enable_all().build().unwrap();
@@ -189,7 +197,7 @@ fn run_async(
     runtime.block_on(async {
         println!("[{}] Starting debugger", package.name);
         let (return_value, witness_stack) =
-            debug_program_and_decode(program, package, prover_name)?;
+            debug_program_and_decode(program, package, prover_name, pedantic_solving)?;
 
         if let Some(solved_witness_stack) = witness_stack {
             println!("[{}] Circuit witness successfully solved", package.name);
@@ -216,12 +224,13 @@ fn debug_program_and_decode(
     program: CompiledProgram,
     package: &Package,
     prover_name: &str,
+    pedantic_solving: bool,
 ) -> Result<(Option<InputValue>, Option<WitnessStack<FieldElement>>), CliError> {
     // Parse the initial witness values from Prover.toml
     let (inputs_map, _) =
         read_inputs_from_file(&package.root_dir, prover_name, Format::Toml, &program.abi)?;
     let program_abi = program.abi.clone();
-    let witness_stack = debug_program(program, &inputs_map)?;
+    let witness_stack = debug_program(program, &inputs_map, pedantic_solving)?;
 
     match witness_stack {
         Some(witness_stack) => {
@@ -239,9 +248,14 @@ fn debug_program_and_decode(
 pub(crate) fn debug_program(
     compiled_program: CompiledProgram,
     inputs_map: &InputMap,
+    pedantic_solving: bool,
 ) -> Result<Option<WitnessStack<FieldElement>>, CliError> {
     let initial_witness = compiled_program.abi.encode(inputs_map, None)?;
 
-    noir_debugger::run_repl_session(&Bn254BlackBoxSolver, compiled_program, initial_witness)
-        .map_err(CliError::from)
+    noir_debugger::run_repl_session(
+        &Bn254BlackBoxSolver(pedantic_solving),
+        compiled_program,
+        initial_witness,
+    )
+    .map_err(CliError::from)
 }
