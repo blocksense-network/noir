@@ -255,7 +255,6 @@ fn inline_expand(
         ));
         current_instr_index += 1;
     }
-    println!("instr ids and return vals{:?}", instr_id_to_returned_vals);
 
     (
         new_instructions.into_iter().map(|(_, instr)| instr).collect(),
