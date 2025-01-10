@@ -1096,9 +1096,11 @@ pub enum Keyword {
     Dep,
     Else,
     Expr,
+    Exists,
     Field,
     Fn,
     For,
+    Forall,
     FormatString,
     FunctionDefinition,
     Global,
@@ -1189,6 +1191,8 @@ impl fmt::Display for Keyword {
             Keyword::Use => write!(f, "use"),
             Keyword::Where => write!(f, "where"),
             Keyword::While => write!(f, "while"),
+            Keyword::Exists => write!(f, "exists"),
+            Keyword::Forall => write!(f, "forall"),
         }
     }
 }
@@ -1249,6 +1253,8 @@ impl Keyword {
             "use" => Keyword::Use,
             "where" => Keyword::Where,
             "while" => Keyword::While,
+            "exists" => Keyword::Exists,
+            "forall" => Keyword::Forall,
 
             "true" => return Some(Token::Bool(true)),
             "false" => return Some(Token::Bool(false)),
