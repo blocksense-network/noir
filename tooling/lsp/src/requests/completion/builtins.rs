@@ -150,6 +150,7 @@ pub(super) fn keyword_builtin_type(keyword: &Keyword) -> Option<&'static str> {
         Keyword::TypedExpr => Some("TypedExpr"),
         Keyword::TypeType => Some("Type"),
         Keyword::UnresolvedType => Some("UnresolvedType"),
+        Keyword::Forall | Keyword::Exists => Some("bool"),
 
         Keyword::As
         | Keyword::Assert
@@ -226,9 +227,11 @@ pub(super) fn keyword_builtin_function(keyword: &Keyword) -> Option<BuiltInFunct
         | Keyword::Dep
         | Keyword::Else
         | Keyword::Expr
+        | Keyword::Exists
         | Keyword::Field
         | Keyword::Fn
         | Keyword::For
+        | Keyword::Forall
         | Keyword::FormatString
         | Keyword::FunctionDefinition
         | Keyword::Global
