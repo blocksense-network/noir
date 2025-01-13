@@ -41,6 +41,7 @@ pub enum ExpressionKind {
     Unsafe(BlockExpression, Span),
     AsTraitPath(AsTraitPath),
     TypePath(TypePath),
+    Quantifier(Box<QuantifierExpression>),
 
     // This variant is only emitted when inlining the result of comptime
     // code. It is used to translate function values back into the AST while
@@ -302,6 +303,20 @@ impl Expression {
         let func = Box::new(lhs);
         let kind =
             ExpressionKind::Call(Box::new(CallExpression { func, is_macro_call, arguments }));
+        Expression::new(kind, span)
+    }
+
+    pub fn quantifier(
+        quant_type: QuantifierType,
+        indexes: Vec<Ident>,
+        body: Expression,
+        span: Span,
+    ) -> Expression {
+        let kind = ExpressionKind::Quantifier(Box::new(QuantifierExpression {
+            quantifier_type: quant_type,
+            indexes,
+            body,
+        }));
         Expression::new(kind, span)
     }
 }
@@ -577,6 +592,31 @@ pub struct IndexExpression {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+pub enum QuantifierType {
+    Forall,
+    Exists,
+}
+
+impl From<Token> for QuantifierType {
+    fn from(value: Token) -> Self {
+        match value {
+            Token::Keyword(keyword) => match keyword {
+                crate::token::Keyword::Exists => QuantifierType::Exists,
+                crate::token::Keyword::Forall => QuantifierType::Forall,
+                _ => unreachable!("Parser must guarantee correct tokens")
+        },
+            _ => unreachable!("Parser must guarantee correct tokens")
+        }
+    }
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct QuantifierExpression {
+    pub quantifier_type: QuantifierType,
+    pub indexes: Vec<Ident>,
+    pub body: Expression,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BlockExpression {
     pub statements: Vec<Statement>,
 }
@@ -636,6 +676,7 @@ impl Display for ExpressionKind {
             AsTraitPath(path) => write!(f, "{path}"),
             TypePath(path) => write!(f, "{path}"),
             InternedStatement(_) => write!(f, "?InternedStatement"),
+            Quantifier(quantifier_expression) => write!(f, "{quantifier_expression}"),
         }
     }
 }
@@ -809,6 +850,22 @@ impl Display for TypePath {
             write!(f, "::{}", self.turbofish)?;
         }
         Ok(())
+    }
+}
+
+impl Display for QuantifierExpression {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let args = vecmap(&self.indexes, ToString::to_string);
+        write!(f, "{}(|{}|{})", self.quantifier_type, args.join(", "), self.body)
+    }
+}
+
+impl Display for QuantifierType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            QuantifierType::Forall => write!(f, "forall"),
+            QuantifierType::Exists => write!(f, "exists"),
+        }
     }
 }
 

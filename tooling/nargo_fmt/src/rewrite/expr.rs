@@ -208,6 +208,19 @@ pub(crate) fn rewrite(
                 format!("{}::{}::{}", path.typ, path.item, path.turbofish)
             }
         }
+        ExpressionKind::Quantifier(quantifier_expression) => {
+            format!(
+                "{}(|{}| {})",
+                quantifier_expression.quantifier_type,
+                quantifier_expression
+                    .indexes
+                    .iter()
+                    .map(|ident| ident.0.contents.as_str())
+                    .collect::<Vec<&str>>()
+                    .join(", "),
+                rewrite_sub_expr(visitor, shape, quantifier_expression.body)
+            )
+        }
     }
 }
 
