@@ -1572,6 +1572,66 @@ mod tests {
 
         assert_fv_attribute_lexes_to_tokens(input, expected);
     }
+
+    #[test]
+    fn quantifier_forall(){
+        let input = r#"forall(|i| i < 5 ==> arr[i] == x)"#;
+
+        let expected = vec![
+            Token::Keyword(Keyword::Forall),
+            Token::LeftParen,
+            Token::Pipe,
+            Token::Ident("i".to_string()),
+            Token::Pipe,
+            Token::Ident("i".to_string()),
+            Token::Less,
+            Token::Int(5_i128.into()),
+            Token::Implication,
+            Token::Ident("arr".to_string()),
+            Token::LeftBracket,
+            Token::Ident("i".to_string()),
+            Token::RightBracket,
+            Token::Equal,
+            Token::Ident("x".to_string()),
+        ];
+
+        let mut lexer = Lexer::new(input);
+
+        for token in expected.into_iter() {
+            let got = lexer.next_token().unwrap();
+            assert_eq!(got, token);
+        }
+    }
+
+    #[test]
+    fn quantifier_exists(){
+        let input = r#"exists(|i| i < 5 & arr[i] == x)"#;
+
+        let expected = vec![
+            Token::Keyword(Keyword::Exists),
+            Token::LeftParen,
+            Token::Pipe,
+            Token::Ident("i".to_string()),
+            Token::Pipe,
+            Token::Ident("i".to_string()),
+            Token::Less,
+            Token::Int(5_i128.into()),
+            Token::Ampersand,
+            Token::Ident("arr".to_string()),
+            Token::LeftBracket,
+            Token::Ident("i".to_string()),
+            Token::RightBracket,
+            Token::Equal,
+            Token::Ident("x".to_string()),
+        ];
+
+        let mut lexer = Lexer::new(input);
+
+        for token in expected.into_iter() {
+            let got = lexer.next_token().unwrap();
+            assert_eq!(got, token);
+        }
+    }
     #[test]
     fn test_non_ascii_comments() {
         let cases = vec!["// 🙂", "// schön", "/* in the middle 🙂 of a comment */"];
