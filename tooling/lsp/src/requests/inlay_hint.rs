@@ -532,6 +532,7 @@ fn get_expression_name(expression: &Expression) -> Option<String> {
         | ExpressionKind::InternedStatement(..)
         | ExpressionKind::Literal(..)
         | ExpressionKind::Unsafe(..)
+        | ExpressionKind::Quantifier(..)
         | ExpressionKind::Error => None,
     }
 }

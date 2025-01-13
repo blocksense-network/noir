@@ -21,9 +21,7 @@ use crate::{
 };
 
 use super::{
-    ForBounds, FunctionReturnType, GenericTypeArgs, IntegerBitSize, ItemVisibility, Pattern,
-    Signedness, TraitImplItemKind, TypePath, UnresolvedGenerics, UnresolvedTraitConstraint,
-    UnresolvedType, UnresolvedTypeData, UnresolvedTypeExpression,
+    ForBounds, FunctionReturnType, GenericTypeArgs, IntegerBitSize, ItemVisibility, Pattern, QuantifierExpression, Signedness, TraitImplItemKind, TypePath, UnresolvedGenerics, UnresolvedTraitConstraint, UnresolvedType, UnresolvedTypeData, UnresolvedTypeExpression
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -213,6 +211,10 @@ pub trait Visitor {
     }
 
     fn visit_if_expression(&mut self, _: &IfExpression, _: Span) -> bool {
+        true
+    }
+
+    fn visit_quantifier_expression(&mut self, _: &QuantifierExpression, _: Span) -> bool { 
         true
     }
 
@@ -849,6 +851,7 @@ impl Expression {
             ExpressionKind::Interned(id) => visitor.visit_interned_expression(*id),
             ExpressionKind::InternedStatement(id) => visitor.visit_interned_statement(*id),
             ExpressionKind::Error => visitor.visit_error_expression(),
+            ExpressionKind::Quantifier(quantifier_expression) => quantifier_expression.accept(self.span, visitor),
         }
     }
 }
@@ -931,6 +934,18 @@ impl CallExpression {
     pub fn accept_children(&self, visitor: &mut impl Visitor) {
         self.func.accept(visitor);
         visit_expressions(&self.arguments, visitor);
+    }
+}
+
+impl QuantifierExpression {
+    pub fn accept(&self, span: Span, visitor: &mut impl Visitor) {
+        if visitor.visit_quantifier_expression(self, span) {
+            self.accept_children(visitor);
+        }
+    }
+
+    pub fn accept_children(&self, visitor: &mut impl Visitor) {
+        self.body.accept(visitor);
     }
 }
 

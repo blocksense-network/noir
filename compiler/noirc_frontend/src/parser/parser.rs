@@ -44,7 +44,11 @@ use super::{
 };
 use super::{spanned, Item, TopLevelStatement};
 use crate::ast::{
-    BinaryOp, BinaryOpKind, BlockExpression, Documented, ForLoopStatement, ForRange, GenericTypeArgs, Ident, IfExpression, InfixExpression, LValue, Literal, ModuleDeclaration, NoirTypeAlias, Param, Path, Pattern, PrefixExpression, Recoverable, Statement, TypeImpl, UnaryOp, UnaryRhsMemberAccess, UnaryRhsMethodCall, UseTree, UseTreeKind, Visibility
+    BinaryOp, BinaryOpKind, BlockExpression, Documented, ForLoopStatement, ForRange,
+    GenericTypeArgs, Ident, IfExpression, InfixExpression, LValue, Literal, ModuleDeclaration,
+    NoirTypeAlias, Param, Path, Pattern, PrefixExpression, QuantifierExpression, QuantifierType,
+    Recoverable, Statement, TypeImpl, UnaryOp, UnaryRhsMemberAccess, UnaryRhsMethodCall, UseTree,
+    UseTreeKind, Visibility,
 };
 use crate::ast::{
     Expression, ExpressionKind, LetStatement, StatementKind, UnresolvedType, UnresolvedTypeData,
@@ -987,6 +991,29 @@ where
     )
 }
 
+pub(super) fn quantifier<P>(expr_parser: P) -> impl NoirParser<ExpressionKind>
+where
+    P: ExprParser,
+{
+    keyword(
+        Keyword::Forall
+    )
+    .or(keyword(Keyword::Exists))
+    .then(
+        ident_list()
+            .delimited_by(just(Token::Pipe), just(Token::Pipe))
+            .then(expr_parser)
+            .delimited_by(just(Token::LeftParen), just(Token::RightParen))
+    )
+    .map(|(keyword, (indexes, expr))| 
+        ExpressionKind::Quantifier(Box::new(QuantifierExpression {
+            quantifier_type: QuantifierType::from(keyword),
+            indexes,
+            body: expr,
+        }))
+    )
+}
+
 fn if_expr<'a, P, S>(expr_no_constructors: P, statement: S) -> impl NoirParser<ExpressionKind> + 'a
 where
     P: ExprParser + 'a,
@@ -1162,6 +1189,10 @@ where
     expr_parser.separated_by(just(Token::Comma)).allow_trailing()
 }
 
+fn ident_list() -> impl NoirParser<Vec<Ident>> {
+    ident().separated_by(just(Token::Comma)).allow_trailing().at_least(1)
+}
+
 /// Atoms are parameterized on whether constructor expressions are allowed or not.
 /// Certain constructs like `if` and `for` disallow constructor expressions when a
 /// block may be expected.
@@ -1198,6 +1229,7 @@ where
         macro_quote_marker(),
         interned_expr(),
         interned_statement_expr(),
+        quantifier(expr_parser.clone())
     ))
     .map_with_span(Expression::new)
     .or(parenthesized(expr_parser.clone()).map_with_span(|sub_expr, span| {
@@ -1858,5 +1890,33 @@ mod test {
 
         assert_eq!(impl_.object_type.to_string(), "Foo");
         assert!(impl_.methods.is_empty());
+    }
+
+    #[test]
+    fn quantifier_forall() {
+        let src = vec![
+            "forall(|i| i > 5)",
+            "forall(|i| 0 <= i < 10 ==> arr[i] == x)"
+        ];
+        parse_all(expression(), src);
+    }
+
+    #[test]
+    fn quantifier_exists() {
+        let src = vec![
+            "exists(|i| i > 5)",
+            "exists(|i| 0 <= i < 10 & arr[i] == x)"
+        ];
+        parse_all(expression(), src);
+    }
+
+    #[test]
+    fn quantifier_in_attribute() {
+        let src = vec![
+            "#[requires(x > 20 & forall(|i| 0 <= i < 5 ==> arr[i] <= x))]
+            \n
+            fn foo(x: i32, arr: [i32; 5]) {}"
+        ];
+        parse_all(function::function_definition(false), src);
     }
 }
