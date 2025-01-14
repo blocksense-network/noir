@@ -2,7 +2,7 @@ use acvm::FieldElement;
 use fm::FileId;
 use noirc_errors::Location;
 
-use crate::ast::{BinaryOp, BinaryOpKind, Ident, UnaryOp};
+use crate::ast::{BinaryOp, BinaryOpKind, Ident, QuantifierType, UnaryOp};
 use crate::hir::type_check::generics::TraitGenerics;
 use crate::node_interner::{
     DefinitionId, DefinitionKind, ExprId, FuncId, NodeInterner, StmtId, TraitMethodId,
@@ -41,6 +41,7 @@ pub enum HirExpression {
     Unquote(Tokens),
     Comptime(HirBlockExpression),
     Unsafe(HirBlockExpression),
+    Quantifier(HirQuantifierExpression),
     Error,
 }
 
@@ -317,4 +318,11 @@ pub struct HirLambda {
     pub return_type: Type,
     pub body: ExprId,
     pub captures: Vec<HirCapturedVar>,
+}
+
+#[derive(Debug, Clone)]
+pub struct HirQuantifierExpression {
+    pub quantifier_type: QuantifierType,
+    pub indexes: Vec<HirPattern>,
+    pub body: ExprId,
 }

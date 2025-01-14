@@ -6,11 +6,12 @@ use crate::ast::{
     ConstructorExpression, ExpressionKind, ForLoopStatement, ForRange, GenericTypeArgs, Ident,
     IfExpression, IndexExpression, InfixExpression, LValue, Lambda, Literal,
     MemberAccessExpression, MethodCallExpression, Path, PathSegment, Pattern, PrefixExpression,
-    UnresolvedType, UnresolvedTypeData, UnresolvedTypeExpression,
+    QuantifierExpression, UnresolvedType, UnresolvedTypeData, UnresolvedTypeExpression,
 };
 use crate::ast::{ConstrainStatement, Expression, Statement, StatementKind};
 use crate::hir_def::expr::{
     HirArrayLiteral, HirBlockExpression, HirExpression, HirIdent, HirLiteral,
+    HirQuantifierExpression,
 };
 use crate::hir_def::stmt::{HirLValue, HirPattern, HirStatement};
 use crate::hir_def::types::{Type, TypeBinding};
@@ -211,6 +212,19 @@ impl HirExpression {
 
             // A macro was evaluated here: return the quoted result
             HirExpression::Unquote(block) => ExpressionKind::Quote(block.clone()),
+            HirExpression::Quantifier(hir_quantifier_expression) => {
+                let HirQuantifierExpression { quantifier_type, indexes, body } =
+                    hir_quantifier_expression;
+                let idents: Vec<Ident> = indexes
+                    .iter()
+                    .map(|ident| ident.to_display_ast(interner).into_ident())
+                    .collect();
+                ExpressionKind::Quantifier(Box::new(QuantifierExpression {
+                    quantifier_type: quantifier_type.clone(),
+                    indexes: idents,
+                    body: body.to_display_ast(interner),
+                }))
+            }
         };
 
         Expression::new(kind, span)
