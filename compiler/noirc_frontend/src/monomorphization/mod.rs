@@ -554,6 +554,7 @@ impl<'interner> Monomorphizer<'interner> {
             HirExpression::Comptime(_) => {
                 unreachable!("comptime expression remaining in runtime code")
             }
+            HirExpression::Quantifier(hir_quantifier_expression) => todo!(),
         };
 
         Ok(expr)

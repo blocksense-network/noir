@@ -75,7 +75,7 @@ impl<'context> Elaborator<'context> {
             }
             ExpressionKind::AsTraitPath(_) => todo!("Implement AsTraitPath"),
             ExpressionKind::TypePath(path) => return self.elaborate_type_path(path),
-            ExpressionKind::Quantifier(quantifier_expression) => todo!(),
+            ExpressionKind::Quantifier(quantifier_expression) => self.elaborate_quantifier(*quantifier_expression, expr.span),
         };
         let id = self.interner.push_expr(hir_expr);
         self.interner.push_expr_location(id, expr.span, self.file);

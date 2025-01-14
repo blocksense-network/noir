@@ -535,6 +535,9 @@ impl<'local, 'interner> Interpreter<'local, 'interner> {
                 let location = self.elaborator.interner.expr_location(&id);
                 Err(InterpreterError::ErrorNodeEncountered { location })
             }
+            HirExpression::Quantifier(hir_quantifier_expression) => {
+                unreachable!("Idk, seems illogical to dereference a quantifier")
+            }
         }
     }
 

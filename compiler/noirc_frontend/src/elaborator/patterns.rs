@@ -4,7 +4,8 @@ use rustc_hash::FxHashSet as HashSet;
 
 use crate::{
     ast::{
-        Expression, ExpressionKind, Ident, Path, Pattern, TypePath, UnresolvedType, ERROR_IDENT,
+        Expression, ExpressionKind, Ident, Path, Pattern, QuantifierExpression, TypePath,
+        UnresolvedType, ERROR_IDENT,
     },
     hir::{
         def_collector::dc_crate::CompilationError,
@@ -12,7 +13,10 @@ use crate::{
         type_check::{Source, TypeCheckError},
     },
     hir_def::{
-        expr::{HirExpression, HirIdent, HirMethodReference, ImplKind, TraitMethod},
+        expr::{
+            HirExpression, HirIdent, HirMethodReference, HirQuantifierExpression, ImplKind,
+            TraitMethod,
+        },
         stmt::HirPattern,
     },
     node_interner::{DefinitionId, DefinitionKind, ExprId, FuncId, GlobalId, TraitImplKind},
@@ -751,5 +755,50 @@ impl<'context> Elaborator<'context> {
         self.interner.push_expr_type(id, typ.clone());
 
         (id, typ)
+    }
+
+    pub(super) fn elaborate_quantifier(
+        &mut self,
+        quantifier_expression: QuantifierExpression,
+        span: Span,
+    ) -> (HirExpression, Type) {
+        self.push_scope();
+        let QuantifierExpression { quantifier_type, indexes, body } = quantifier_expression;
+
+        let indexes_as_pattern: Vec<HirPattern> = indexes
+            .into_iter()
+            .map(|ident| {
+                HirPattern::Identifier({
+                    let hir_ident = self.add_variable_decl(
+                        ident,
+                        false,
+                        true,
+                        true,
+                        DefinitionKind::Local(None),
+                    );
+                    let type_var_id = self.interner.next_type_variable_id();
+                    let type_variable = Type::type_variable(type_var_id);
+                    self.interner.push_definition_type(hir_ident.id, type_variable);
+                    hir_ident
+                })
+            })
+            .collect();
+
+        let (body_expr_id, body_expr_type) = self.elaborate_expression(body);
+
+        self.unify(&body_expr_type, &Type::Bool, || TypeCheckError::TypeMismatch {
+            expected_typ: Type::Bool.to_string(),
+            expr_typ: body_expr_type.to_string(),
+            expr_span: span,
+        });
+
+        let hir_quantifier = HirExpression::Quantifier(HirQuantifierExpression {
+            quantifier_type,
+            indexes: indexes_as_pattern,
+            body: body_expr_id,
+        });
+
+        self.pop_scope();
+        (hir_quantifier, Type::Bool)
     }
 }
