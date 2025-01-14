@@ -536,7 +536,7 @@ impl<'local, 'interner> Interpreter<'local, 'interner> {
                 Err(InterpreterError::ErrorNodeEncountered { location })
             }
             HirExpression::Quantifier(hir_quantifier_expression) => {
-                unreachable!("Idk, seems illogical to dereference a quantifier")
+                unreachable!("Quantifiers can not be inside of a comptime block.")
             }
         }
     }
