@@ -7,7 +7,7 @@ use noirc_errors::{
     Location,
 };
 
-use crate::hir_def::function::FunctionSignature;
+use crate::{ast::QuantifierType, hir_def::function::FunctionSignature};
 use crate::{
     ast::{BinaryOpKind, IntegerBitSize, Signedness, Visibility},
     token::{Attributes, FunctionAttribute},
@@ -46,6 +46,7 @@ pub enum Expression {
     Semi(Box<Expression>),
     Break,
     Continue,
+    Quant(QuantifierType, Vec<Ident> ,Box<Expression>),
 }
 
 /// A definition is either a local (variable), function, or is a built-in
