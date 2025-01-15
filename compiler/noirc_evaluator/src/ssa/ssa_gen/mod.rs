@@ -220,6 +220,7 @@ impl<'a> FunctionContext<'a> {
             Expression::Semi(semi) => self.codegen_semi(semi),
             Expression::Break => Ok(self.codegen_break()),
             Expression::Continue => Ok(self.codegen_continue()),
+            Expression::Quant(quantifier_type, vec, expression) => todo!(),
         }
     }
 

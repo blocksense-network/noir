@@ -554,7 +554,9 @@ impl<'interner> Monomorphizer<'interner> {
             HirExpression::Comptime(_) => {
                 unreachable!("comptime expression remaining in runtime code")
             }
-            HirExpression::Quantifier(hir_quantifier_expression) => todo!(),
+            HirExpression::Quantifier(hir_quantifier_expression) => {
+                self.quantifier(hir_quantifier_expression)?
+            }
         };
 
         Ok(expr)
@@ -1940,6 +1942,40 @@ impl<'interner> Monomorphizer<'interner> {
         let return_type = Self::convert_type(&ret, location)?;
 
         Ok(ast::Expression::Call(ast::Call { func, arguments, return_type, location }))
+    }
+
+    fn quantifier_ident(&mut self, ident: &HirIdent) -> Result<ast::Ident, MonomorphizationError> {
+        let definition = self.interner.definition(ident.id);
+        let name = definition.name.clone();
+        let mutable = definition.mutable;
+        let new_id = self.next_local_id();
+        self.define_local(ident.id, new_id);
+
+        let definition: ast::Definition = Definition::Local(new_id);
+
+        let typ = Self::convert_type(&self.interner.definition_type(ident.id), ident.location)?;
+        Ok(ast::Ident { location: Some(ident.location), mutable, definition, name, typ })
+    }
+
+    fn quantifier(
+        &mut self,
+        quantifier_expr: HirQuantifierExpression,
+    ) -> Result<ast::Expression, MonomorphizationError> {
+        let HirQuantifierExpression { quantifier_type, indexes, body } = quantifier_expr;
+        let mut monomorphed_indexes: Vec<ast::Ident> = Vec::new();
+        for ident in indexes {
+            let ident_location = ident.location();
+            if let HirPattern::Identifier(ident_inner) = ident {
+                let monomorphized_ident = self.quantifier_ident(&ident_inner)?;
+                monomorphed_indexes.push(monomorphized_ident);
+            } else {
+                return Err(MonomorphizationError::InternalError {
+                    message: "Quantifier index is not ident",
+                    location: ident_location,
+                });
+            }
+        }
+        Ok(ast::Expression::Quant(quantifier_type, monomorphed_indexes, Box::new(self.expr(body)?)))
     }
 }
 
