@@ -12,7 +12,7 @@ use acvm::{
 };
 use fxhash::FxHasher;
 use iter_extended::vecmap;
-use noirc_frontend::hir_def::types::Type as HirType;
+use noirc_frontend::{ast::QuantifierType, hir_def::types::Type as HirType};
 
 use crate::ssa::opt::flatten_cfg::value_merger::ValueMerger;
 
@@ -276,6 +276,26 @@ pub(crate) enum Instruction {
         else_condition: ValueId,
         else_value: ValueId,
     },
+
+    /// QuantStart indicates the start of a quantifier. E.g.
+    /// ```
+    /// forall_start(|i, j|)
+    /// ```
+    /// Or
+    /// ```
+    /// exists_start(|i|)
+    /// ```
+    QuantStart { quant_type: QuantifierType, indexes: Vec<String> },
+
+    /// QuantEnd indicates the end of a quantifier. Body_expr is the
+    /// last value which the body of the quantifier returns. It must
+    /// be of type bool. E.g
+    /// ```
+    /// forall_start(|v15|)
+    /// v16 = lt v15 10
+    /// forall_end(v16)
+    /// ```
+    QuantEnd { quant_type: QuantifierType, body_expr: ValueId },
 }
 
 impl Instruction {
@@ -305,6 +325,8 @@ impl Instruction {
             | Instruction::Load { .. }
             | Instruction::ArrayGet { .. }
             | Instruction::Call { .. } => InstructionResultType::Unknown,
+            Instruction::QuantStart { .. } => InstructionResultType::None,
+            Instruction::QuantEnd { .. } => InstructionResultType::Known(Type::bool()),
         }
     }
 
@@ -332,7 +354,9 @@ impl Instruction {
             | Load { .. }
             | Store { .. }
             | IncrementRc { .. }
-            | DecrementRc { .. } => false,
+            | DecrementRc { .. }
+            | QuantStart { .. }
+            | QuantEnd { .. } => false,
 
             Call { func, .. } => match dfg[*func] {
                 Value::Intrinsic(intrinsic) => !intrinsic.has_side_effects(),
@@ -386,7 +410,9 @@ impl Instruction {
             | EnableSideEffectsIf { .. }
             | IncrementRc { .. }
             | DecrementRc { .. }
-            | RangeCheck { .. } => false,
+            | RangeCheck { .. }
+            | QuantStart { .. }
+            | QuantEnd { .. } => false,
 
             // Some `Intrinsic`s have side effects so we must check what kind of `Call` this is.
             Call { func, .. } => match dfg[*func] {
@@ -442,7 +468,9 @@ impl Instruction {
             | Instruction::Store { .. }
             | Instruction::IfElse { .. }
             | Instruction::IncrementRc { .. }
-            | Instruction::DecrementRc { .. } => false,
+            | Instruction::DecrementRc { .. }
+            | Instruction::QuantStart { .. }
+            | Instruction::QuantEnd { .. } => false,
         }
     }
 
@@ -514,6 +542,12 @@ impl Instruction {
                     else_value: f(*else_value),
                 }
             }
+            Instruction::QuantStart { quant_type, indexes } => {
+                Instruction::QuantStart { quant_type: *quant_type, indexes: indexes.clone() }
+            }
+            Instruction::QuantEnd { quant_type, body_expr } => {
+                Instruction::QuantEnd { quant_type: *quant_type, body_expr: f(*body_expr) }
+            }
         }
     }
 
@@ -573,6 +607,10 @@ impl Instruction {
                 f(*then_value);
                 f(*else_condition);
                 f(*else_value);
+            }
+            Instruction::QuantStart { quant_type: _, indexes: _ } => {}
+            Instruction::QuantEnd { quant_type: _, body_expr } => {
+                f(*body_expr);
             }
         }
     }
@@ -755,6 +793,8 @@ impl Instruction {
                     None
                 }
             }
+            Instruction::QuantStart { .. } => None,
+            Instruction::QuantEnd { .. } => None,
         }
     }
 }

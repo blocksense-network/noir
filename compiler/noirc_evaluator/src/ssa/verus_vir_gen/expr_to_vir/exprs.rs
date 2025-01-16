@@ -1147,6 +1147,8 @@ pub(crate) fn instruction_to_expr(
             else_condition: _,
             else_value: _,
         } => todo!(),
+        Instruction::QuantStart { quant_type, indexes } => todo!(),
+        Instruction::QuantEnd { quant_type, body_expr } => todo!(),
     }
 }
 

@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::fmt::Display;
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::ast::{
@@ -591,7 +592,7 @@ pub struct IndexExpression {
     pub index: Expression, // XXX: We accept two types of indices, either a normal integer or a constant
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize, Serialize, Copy)]
 pub enum QuantifierType {
     Forall,
     Exists,

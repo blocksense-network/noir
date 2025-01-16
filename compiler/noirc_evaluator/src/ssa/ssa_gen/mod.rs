@@ -2,12 +2,14 @@ pub(crate) mod context;
 mod program;
 mod value;
 
+use std::collections::HashMap;
+
 pub(crate) use program::Ssa;
 
 use context::SharedContext;
 use iter_extended::{try_vecmap, vecmap};
 use noirc_errors::Location;
-use noirc_frontend::ast::{UnaryOp, Visibility};
+use noirc_frontend::ast::{QuantifierType, UnaryOp, Visibility};
 use noirc_frontend::hir_def::types::Type as HirType;
 use noirc_frontend::monomorphization::ast::{self, Expression, FvExpression, Program};
 
@@ -220,7 +222,9 @@ impl<'a> FunctionContext<'a> {
             Expression::Semi(semi) => self.codegen_semi(semi),
             Expression::Break => Ok(self.codegen_break()),
             Expression::Continue => Ok(self.codegen_continue()),
-            Expression::Quant(quantifier_type, vec, expression) => todo!(),
+            Expression::Quant(quantifier_type, vec, expression) => {
+                self.codegen_quant(quantifier_type, vec, expression)
+            }
         }
     }
 
@@ -820,5 +824,60 @@ impl<'a> FunctionContext<'a> {
         let new_loop_index = self.make_offset(loop_.loop_index, 1);
         self.builder.terminate_with_jmp(loop_.loop_entry, vec![new_loop_index]);
         Self::unit_value()
+    }
+
+    fn codegen_quant(
+        &mut self,
+        quant: &QuantifierType,
+        indexes: &Vec<ast::Ident>,
+        body: &Expression,
+    ) -> Result<Values, RuntimeError> {
+        let mut index_to_val_id: HashMap<&str, ValueId> = HashMap::new();
+        
+        indexes.iter().for_each(|ident| {
+            if let ast::Definition::Local(id) = ident.definition {
+                // The instruction which we are inserting will be
+                // removed in the last optimization.
+                let converted_type = FunctionContext::<'a>::convert_non_tuple_type(&ident.typ);
+                let val_id = self
+                    .builder
+                    .insert_instruction(Instruction::Allocate, Some(vec![converted_type]))
+                    .first();
+                index_to_val_id.insert(ident.name.as_str(), val_id);
+
+                self.define(id, Tree::Leaf(value::Value::Normal(val_id)));
+            }
+        });
+
+        let new_instruction = Instruction::QuantStart {
+            quant_type: quant.clone(),
+            indexes: indexes
+                .iter()
+                .map(|ident| {
+                    index_to_val_id
+                        .get(ident.name.as_str())
+                        .expect("Every index must have been allocated")
+                        .to_string()
+                })
+                .collect(),
+        };
+        self.builder.insert_instruction(new_instruction, None);
+
+        let body_values = self.codegen_expression(body)?;
+        assert!(body_values.count_leaves() == 1, "Quant body expressions result should be only one");
+
+        let quant_end_instruction = Instruction::QuantEnd {
+            quant_type: *quant,
+            body_expr: body_values
+                .clone()
+                .flatten()
+                .first()
+                .expect("Must have exactly one last val_id")
+                .clone()
+                .eval(self),
+        };
+        let result = self.builder.insert_instruction(quant_end_instruction, None);
+
+        Ok(result.first().into())
     }
 }

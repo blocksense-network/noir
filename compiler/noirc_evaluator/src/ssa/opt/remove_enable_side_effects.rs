@@ -145,7 +145,9 @@ impl Context {
             | RangeCheck { .. }
             | IfElse { .. }
             | IncrementRc { .. }
-            | DecrementRc { .. } => false,
+            | DecrementRc { .. }
+            | QuantStart { .. }
+            | QuantEnd { .. } => false,
 
             EnableSideEffectsIf { .. }
             | ArrayGet { .. }
