@@ -766,6 +766,9 @@ impl<'a> Context<'a> {
             Instruction::IfElse { .. } => {
                 unreachable!("IfElse instruction remaining in acir-gen")
             }
+            Instruction::QuantStart { .. } | Instruction::QuantEnd { .. } => {
+                unreachable!("Quantifiers can be only used in fv attributes")
+            }
         }
 
         self.acir_context.set_call_stack(CallStack::new());

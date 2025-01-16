@@ -759,6 +759,9 @@ impl<'block> BrilligBlock<'block> {
             Instruction::IfElse { .. } => {
                 unreachable!("IfElse instructions should not be possible in brillig")
             }
+            Instruction::QuantStart { .. } | Instruction::QuantEnd { .. } => {
+                unreachable!("Quantifiers should not exists in brillig")
+            }
         };
 
         let dead_variables = self

@@ -191,7 +191,9 @@ impl Context {
                 | Instruction::Load { .. }
                 | Instruction::Not(..)
                 | Instruction::Store { .. }
-                | Instruction::Truncate { .. } => {
+                | Instruction::Truncate { .. }
+                | Instruction::QuantStart { .. }
+                | Instruction::QuantEnd { .. } => {
                     self.value_sets.push(instruction_arguments_and_results);
                 }
 

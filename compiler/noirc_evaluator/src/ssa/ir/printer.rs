@@ -263,6 +263,14 @@ fn display_instruction_inner(
                 "if {then_condition} then {then_value} else if {else_condition} then {else_value}"
             )
         }
+        Instruction::QuantStart { quant_type, indexes } => {
+            let indexes = indexes.join(", ");
+            writeln!(f, "{}_start(|{}|)", quant_type, indexes)
+        }
+        Instruction::QuantEnd { quant_type, body_expr } => {
+            let body_expr = show(*body_expr);
+            writeln!(f, "{}_end({})", quant_type, body_expr)
+        }
     }
 }
 
