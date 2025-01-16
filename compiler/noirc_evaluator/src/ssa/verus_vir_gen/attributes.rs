@@ -1,15 +1,36 @@
 use std::sync::Arc;
 
+use im::HashSet;
 use vir::ast::{Expr, ExprX, Exprs, Mode, SpannedTyped, Stmt};
 
 use crate::ssa::verus_vir_gen::{
     build_span,
     expr_to_vir::{
-        exprs::{get_enable_side_effects_value_id, instruction_to_expr, is_instruction_call_to_print, is_instruction_enable_side_effects}, patterns::instruction_to_stmt, types::get_function_ret_type,
+        exprs::{
+            get_enable_side_effects_value_id, instruction_to_expr, is_instruction_call_to_print,
+            is_instruction_enable_side_effects,
+        },
+        patterns::instruction_to_stmt,
+        types::get_function_ret_type,
     },
 };
 
 use super::{DataFlowGraph, Function, FvInstruction, Id, Instruction, SSAContext};
+
+fn get_all_quantifier_indexes(
+    attribute_instructions: &Vec<(Id<Instruction>, Instruction)>,
+) -> HashSet<String> {
+    let mut quantifier_indexes = HashSet::new();
+    for (_, instruction) in attribute_instructions {
+        if let Instruction::QuantStart { quant_type: _, indexes } = instruction {
+            for index in indexes {
+                quantifier_indexes.insert(index.clone());
+            }
+        }
+    }
+
+    quantifier_indexes
+}
 
 fn func_attributes_to_vir_expr(
     attribute_instructions: Vec<(Id<Instruction>, Instruction)>,
@@ -18,6 +39,7 @@ fn func_attributes_to_vir_expr(
 ) -> Vec<Expr> {
     if let Some((last_instruction_id, last_instruction)) = attribute_instructions.last() {
         let mut vir_statements: Vec<Stmt> = Vec::new();
+        let quantifier_indexes = get_all_quantifier_indexes(&attribute_instructions);
 
         for (instruction_id, instruction) in attribute_instructions.clone() {
             if let Instruction::Constrain(_, _, _) = instruction {
@@ -28,6 +50,15 @@ fn func_attributes_to_vir_expr(
             }
             if let Instruction::IncrementRc { .. } = instruction {
                 continue;
+            }
+            if let Instruction::Allocate { .. } = instruction {
+                if dfg
+                    .instruction_results(instruction_id)
+                    .iter()
+                    .any(|val_id| quantifier_indexes.contains(&val_id.to_string()))
+                {
+                    continue;
+                }
             }
             if is_instruction_enable_side_effects(&instruction_id, dfg) {
                 current_context.side_effects_condition =
