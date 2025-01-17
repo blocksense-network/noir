@@ -1,8 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 
-use vir::ast::{Dt, Expr, ExprX, FieldOpr, Ident, Param, SpannedTyped, Typ, TypX, VarIdent};
+use vir::ast::{Dt, Expr, ExprX, FieldOpr, Ident, Param, SpannedTyped, Stmt, Typ, TypX, VarIdent};
 
-use super::{empty_span, function::get_function_return_values, BuildingKrateError, Function, ValueId};
+use super::{
+    empty_span, function::get_function_return_values, BuildingKrateError, Function, ValueId,
+};
 
 pub(crate) struct ResultIdFixer {
     dt_tuple: Dt,
@@ -77,8 +79,69 @@ impl ResultIdFixer {
     }
 }
 
+pub(crate) struct QuantifierContext {
+    quant_indexes: Vec<Vec<String>>,
+    quant_body: Vec<Vec<Stmt>>,
+}
+
+impl QuantifierContext {
+    pub(crate) fn new() -> Self {
+        QuantifierContext { quant_indexes: Vec::new(), quant_body: Vec::new() }
+    }
+
+    pub(crate) fn start_quantifier(&mut self, indexes: Vec<String>) {
+        self.push_indexes(indexes);
+        self.create_quantifier_body();
+    }
+
+    pub(crate) fn finish_quantifier(&mut self) -> (Option<Vec<String>>, Option<Vec<Stmt>>) {
+        (self.pop_indexes(), self.pop_quantifier_body())
+    }
+
+    pub(crate) fn push_indexes(&mut self, indexes: Vec<String>) {
+        self.quant_indexes.push(indexes);
+    }
+
+    pub(crate) fn pop_indexes(&mut self) -> Option<Vec<String>> {
+        self.quant_indexes.pop()
+    }
+
+    pub(crate) fn create_quantifier_body(&mut self) {
+        self.quant_body.push(Vec::new());
+    }
+
+    pub(crate) fn push_statement(&mut self, statement: Stmt) {
+        if let Some(body_statements) = self.quant_body.last_mut() {
+            body_statements.push(statement);
+        } else {
+            panic!("No quantifier body to push statement to");
+        }
+    }
+
+    pub(crate) fn pop_quantifier_body(&mut self) -> Option<Vec<Stmt>> {
+        self.quant_body.pop()
+    }
+
+    pub(crate) fn is_inside_quantifier_body(&self) -> bool {
+        !self.quant_indexes.is_empty()
+    }
+}
 
 pub(crate) struct SSAContext<'a> {
     pub result_id_fixer: Option<&'a ResultIdFixer>,
     pub side_effects_condition: Option<ValueId>,
+    pub quantifier_context: QuantifierContext,
+}
+
+impl<'a> SSAContext<'a> {
+    pub(crate) fn new(
+        result_id_fixer: Option<&'a ResultIdFixer>,
+        side_effects_condition: Option<ValueId>,
+    ) -> Self {
+        SSAContext {
+            result_id_fixer,
+            side_effects_condition,
+            quantifier_context: QuantifierContext::new(),
+        }
+    }
 }

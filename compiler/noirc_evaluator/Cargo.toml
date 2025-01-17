@@ -34,6 +34,7 @@ rayon.workspace = true
 cfg-if.workspace = true
 codespan-reporting.workspace = true
 vir.workspace = true
+regex.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

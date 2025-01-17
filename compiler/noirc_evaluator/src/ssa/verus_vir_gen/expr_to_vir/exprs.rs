@@ -1,3 +1,4 @@
+use crate::ssa::verus_vir_gen::*;
 use expr_to_vir::{
     patterns::instruction_to_stmt,
     types::{
@@ -6,10 +7,12 @@ use expr_to_vir::{
         trunc_target_int_range,
     },
 };
+use noirc_frontend::ast::QuantifierType;
 use num_bigint::ToBigInt;
-use vir::ast::{Binder, BinderX, FieldOpr};
-
-use crate::ssa::verus_vir_gen::*;
+use regex::Regex;
+use vir::ast::{
+    AirQuant, Binder, BinderX, FieldOpr, Quant, TriggerAnnotation, VarBinder, VarBinderX,
+};
 
 fn get_value_bitwidth(value_id: &ValueId, dfg: &DataFlowGraph) -> IntegerTypeBitwidth {
     let value = &dfg[*value_id];
@@ -896,6 +899,14 @@ fn array_get_to_expr(
         )
     }
 
+    if current_context.quantifier_context.is_inside_quantifier_body() {
+        array_get_vir_expr = SpannedTyped::new(
+            &empty_span(),
+            &array_return_type,
+            ExprX::Unary(UnaryOp::Trigger(TriggerAnnotation::Trigger(None)), array_get_vir_expr),
+        )
+    }
+
     if let Some(condition_id) = current_context.side_effects_condition {
         let array_get_dummy = SpannedTyped::new(
             &build_span(
@@ -1085,6 +1096,76 @@ fn if_expression_for_array_body(
     SpannedTyped::new(&span, &if_return_type, ExprX::If(if_condition, then_expr, Some(else_expr)))
 }
 
+fn quantifier_to_expr(
+    instruction_id: &InstructionId,
+    quant_type: QuantifierType,
+    return_val: ValueId,
+    dfg: &DataFlowGraph,
+    current_context: &mut SSAContext,
+) -> Expr {
+    let (quant_indexes_opt, quant_body_opt) =
+        current_context.quantifier_context.finish_quantifier();
+
+    let quant_indexes =
+        quant_indexes_opt.expect("A quantifier start instruction should have been created");
+    let quant_body =
+        quant_body_opt.expect("A quantifier start instruction should have been created");
+
+    let quant_vir_type = match quant_type {
+        QuantifierType::Forall => Quant { quant: AirQuant::Forall },
+        QuantifierType::Exists => Quant { quant: AirQuant::Exists },
+    };
+    let quant_vir_indexes: Vec<VarBinder<Typ>> = quant_indexes
+        .into_iter()
+        .map(|index| VarBinderX {
+            name: VarIdent(
+                Arc::new(index.clone()),
+                vir::ast::VarIdentDisambiguate::RustcId(
+                    extract_quant_index_id(&index)
+                        .expect("All indexes should be value ids to string"),
+                ),
+            ),
+            a: Arc::new(TypX::Int(IntRange::Int)),
+        })
+        .map(|var_binder| Arc::new(var_binder))
+        .collect();
+
+    let quantifier_vir_body = SpannedTyped::new(
+        &build_span(
+            instruction_id,
+            format!("{} body expression", quant_type),
+            Some(dfg.get_call_stack(*instruction_id)),
+        ),
+        &Arc::new(TypX::Bool), // All quantifier bodies must be of type bool.
+        ExprX::Block(
+            Arc::new(quant_body),
+            Some(ssa_value_to_expr(&return_val, dfg, current_context.result_id_fixer)),
+        ),
+    );
+    let quantifier_vir_exprx =
+        ExprX::Quant(quant_vir_type, Arc::new(quant_vir_indexes), quantifier_vir_body);
+
+    SpannedTyped::new(
+        &build_span(
+            instruction_id,
+            format!("{} expression", quant_type),
+            Some(dfg.get_call_stack(*instruction_id)),
+        ),
+        &Arc::new(TypX::Bool),
+        quantifier_vir_exprx,
+    )
+}
+
+fn extract_quant_index_id(quant_index: &str) -> Option<usize> {
+    let re = Regex::new(r"v(\d+)").unwrap();
+    if let Some(captures) = re.captures(quant_index) {
+        if let Some(number_match) = captures.get(1) {
+            return number_match.as_str().parse::<usize>().ok();
+        }
+    }
+    None
+}
+
 pub(crate) fn instruction_to_expr(
     instruction_id: InstructionId,
     instruction: &Instruction,
@@ -1147,8 +1228,12 @@ pub(crate) fn instruction_to_expr(
             else_condition: _,
             else_value: _,
         } => todo!(),
-        Instruction::QuantStart { quant_type, indexes } => todo!(),
-        Instruction::QuantEnd { quant_type, body_expr } => todo!(),
+        Instruction::QuantStart { .. } => {
+            unreachable!("We skip those instructions but we mark their presence in the structure current context")
+        }
+        Instruction::QuantEnd { quant_type, body_expr } => {
+            quantifier_to_expr(&instruction_id, *quant_type, *body_expr, dfg, current_context)
+        }
     }
 }
 
