@@ -32,8 +32,8 @@ in
     der = fetchFromGitHub {
       owner = "Aristotelis2002";
       repo = "verus-lib";
-      hash = "sha256-pFcimt1eRyz3XWEz2RZlywqmi+ZYQxiiL96LU2Kwplo=";
-      rev = "489403d3e779c7ec703a5adbdec427fbb407032b";
+      hash = "sha256-M6j8Hz4DBdXNgJLJ3MbO8QjvIHyGPuEeNjAzTgOScOY=";
+      rev = "4c9858f316f6ba6016dc7ba1f1b758879cfc6897";
     };
 
     src = "${der}";
