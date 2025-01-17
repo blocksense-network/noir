@@ -41,24 +41,27 @@ fn func_attributes_to_vir_expr(
         let mut vir_statements: Vec<Stmt> = Vec::new();
         let quantifier_indexes = get_all_quantifier_indexes(&attribute_instructions);
 
-        for (instruction_id, instruction) in attribute_instructions.clone() {
-            if let Instruction::Constrain(_, _, _) = instruction {
-                continue;
-            }
-            if let Instruction::RangeCheck { .. } = instruction {
-                continue;
-            }
-            if let Instruction::IncrementRc { .. } = instruction {
+        for (instruction_id, instruction) in attribute_instructions.iter() {
+            if matches!(
+                instruction,
+                Instruction::Constrain(..)
+                    | Instruction::RangeCheck { .. }
+                    | Instruction::IncrementRc { .. }
+            ) {
                 continue;
             }
             if let Instruction::Allocate { .. } = instruction {
                 if dfg
-                    .instruction_results(instruction_id)
+                    .instruction_results(*instruction_id)
                     .iter()
                     .any(|val_id| quantifier_indexes.contains(&val_id.to_string()))
                 {
                     continue;
                 }
+            }
+            if let Instruction::QuantStart { quant_type: _, indexes } = instruction {
+                mark_quantifier_start(indexes.clone(), current_context);
+                continue;
             }
             if is_instruction_enable_side_effects(&instruction_id, dfg) {
                 current_context.side_effects_condition =
@@ -70,21 +73,34 @@ fn func_attributes_to_vir_expr(
                 let statement = instruction_to_stmt(
                     &instruction,
                     dfg,
-                    instruction_id,
+                    *instruction_id,
                     Mode::Spec,
                     current_context,
                 );
-                vir_statements.push(statement);
+                if current_context.quantifier_context.is_inside_quantifier_body() {
+                    current_context.quantifier_context.push_statement(statement);
+                } else {
+                    vir_statements.push(statement);
+                }
             }
         }
 
-        let last_expr = instruction_to_expr(
-            last_instruction_id.clone(),
-            last_instruction,
-            Mode::Spec,
-            dfg,
-            current_context,
-        );
+        let last_expr = if let Instruction::QuantEnd { .. } = last_instruction {
+            match &(vir_statements.last()).expect("Attribute should not be empty").x {
+                vir::ast::StmtX::Expr(expr) => expr.clone(),
+                vir::ast::StmtX::Decl { pattern: _, mode: _, init } => {
+                    init.clone().expect("Expected quant to be initialized")
+                }
+            }
+        } else {
+            instruction_to_expr(
+                last_instruction_id.clone(),
+                last_instruction,
+                Mode::Spec,
+                dfg,
+                current_context,
+            )
+        };
         vec![SpannedTyped::new(
             &build_span(
                 last_instruction_id,
@@ -97,6 +113,10 @@ fn func_attributes_to_vir_expr(
     } else {
         vec![]
     }
+}
+
+fn mark_quantifier_start(indexes: Vec<String>, current_context: &mut SSAContext) {
+    current_context.quantifier_context.start_quantifier(indexes);
 }
 
 pub(crate) fn func_requires_to_vir_expr(
