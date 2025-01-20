@@ -208,7 +208,15 @@ fn return_values_to_expr(
 
     match return_values_ids.len() {
         0 => None,
-        1 => Some(ssa_value_to_expr(&return_values_ids[0], dfg, None)),
+        1 => {
+            let mut ret_as_expr = ssa_value_to_expr(&return_values_ids[0], dfg, None);
+            // Deref return value if it is a reference.
+            if let TypX::Decorate(TypDecoration::Ref, _, inner_typ) = ret_as_expr.typ.as_ref() {
+                ret_as_expr =
+                    SpannedTyped::new(&ret_as_expr.span, inner_typ, ret_as_expr.x.clone());
+            }
+            Some(ret_as_expr)
+        }
         _ => {
             let tuple_exprs: Exprs = Arc::new(
                 return_values_ids
@@ -1170,6 +1178,37 @@ fn extract_quant_index_id(quant_index: &str) -> Option<usize> {
     None
 }
 
+fn store_to_expr(
+    address: &ValueId,
+    value: &ValueId,
+    dfg: &DataFlowGraph,
+    current_context: &mut SSAContext,
+    instruction_id: &InstructionId,
+) -> Expr {
+    let address_type = if let Type::Reference(inner_type) = dfg.type_of_value(*address) {
+        inner_type.as_ref().clone()
+    } else {
+        dfg.type_of_value(*address)
+    };
+    let lhs = SpannedTyped::new(
+        &build_span(address, format!("Lhs of assign"), Some(dfg.get_call_stack(*instruction_id))),
+        &from_noir_type(address_type, None),
+        ExprX::VarLoc(id_into_var_ident(*address)),
+    );
+
+    SpannedTyped::new(
+        &build_span(address, format!("Assign expr"), Some(dfg.get_call_stack(*instruction_id))),
+        &get_empty_vir_type(),
+        ExprX::Assign {
+            init_not_mut: true,
+            // lhs: ssa_value_to_expr(address, dfg, current_context.result_id_fixer),
+            lhs,
+            rhs: ssa_value_to_expr(value, dfg, current_context.result_id_fixer),
+            op: None,
+        },
+    )
+}
+
 pub(crate) fn instruction_to_expr(
     instruction_id: InstructionId,
     instruction: &Instruction,
@@ -1207,11 +1246,13 @@ pub(crate) fn instruction_to_expr(
             dfg,
             current_context.result_id_fixer,
         ),
-        Instruction::Allocate => unreachable!(), // Optimized away
+        Instruction::Allocate => unreachable!(), // Should return empty expression, that's why it is skipped
         Instruction::Load { address: value_id } => {
             ssa_value_to_expr(value_id, dfg, current_context.result_id_fixer)
         }
-        Instruction::Store { address: _, value: _ } => unreachable!(), // Optimized away
+        Instruction::Store { address, value } => {
+            store_to_expr(address, value, dfg, current_context, &instruction_id)
+        }
         Instruction::EnableSideEffectsIf { condition: _ } => todo!(), //TODO(totel) Support for mutability
         Instruction::ArrayGet { array, index } => array_get_to_expr(
             array,
