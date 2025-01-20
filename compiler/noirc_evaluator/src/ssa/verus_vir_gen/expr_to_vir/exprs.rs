@@ -383,9 +383,13 @@ fn cast_integer_to_integer(
     value_id: &ValueId,
     noir_type: &Type,
     dfg: &DataFlowGraph,
-    numeric_type: &NumericType,
     result_id_fixer: Option<&ResultIdFixer>,
 ) -> Expr {
+    let numeric_type = if let Type::Numeric(numeric_type) = noir_type {
+        numeric_type
+    } else {
+        unreachable!("Can cast only to numeric types");
+    };
     let cast_exprx = ExprX::Unary(
         UnaryOp::Clip { range: get_int_range(*numeric_type), truncate: false },
         ssa_value_to_expr(value_id, dfg, result_id_fixer),
@@ -411,8 +415,8 @@ fn cast_instruction_to_expr(
         Type::Numeric(NumericType::Unsigned { bit_size: 1 }) => {
             cast_bool_to_integer(value_id, noir_type, dfg, result_id_fixer)
         }
-        Type::Numeric(numeric_type) => {
-            cast_integer_to_integer(value_id, noir_type, dfg, numeric_type, result_id_fixer)
+        Type::Numeric(..) => {
+            cast_integer_to_integer(value_id, noir_type, dfg, result_id_fixer)
         }
         _ => panic!("Expected that all SSA casts have numeric targets"),
     }
