@@ -7,15 +7,30 @@ use vir::ast_util::ident_binder;
 
 use crate::ssa::verus_vir_gen::*;
 
-fn lhs_value_to_pattern(value_id: &ValueId, dfg: &DataFlowGraph) -> Pattern {
+fn lhs_value_to_pattern(
+    value_id: &ValueId,
+    dfg: &DataFlowGraph,
+    instruction_id: &InstructionId,
+) -> Pattern {
     let value_patternx = PatternX::Var { name: id_into_var_ident(*value_id), mutable: false }; // Mutability not supported for the prototype
+    // Dereference type if we are initializing with allocate.
+    let vir_type = if let Instruction::Allocate = dfg[*instruction_id] {
+        match dfg[*value_id].get_type().clone() {
+            Type::Reference(inner_type) => {
+                from_noir_type(inner_type.as_ref().clone(), None)},
+            _ => unreachable!(),
+        }
+    } else {
+        from_noir_type(dfg[*value_id].get_type().clone(), None)
+    };
     SpannedTyped::new(
         &build_span(
             value_id,
             format!("Lhs value({})", value_id),
             Some(dfg.get_value_call_stack(*value_id)),
         ),
-        &from_noir_type(dfg[*value_id].get_type().clone(), None),
+        &vir_type,
+        // &from_noir_type(dfg[*value_id].get_type().clone(), None),
         value_patternx,
     )
 }
@@ -32,7 +47,10 @@ fn lhs_values_to_pattern(
             .iter()
             .enumerate()
             .map(|(ind, id)| {
-                ident_binder(&Arc::new(ind.to_string()), &lhs_value_to_pattern(id, dfg))
+                ident_binder(
+                    &Arc::new(ind.to_string()),
+                    &lhs_value_to_pattern(id, dfg, &instruction_id),
+                )
             })
             .collect(),
     );
@@ -46,7 +64,7 @@ fn lhs_values_to_pattern(
                 instruction_id,
                 lhs_values.iter().map(|x| x.to_string()).collect::<Vec<String>>().join(", ")
             ),
-            Some(dfg.get_call_stack(instruction_id))
+            Some(dfg.get_call_stack(instruction_id)),
         ),
         &get_function_ret_type(lhs_values, dfg),
         tuple_patternx,
@@ -60,7 +78,7 @@ fn instruction_to_pattern(instruction_id: InstructionId, dfg: &DataFlowGraph) ->
     let lhs_ids = dfg.instruction_results(instruction_id);
     match lhs_ids.len() {
         0 => panic!("Instructions with no results can not be turned into a pattern"),
-        1 => lhs_value_to_pattern(&lhs_ids[0], dfg),
+        1 => lhs_value_to_pattern(&lhs_ids[0], dfg, &instruction_id),
         _ => lhs_values_to_pattern(lhs_ids, dfg, instruction_id),
     }
 }
@@ -98,13 +116,17 @@ pub(crate) fn instruction_to_stmt(
             StmtX::Decl {
                 pattern: instruction_to_pattern(instruction_id, dfg),
                 mode: Some(mode),
-                init: Some(instruction_to_expr(
-                    instruction_id,
-                    instruction,
-                    mode,
-                    dfg,
-                    current_context,
-                )),
+                init: if let Instruction::Allocate = instruction {
+                    None
+                } else {
+                    Some(instruction_to_expr(
+                        instruction_id,
+                        instruction,
+                        mode,
+                        dfg,
+                        current_context,
+                    ))
+                },
             },
         ),
     }
