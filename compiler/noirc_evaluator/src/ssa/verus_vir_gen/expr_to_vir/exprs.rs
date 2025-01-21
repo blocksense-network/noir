@@ -423,9 +423,7 @@ fn cast_instruction_to_expr(
         Type::Numeric(NumericType::Unsigned { bit_size: 1 }) => {
             cast_bool_to_integer(value_id, noir_type, dfg, result_id_fixer)
         }
-        Type::Numeric(..) => {
-            cast_integer_to_integer(value_id, noir_type, dfg, result_id_fixer)
-        }
+        Type::Numeric(..) => cast_integer_to_integer(value_id, noir_type, dfg, result_id_fixer),
         _ => panic!("Expected that all SSA casts have numeric targets"),
     }
 }
@@ -1129,15 +1127,22 @@ fn quantifier_to_expr(
     };
     let quant_vir_indexes: Vec<VarBinder<Typ>> = quant_indexes
         .into_iter()
-        .map(|index| VarBinderX {
-            name: VarIdent(
-                Arc::new(index.clone()),
-                vir::ast::VarIdentDisambiguate::RustcId(
-                    extract_quant_index_id(&index)
-                        .expect("All indexes should be value ids to string"),
+        .map(|index| {
+            let index_val_id = ValueId::new(
+                extract_quant_index_id(&index).expect("All indexes should be value ids to string"),
+            );
+            let index_type = dfg.type_of_value(index_val_id);
+            VarBinderX {
+                name: VarIdent(
+                    Arc::new(index.clone()),
+                    vir::ast::VarIdentDisambiguate::RustcId(index_val_id.to_usize()),
                 ),
-            ),
-            a: Arc::new(TypX::Int(IntRange::Int)),
+                a: if let Type::Numeric(NumericType::Unsigned { .. }) = index_type {
+                    Arc::new(TypX::Int(IntRange::Nat))
+                } else {
+                    Arc::new(TypX::Int(IntRange::Int))
+                },
+            }
         })
         .map(|var_binder| Arc::new(var_binder))
         .collect();
