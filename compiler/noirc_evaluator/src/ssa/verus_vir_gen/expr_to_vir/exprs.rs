@@ -431,6 +431,16 @@ fn range_limit_to_expr(
             },
             ssa_value_to_expr(value_id, dfg, result_id_fixer),
         ),
+        Type::Reference(inner_type) => match inner_type.as_ref() {
+            Type::Numeric(numeric_type) => ExprX::Unary(
+                UnaryOp::Clip {
+                    range: trunc_target_int_range(numeric_type, target_bit_size),
+                    truncate,
+                },
+                ssa_value_to_expr(value_id, dfg, result_id_fixer),
+            ),
+            _ => panic!("Can range limit/truncate only numeric values"),
+        },
         _ => panic!("Can range limit/truncate only numeric values"),
     };
 
