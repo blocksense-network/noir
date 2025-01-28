@@ -836,8 +836,6 @@ impl<'a> FunctionContext<'a> {
         
         indexes.iter().for_each(|ident| {
             if let ast::Definition::Local(id) = ident.definition {
-                // The instruction which we are inserting will be
-                // removed in the last optimization.
                 let converted_type = FunctionContext::<'a>::convert_non_tuple_type(&ident.typ);
                 let val_id = self
                     .builder
