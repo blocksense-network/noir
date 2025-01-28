@@ -8,7 +8,6 @@ use crate::ssa::verus_vir_gen::{
     expr_to_vir::{
         exprs::{
             get_enable_side_effects_value_id, instruction_to_expr, is_instruction_call_to_print,
-            is_instruction_enable_side_effects,
         },
         patterns::instruction_to_stmt,
         types::get_function_ret_type,
@@ -42,45 +41,44 @@ fn func_attributes_to_vir_expr(
         let quantifier_indexes = get_all_quantifier_indexes(&attribute_instructions);
 
         for (instruction_id, instruction) in attribute_instructions.iter() {
-            if matches!(
-                instruction,
-                Instruction::Constrain(..)
-                    | Instruction::RangeCheck { .. }
-                    | Instruction::IncrementRc { .. }
-            ) {
+            if is_instruction_call_to_print(&instruction_id, dfg) {
                 continue;
             }
-            if let Instruction::Allocate { .. } = instruction {
-                if dfg
-                    .instruction_results(*instruction_id)
-                    .iter()
-                    .any(|val_id| quantifier_indexes.contains(&val_id.to_string()))
-                {
+            match instruction {
+                Instruction::Constrain(..)
+                | Instruction::RangeCheck { .. }
+                | Instruction::IncrementRc { .. } => continue,
+                Instruction::Allocate { .. } => {
+                    if dfg
+                        .instruction_results(*instruction_id)
+                        .iter()
+                        .any(|val_id| quantifier_indexes.contains(&val_id.to_string()))
+                    {
+                        continue;
+                    }
+                }
+                Instruction::QuantStart { quant_type: _, indexes } => {
+                    mark_quantifier_start(indexes.clone(), current_context);
                     continue;
                 }
-            }
-            if let Instruction::QuantStart { quant_type: _, indexes } = instruction {
-                mark_quantifier_start(indexes.clone(), current_context);
-                continue;
-            }
-            if is_instruction_enable_side_effects(&instruction_id, dfg) {
-                current_context.side_effects_condition =
-                    get_enable_side_effects_value_id(&instruction_id, dfg);
-            }
-            if !is_instruction_enable_side_effects(&instruction_id, dfg)
-                && !is_instruction_call_to_print(&instruction_id, dfg)
-            {
-                let statement = instruction_to_stmt(
-                    &instruction,
-                    dfg,
-                    *instruction_id,
-                    Mode::Spec,
-                    current_context,
-                );
-                if current_context.quantifier_context.is_inside_quantifier_body() {
-                    current_context.quantifier_context.push_statement(statement);
-                } else {
-                    vir_statements.push(statement);
+                Instruction::EnableSideEffectsIf { .. } => {
+                    current_context.side_effects_condition =
+                        get_enable_side_effects_value_id(&instruction_id, dfg);
+                    continue;
+                }
+                _ => {
+                    let statement = instruction_to_stmt(
+                        &instruction,
+                        dfg,
+                        *instruction_id,
+                        Mode::Spec,
+                        current_context,
+                    );
+                    if current_context.quantifier_context.is_inside_quantifier_body() {
+                        current_context.quantifier_context.push_statement(statement);
+                    } else {
+                        vir_statements.push(statement);
+                    }
                 }
             }
         }
