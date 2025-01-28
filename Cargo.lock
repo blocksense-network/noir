@@ -3341,7 +3341,6 @@ dependencies = [
  "plonky2_u32",
  "proptest",
  "rayon",
- "regex",
  "serde",
  "serde_json",
  "serde_with",

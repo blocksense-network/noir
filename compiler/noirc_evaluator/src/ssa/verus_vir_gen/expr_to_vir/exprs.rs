@@ -9,7 +9,6 @@ use expr_to_vir::{
 };
 use noirc_frontend::ast::QuantifierType;
 use num_bigint::ToBigInt;
-use regex::Regex;
 use vir::ast::{
     AirQuant, Binder, BinderX, FieldOpr, Quant, TriggerAnnotation, VarBinder, VarBinderX,
 };
@@ -1174,12 +1173,13 @@ fn quantifier_to_expr(
 }
 
 fn extract_quant_index_id(quant_index: &str) -> Option<usize> {
-    let re = Regex::new(r"v(\d+)").unwrap();
-    if let Some(captures) = re.captures(quant_index) {
-        if let Some(number_match) = captures.get(1) {
-            return number_match.as_str().parse::<usize>().ok();
+    let mut chars = quant_index.chars();
+    if let Some(first_char) = chars.next() {
+        if first_char == 'v' {
+            let val_id: String = chars.collect();
+            return val_id.parse::<usize>().ok();
         }
-    }
+    } 
     None
 }
 
