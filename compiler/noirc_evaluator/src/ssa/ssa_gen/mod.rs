@@ -180,17 +180,19 @@ impl<'a> FunctionContext<'a> {
 
         self.builder.current_function.dfg.fv_start_id =
             self.builder.current_function.dfg.num_instructions() + 1;
+        let mut attribute_index: usize = 0;
         for fvexpr in formal_verification_expressions {
             match fvexpr {
                 FvExpression::Ensures(expr) => {
-                    self.builder.fv_instruction = FvBuilder::Ensures;
+                    self.builder.fv_instruction = FvBuilder::Ensures(attribute_index);
                     let _ = self.codegen_expression(expr);
                 }
                 FvExpression::Requires(expr) => {
-                    self.builder.fv_instruction = FvBuilder::Requires;
+                    self.builder.fv_instruction = FvBuilder::Requires(attribute_index);
                     let _ = self.codegen_expression(expr);
                 }
             }
+            attribute_index += 1;
         }
         self.builder.fv_instruction = FvBuilder::None;
         self.return_value = Tree::empty();

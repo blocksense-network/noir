@@ -14,7 +14,7 @@ use crate::ssa::verus_vir_gen::{
     },
 };
 
-use super::{DataFlowGraph, Function, FvInstruction, Id, Instruction, SSAContext};
+use super::{DataFlowGraph, Function, FvAttributes, Id, Instruction, SSAContext};
 
 fn get_all_quantifier_indexes(
     attribute_instructions: &Vec<(Id<Instruction>, Instruction)>,
@@ -35,7 +35,7 @@ fn func_attributes_to_vir_expr(
     attribute_instructions: Vec<(Id<Instruction>, Instruction)>,
     dfg: &DataFlowGraph,
     current_context: &mut SSAContext,
-) -> Vec<Expr> {
+) -> Expr {
     if let Some((last_instruction_id, last_instruction)) = attribute_instructions.last() {
         let mut vir_statements: Vec<Stmt> = Vec::new();
         let quantifier_indexes = get_all_quantifier_indexes(&attribute_instructions);
@@ -99,7 +99,7 @@ fn func_attributes_to_vir_expr(
                 current_context,
             )
         };
-        vec![SpannedTyped::new(
+        SpannedTyped::new(
             &build_span(
                 last_instruction_id,
                 "Formal verification expression".to_string(),
@@ -107,9 +107,9 @@ fn func_attributes_to_vir_expr(
             ),
             &get_function_ret_type(dfg.instruction_results(*last_instruction_id), dfg),
             ExprX::Block(Arc::new(vir_statements), Some(last_expr)),
-        )]
+        )
     } else {
-        vec![]
+        unreachable!("Only convert non empty attributes to VIR expr")
     }
 }
 
@@ -121,37 +121,85 @@ pub(crate) fn func_requires_to_vir_expr(
     func: &Function,
     current_context: &mut SSAContext,
 ) -> Exprs {
-    let attr_instrs: Vec<(Id<Instruction>, Instruction)> = func
+    let require_attrs_as_expr: Vec<Expr> = func
         .dfg
-        .fv_instructions
+        .fv_attributes
         .iter()
-        .enumerate()
-        .map(|(ind, fv_instr)| (Id::new(ind + func.dfg.fv_start_id), fv_instr))
-        .filter_map(|(ind, fv_instr)| {
-            if let FvInstruction::Requires(instr) = &fv_instr {
-                Some((ind, instr.clone()))
+        .filter_map(|attribute| {
+            if let FvAttributes::Requires(instructions) = attribute {
+                Some(func_attributes_to_vir_expr(
+                    instructions
+                        .iter()
+                        .enumerate()
+                        .map(|(ind, fv_instr)| {
+                            (Id::new(ind + func.dfg.fv_start_id), fv_instr.clone())
+                        })
+                        .collect(),
+                    &func.dfg,
+                    current_context,
+                ))
             } else {
                 None
             }
         })
         .collect();
-    Arc::new(func_attributes_to_vir_expr(attr_instrs, &func.dfg, current_context))
+
+    Arc::new(require_attrs_as_expr)
+    // let attr_instrs: Vec<(Id<Instruction>, Instruction)> = func
+    //     .dfg
+    //     .fv_attributes
+    //     .iter()
+    //     .enumerate()
+    //     .map(|(ind, fv_instr)| (Id::new(ind + func.dfg.fv_start_id), fv_instr))
+    //     .filter_map(|(ind, fv_instr)| {
+    //         if let FvAttributes::Requires(instr) = &fv_instr {
+    //             Some((ind, instr.clone()))
+    //         } else {
+    //             None
+    //         }
+    //     })
+    //     .collect();
+    // Arc::new(func_attributes_to_vir_expr(attr_instrs, &func.dfg, current_context))
 }
 
 pub(crate) fn func_ensures_to_vir_expr(func: &Function, current_context: &mut SSAContext) -> Exprs {
-    let attr_instrs: Vec<(Id<Instruction>, Instruction)> = func
+    let require_attrs_as_expr: Vec<Expr> = func
         .dfg
-        .fv_instructions
+        .fv_attributes
         .iter()
-        .enumerate()
-        .map(|(ind, fv_instr)| (Id::new(ind + func.dfg.fv_start_id), fv_instr))
-        .filter_map(|(ind, fv_instr)| {
-            if let FvInstruction::Ensures(instr) = &fv_instr {
-                Some((ind, instr.clone()))
+        .filter_map(|attribute| {
+            if let FvAttributes::Ensures(instructions) = attribute {
+                Some(func_attributes_to_vir_expr(
+                    instructions
+                        .iter()
+                        .enumerate()
+                        .map(|(ind, fv_instr)| {
+                            (Id::new(ind + func.dfg.fv_start_id), fv_instr.clone())
+                        })
+                        .collect(),
+                    &func.dfg,
+                    current_context,
+                ))
             } else {
                 None
             }
         })
         .collect();
-    Arc::new(func_attributes_to_vir_expr(attr_instrs, &func.dfg, current_context))
+
+    Arc::new(require_attrs_as_expr)
+    // let attr_instrs: Vec<(Id<Instruction>, Instruction)> = func
+    //     .dfg
+    //     .fv_attributes
+    //     .iter()
+    //     .enumerate()
+    //     .map(|(ind, fv_instr)| (Id::new(ind + func.dfg.fv_start_id), fv_instr))
+    //     .filter_map(|(ind, fv_instr)| {
+    //         if let FvAttributes::Ensures(instr) = &fv_instr {
+    //             Some((ind, instr.clone()))
+    //         } else {
+    //             None
+    //         }
+    //     })
+    //     .collect();
+    // Arc::new(func_attributes_to_vir_expr(attr_instrs, &func.dfg, current_context))
 }

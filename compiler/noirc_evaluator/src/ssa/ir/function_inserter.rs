@@ -6,7 +6,7 @@ use super::{
     basic_block::BasicBlockId,
     dfg::{CallStack, InsertInstructionResult},
     function::Function,
-    instruction::{FvInstruction, Instruction, InstructionId},
+    instruction::{FvAttributes, Instruction, InstructionId},
     value::ValueId,
 };
 use fxhash::FxHashMap as HashMap;
@@ -109,19 +109,19 @@ impl<'f> FunctionInserter<'f> {
         let newfv = self
             .function
             .dfg
-            .fv_instructions
+            .fv_attributes
             .clone()
             .iter()
             .map(|fv| match fv {
-                FvInstruction::Requires(instr) => {
-                    FvInstruction::Requires(instr.clone().map_values(|v| self.resolve(v)))
+                FvAttributes::Requires(instructions) => {
+                    FvAttributes::Requires(instructions.clone().into_iter().map(|instr| instr.map_values(|v| self.resolve(v))).collect())
                 }
-                FvInstruction::Ensures(instr) => {
-                    FvInstruction::Ensures(instr.clone().map_values(|v| self.resolve(v)))
+                FvAttributes::Ensures(instructions) => {
+                    FvAttributes::Ensures(instructions.clone().into_iter().map(|instr| instr.map_values(|v| self.resolve(v))).collect())
                 }
             })
             .collect();
-        self.function.dfg.fv_instructions = newfv;
+        self.function.dfg.fv_attributes = newfv;
     }
 
     /// Push a new instruction to the given block and return its new InstructionId.

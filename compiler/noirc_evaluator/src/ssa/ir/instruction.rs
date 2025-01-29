@@ -800,6 +800,55 @@ impl Instruction {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) enum FvAttributes {
+    Requires(Vec<Instruction>),
+    Ensures(Vec<Instruction>),
+}
+
+impl FvAttributes {
+    pub(crate) fn insert_instruction(&mut self, instruction: Instruction) {
+        match self {
+            FvAttributes::Requires(vec) | FvAttributes::Ensures(vec) => vec.push(instruction),
+        }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            FvAttributes::Requires(vec) | FvAttributes::Ensures(vec) => vec.len(),
+        }
+    }
+
+    pub(crate) fn give_at_index(&self, index: usize) -> &Instruction {
+        match self {
+            FvAttributes::Requires(vec) | FvAttributes::Ensures(vec) => &vec[index],
+        }
+    }
+
+    pub(crate) fn iter(&self) -> std::slice::Iter<Instruction>{
+        match self {
+            FvAttributes::Requires(vec) | FvAttributes::Ensures(vec) => vec.iter(),
+        }
+    }
+
+    pub(crate) fn set_at_index(&mut self, index: usize, instruction: Instruction) {
+        match self {
+            FvAttributes::Requires(vec) | FvAttributes::Ensures(vec) => vec[index] = instruction,
+        }
+    }
+
+    pub(crate) fn into_fv_instructions(&self) -> Vec<FvInstruction> {
+        match self {
+            FvAttributes::Requires(vec) => {
+                vec.iter().map(|instruction| FvInstruction::Requires(instruction.clone())).collect()
+            }
+            FvAttributes::Ensures(vec) => {
+                vec.iter().map(|instruction| FvInstruction::Ensures(instruction.clone())).collect()
+            }
+        }
+    }
+}
+
+
 pub(crate) enum FvInstruction {
     Requires(Instruction),
     Ensures(Instruction),

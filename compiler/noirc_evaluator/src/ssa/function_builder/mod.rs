@@ -9,7 +9,7 @@ use noirc_frontend::monomorphization::ast::InlineType;
 use crate::ssa::ir::{
     basic_block::BasicBlockId,
     function::{Function, FunctionId},
-    instruction::{Binary, BinaryOp, FvInstruction, Instruction, TerminatorInstruction},
+    instruction::{Binary, BinaryOp, FvAttributes, Instruction, TerminatorInstruction},
     types::Type,
     value::{Value, ValueId},
 };
@@ -27,8 +27,8 @@ use super::{
 #[derive(PartialEq)]
 pub(crate) enum FvBuilder {
     None,
-    Ensures,
-    Requires,
+    Ensures(usize),
+    Requires(usize),
 }
 
 /// The per-function context for each ssa function being generated.

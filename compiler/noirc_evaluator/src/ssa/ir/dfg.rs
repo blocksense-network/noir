@@ -9,7 +9,7 @@ use super::{
     basic_block::{BasicBlock, BasicBlockId},
     function::FunctionId,
     instruction::{
-        FvInstruction, Instruction, InstructionId, InstructionResultType, Intrinsic,
+        FvAttributes, FvInstruction, Instruction, InstructionId, InstructionResultType, Intrinsic,
         TerminatorInstruction,
     },
     map::DenseMap,
@@ -99,7 +99,7 @@ pub(crate) struct DataFlowGraph {
     #[serde(skip)]
     pub(crate) data_bus: DataBus,
 
-    pub fv_instructions: Vec<FvInstruction>,
+    pub fv_attributes: Vec<FvAttributes>,
     pub fv_start_id: usize,
 }
 
@@ -323,8 +323,8 @@ impl DataFlowGraph {
         instruction_id: InstructionId,
         ctrl_typevars: Option<Vec<Type>>,
     ) {
-        if self.fv_instructions.len() > 0 {
-            for id in (0..self.fv_instructions.len()).rev().map(|x| self.fv_start_id + x) {
+        if self.fv_attributes.len() > 0 {
+            for id in (0..self.fv_attributes.len()).rev().map(|x| self.fv_start_id + x) {
                 let res = self.results.remove(&InstructionId::new(id)).unwrap();
                 self.results.insert(InstructionId::new(id + 1), res);
                 // Update span for the moved instruction
@@ -352,7 +352,7 @@ impl DataFlowGraph {
     ) {
         self.results.insert(instruction_id, value_ids);
     }
-    
+
     /// Return the result types of this instruction.
     ///
     /// In the case of Load, Call, and Intrinsic, the function's result
@@ -408,7 +408,7 @@ impl DataFlowGraph {
                 }
 
                 let mut instruction_id =
-                    InstructionId::new(self.fv_start_id + self.fv_instructions.len() - 1);
+                    InstructionId::new(self.fv_start_id + self.fv_attributes.len() - 1);
 
                 for instruction in instructions {
                     instruction_id = InstructionId::new(instruction_id.to_usize() + 1);
@@ -430,11 +430,28 @@ impl DataFlowGraph {
                     }
 
                     // Add instruction
-                    self.fv_instructions.push(match instruction_type {
-                        FvBuilder::Ensures => FvInstruction::Ensures(instruction),
-                        FvBuilder::Requires => FvInstruction::Requires(instruction),
-                        FvBuilder::None => unreachable!(), // The if condition ensures this
-                    });
+                    match instruction_type {
+                        FvBuilder::None => unreachable!(), // The if condition ensures
+                        FvBuilder::Ensures(index) => {
+                            if *index >= self.fv_attributes.len() {
+                                self.fv_attributes.push(FvAttributes::Ensures(vec![instruction]));
+                            } else {
+                                self.fv_attributes[*index].insert_instruction(instruction);
+                            }
+                        }
+                        FvBuilder::Requires(index) => {
+                            if *index >= self.fv_attributes.len() {
+                                self.fv_attributes.push(FvAttributes::Ensures(vec![instruction]));
+                            } else {
+                                self.fv_attributes[*index].insert_instruction(instruction);
+                            }
+                        }
+                    }
+                    // self.fv_instructions.push(match instruction_type {
+                    //     FvBuilder::Ensures => FvAttributes::Ensures(instruction),
+                    //     FvBuilder::Requires => FvAttributes::Requires(instruction),
+                    //     FvBuilder::None => unreachable!(), // The if condition ensures this
+                    // });
                     // Insert fv instruction's span
                     self.locations.insert(instruction_id, call_stack.clone());
                 }
@@ -639,9 +656,12 @@ impl DataFlowGraph {
     }
 
     /// Returns a vector fv instructions and their matching ids in the dfg.
-    pub(crate) fn get_fv_instructions_with_ids(&self) -> Vec<(InstructionId, &FvInstruction)> {
-        self.fv_instructions
+    pub(crate) fn get_fv_instructions_with_ids(&self) -> Vec<(InstructionId, FvInstruction)> {
+        self
+            .fv_attributes
             .iter()
+            .map(|attribute| attribute.into_fv_instructions())
+            .flatten()
             .enumerate()
             .map(|(pos, instr)| (InstructionId::new(self.fv_start_id + pos), instr))
             .collect()
@@ -652,10 +672,17 @@ impl std::ops::Index<InstructionId> for DataFlowGraph {
     type Output = Instruction;
     fn index(&self, id: InstructionId) -> &Self::Output {
         if id.to_usize() >= self.instructions.len() {
-            match &self.fv_instructions[id.to_usize() - self.fv_start_id] {
-                FvInstruction::Ensures(i) => &i,
-                FvInstruction::Requires(i) => &i,
+            let mut attribute_index: usize = 0;
+            let mut index_for_attribute_vec = id.to_usize() - self.fv_start_id;
+            while index_for_attribute_vec - self.fv_attributes[attribute_index].len() >= 0 {
+                index_for_attribute_vec -= self.fv_attributes[attribute_index].len();
+                attribute_index += 1;
             }
+            self.fv_attributes[attribute_index].give_at_index(index_for_attribute_vec)
+            // match &self.fv_attributes[id.to_usize() - self.fv_start_id] {
+            //     FvAttributes::Ensures(i) => &i,
+            //     FvAttributes::Requires(i) => &i,
+            // }
         } else {
             &self.instructions[id]
         }

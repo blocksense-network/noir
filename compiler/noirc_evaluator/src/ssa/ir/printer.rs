@@ -13,7 +13,7 @@ use super::{
     dfg::DataFlowGraph,
     function::Function,
     instruction::{
-        ConstrainError, FvInstruction, Instruction, InstructionId, TerminatorInstruction,
+        ConstrainError, FvAttributes, Instruction, InstructionId, TerminatorInstruction,
     },
     value::{Value, ValueId},
 };
@@ -45,16 +45,20 @@ pub(crate) fn display_function(function: &Function, f: &mut Formatter) -> Result
 
 fn display_fv_attribute(function: &Function, attribute: Attribute, f: &mut Formatter) -> Result {
     writeln!(f, "{} (", attribute.as_str())?;
-    for (id, fvi) in function.dfg.fv_instructions.iter().enumerate() {
+    for (id, fvi) in function.dfg.fv_attributes.iter().enumerate() {
         match fvi {
-            FvInstruction::Ensures(instruction) => {
+            FvAttributes::Ensures(fv_instructions) => {
                 if attribute == Attribute::Ensures {
-                    display_fv_instruction(function, id, instruction, f)?
+                    for instruction in fv_instructions {
+                        display_fv_instruction(function, id, instruction, f)?
+                    }
                 }
             }
-            FvInstruction::Requires(instruction) => {
+            FvAttributes::Requires(fv_instructions) => {
                 if attribute == Attribute::Requires {
-                    display_fv_instruction(function, id, instruction, f)?
+                    for instruction in fv_instructions {
+                        display_fv_instruction(function, id, instruction, f)?
+                    }
                 }
             }
         }

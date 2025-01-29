@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::ssa::ir::dfg::DataFlowGraph;
 use crate::ssa::ir::function::{Function, FunctionId};
-use crate::ssa::ir::instruction::{FvInstruction, Instruction, InstructionId};
+use crate::ssa::ir::instruction::{FvAttributes, FvInstruction, Instruction, InstructionId};
 use crate::ssa::ir::map::Id;
 use crate::ssa::ir::value::{Value, ValueId};
 use crate::ssa::ssa_gen::Ssa;
@@ -28,7 +28,7 @@ impl Ssa {
         let is_done = true;
         for function in self.functions.values() {
             let dfg = &function.dfg;
-            for fv_instruction in dfg.fv_instructions.iter() {
+            for (_, fv_instruction) in dfg.get_fv_instructions_with_ids() {
                 match fv_instruction {
                     FvInstruction::Requires(instruction) | FvInstruction::Ensures(instruction) => {
                         match instruction {
@@ -59,6 +59,8 @@ impl Ssa {
         let mut update_func_dfg_results: Vec<(FunctionId, Vec<(InstructionId, Vec<ValueId>)>)> =
             Vec::new();
 
+        let mut attribute_index: usize = 0;
+
         for function in self.functions.values() {
             let dfg = &function.dfg;
             let mut next_id = dfg
@@ -74,33 +76,63 @@ impl Ssa {
             let mut shift_fv_instructions: Vec<RightShiftInfo> = Vec::new();
             let mut current_needed_right_shifts = 0;
             let mut is_done = false;
-            for fv_instruction in dfg.fv_instructions.iter() {
-                let wrapper_function = match fv_instruction {
-                    FvInstruction::Requires(_) => {
-                            |instr| FvInstruction::Requires(instr)
+
+            for i in 0..dfg.fv_attributes.len() {
+                for fv_instruction in dfg.fv_attributes[i].into_fv_instructions().iter() {
+                    let wrapper_function: Box<dyn for<'a> Fn(&'a Instruction) -> FvInstruction<'a>> = match fv_instruction {
+                        FvInstruction::Requires(_) => Box::new(|instr| FvInstruction::Requires(instr)),
+                        FvInstruction::Ensures(_) => Box::new(|instr| FvInstruction::Ensures(instr)),
+                    };
+                    self.handle_fv_instruction(
+                        function,
+                        fv_instruction.give_inner_as_ref(),
+                        index,
+                        &mut is_done,
+                        &mut new_instructions,
+                        dfg,
+                        &mut update_func_with_values,
+                        &mut update_func_dfg_results,
+                        &mut shift_fv_instructions,
+                        &mut current_needed_right_shifts,
+                        &mut next_id,
+                        wrapper_function,
+                    );
+                    if is_done {
+                        attribute_index = i;
                     }
-                    FvInstruction::Ensures(_) => {
-                            |instr| FvInstruction::Ensures(instr)
-                    }
-                };
-                self.handle_fv_instruction(
-                    function,
-                    fv_instruction.give_inner_as_ref(),
-                    index,
-                    &mut is_done,
-                    &mut new_instructions,
-                    dfg,
-                    &mut update_func_with_values,
-                    &mut update_func_dfg_results,
-                    &mut shift_fv_instructions,
-                    &mut current_needed_right_shifts,
-                    &mut next_id,
-                    wrapper_function,
-                );
-                index += 1;
+                    index += 1;
+                }
             }
             update_func_fv_instructions.push((function.id(), new_instructions));
             update_func_fv_right_shift.push((function.id(), shift_fv_instructions));
+
+            // for fv_instruction in dfg.fv_instructions.iter() {
+            //     let wrapper_function = match fv_instruction {
+            //         FvAttributes::Requires(_) => {
+            //                 |instr| FvAttributes::Requires(instr)
+            //         }
+            //         FvAttributes::Ensures(_) => {
+            //                 |instr| FvAttributes::Ensures(instr)
+            //         }
+            //     };
+            //     self.handle_fv_instruction(
+            //         function,
+            //         fv_instruction.give_inner_as_ref(),
+            //         index,
+            //         &mut is_done,
+            //         &mut new_instructions,
+            //         dfg,
+            //         &mut update_func_with_values,
+            //         &mut update_func_dfg_results,
+            //         &mut shift_fv_instructions,
+            //         &mut current_needed_right_shifts,
+            //         &mut next_id,
+            //         wrapper_function,
+            //     );
+            //     index += 1;
+            // }
+            // update_func_fv_instructions.push((function.id(), new_instructions));
+            // update_func_fv_right_shift.push((function.id(), shift_fv_instructions));
         }
 
         // Update the value map in the given function's dfg.
@@ -116,8 +148,9 @@ impl Ssa {
         for (func_id, right_shift_info) in update_func_fv_right_shift {
             let function = self.functions.get_mut(&func_id).expect("No function should be missing");
             for right_shift_info in right_shift_info {
-                let last_instruction_index =
-                    function.dfg.fv_start_id + function.dfg.fv_instructions.len() - 1;
+                let last_instruction_index = function.dfg.fv_start_id
+                    + function.dfg.get_fv_instructions_with_ids().len()
+                    - 1;
 
                 for i in (right_shift_info.start_index..=last_instruction_index).rev() {
                     let instruction_id = InstructionId::new(i);
@@ -142,7 +175,12 @@ impl Ssa {
         // Update the fv instruction vector for each function which has been modified.
         for (func_id, new_fv_instructions) in update_func_fv_instructions {
             let function = self.functions.get_mut(&func_id).expect("No function should be missing");
-            function.dfg.fv_instructions = new_fv_instructions;
+            for instr_index in 0..new_fv_instructions.len() {
+                function.dfg.fv_attributes[attribute_index].set_at_index(
+                    instr_index,
+                    new_fv_instructions[instr_index].give_inner_as_ref().clone(),
+                );
+            }
         }
     }
 
@@ -163,12 +201,12 @@ impl Ssa {
         next_id: &mut usize,
         wrap_instruction: F,
     ) where
-        F: Fn(Instruction) -> FvInstruction,
+        F: for<'a> Fn(&'a Instruction) -> FvInstruction<'a>,
     {
         match instruction {
             Instruction::Call { func, arguments } => {
                 if *is_done {
-                    new_instructions.push(wrap_instruction(instruction.clone()))
+                    new_instructions.push(wrap_instruction(instruction))
                 } else {
                     let instruction_id = InstructionId::new(dfg.fv_start_id + index);
                     let result_id = dfg.instruction_results(instruction_id);
@@ -197,11 +235,11 @@ impl Ssa {
                     update_func_dfg_results.push((function.id(), new_instr_ids));
 
                     new_instructions.extend(
-                        expanded_call_instructions.into_iter().map(|instr| wrap_instruction(instr)),
+                        expanded_call_instructions.into_iter().map(|instr| wrap_instruction(&instr)),
                     );
                 }
             }
-            _ => new_instructions.push(wrap_instruction(instruction.clone())),
+            _ => new_instructions.push(wrap_instruction(instruction)),
         }
     }
 }
@@ -257,7 +295,7 @@ fn inline_expand(
     }
 
     (
-        new_instructions.into_iter().map(|(_, instr)| instr).collect(),
+        new_instructions.iter().map(|(_, instr)| instr).collect(),
         values_to_create,
         instr_id_to_returned_vals,
     )

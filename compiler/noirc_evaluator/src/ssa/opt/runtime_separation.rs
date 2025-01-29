@@ -136,7 +136,7 @@ fn called_functions_values(func: &Function) -> BTreeSet<ValueId> {
             }
         }
     }
-    for instr in func.dfg.fv_instructions.iter() {
+    for (_, instr) in func.dfg.get_fv_instructions_with_ids() {
         let Instruction::Call { func: called_value_id, .. } = instr.give_inner_as_ref() else {
             continue;
         };

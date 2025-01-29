@@ -14,7 +14,7 @@ use crate::ssa::{
     ir::{
         basic_block::BasicBlockId,
         function::{Function, FunctionId, Signature},
-        instruction::{BinaryOp, FvInstruction, Instruction, InstructionId},
+        instruction::{BinaryOp, FvAttributes, Instruction, InstructionId},
         types::{NumericType, Type},
         value::{Value, ValueId},
     },
@@ -81,7 +81,7 @@ impl DefunctionalizationContext {
         // Defunctionalize fv instructions
         let fv_instructions_ids: Vec<InstructionId> = func
             .dfg
-            .fv_instructions
+            .fv_attributes
             .iter()
             .enumerate()
             .map(|(pos, _)| InstructionId::new(func.dfg.fv_start_id + pos))

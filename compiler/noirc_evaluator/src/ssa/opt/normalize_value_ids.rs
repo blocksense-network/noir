@@ -116,7 +116,7 @@ impl Context {
             new_function.dfg.set_block_terminator(new_block_id, terminator);
         }
 
-        new_function.dfg.fv_instructions = old_function.dfg.fv_instructions.clone();
+        new_function.dfg.fv_attributes = old_function.dfg.fv_attributes.clone();
     }
 }
 

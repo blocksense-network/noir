@@ -29,7 +29,7 @@ use super::{
         dfg::{CallStack, DataFlowGraph},
         function::{Function, FunctionId},
         instruction::{
-            Binary, BinaryOp, FvInstruction, Instruction, InstructionId, InstructionResultType,
+            Binary, BinaryOp, FvAttributes, Instruction, InstructionId, InstructionResultType,
             TerminatorInstruction,
         },
         map::Id,
