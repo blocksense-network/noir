@@ -11,6 +11,7 @@
 use crate::ast::{FunctionKind, IntegerBitSize, Signedness, UnaryOp, Visibility};
 use crate::hir::comptime::InterpreterError;
 use crate::hir::type_check::NoMatchingImplFoundError;
+use crate::hir_def::expr;
 use crate::node_interner::{ExprId, ImplSearchErrorKind};
 use crate::{
     debug::DebugInstrumenter,
@@ -24,6 +25,7 @@ use crate::{
     Kind, Type, TypeBinding, TypeBindings,
 };
 use acvm::{acir::AcirField, FieldElement};
+use ast::Binary;
 use iter_extended::{btree_map, try_vecmap, vecmap};
 use noirc_errors::Location;
 use noirc_printable_type::PrintableType;
@@ -293,6 +295,23 @@ impl<'interner> Monomorphizer<'interner> {
         Ok(main_meta.function_signature())
     }
 
+    fn concat_expressions(
+        expr_1: ast::Expression,
+        location_1: Location,
+        expr_2: ast::Expression,
+        location_2: Location,
+    ) -> (ast::Expression, Location) {
+        let new_location =
+            Location { span: location_1.span.merge(location_2.span), file: location_1.file };
+        let concat_expression = ast::Expression::Binary(Binary {
+            lhs: Box::new(expr_1),
+            operator: crate::ast::BinaryOpKind::And,
+            rhs: Box::new(expr_2),
+            location: new_location,
+        });
+        (concat_expression, new_location)
+    }
+
     fn function(
         &mut self,
         f: node_interner::FuncId,
@@ -336,14 +355,45 @@ impl<'interner> Monomorphizer<'interner> {
 
         let parameters = self.parameters(&meta.parameters)?;
         let body = self.expr(body_expr_id)?;
-        let formal_verification_expressions = meta
+        let (ensures_attributes, requires_attributes): (
+            Vec<ResolvedFvAttribute>,
+            Vec<ResolvedFvAttribute>,
+        ) = meta
             .formal_verification_attributes
-            .iter()
-            .map(|fv: &ResolvedFvAttribute| match *fv {
-                ResolvedFvAttribute::Ensures(id) => FvExpression::Ensures(self.expr(id).unwrap()),
-                ResolvedFvAttribute::Requires(id) => FvExpression::Requires(self.expr(id).unwrap()),
+            .into_iter()
+            .partition(|attribute| matches!(attribute, ResolvedFvAttribute::Ensures(_)));
+
+        let ensure_attribute = ensures_attributes
+            .into_iter()
+            .filter_map(|attribute| match attribute {
+                ResolvedFvAttribute::Ensures(expr_id) => Some(expr_id),
+                ResolvedFvAttribute::Requires(_) => None,
             })
-            .collect();
+            .map(|expr_id| (self.expr(expr_id).unwrap(), self.interner.id_location(expr_id)))
+            .reduce(|(lhs_expr, lhs_location), (rhs_expr, rhs_location)| {
+                Self::concat_expressions(lhs_expr, lhs_location, rhs_expr, rhs_location)
+            });
+
+        let require_attribute = requires_attributes
+            .into_iter()
+            .filter_map(|attribute| match attribute {
+                ResolvedFvAttribute::Requires(expr_id) => Some(expr_id),
+                ResolvedFvAttribute::Ensures(_) => None,
+            })
+            .map(|expr_id| (self.expr(expr_id).unwrap(), self.interner.id_location(expr_id)))
+            .reduce(|(lhs_expr, lhs_location), (rhs_expr, rhs_location)| {
+                Self::concat_expressions(lhs_expr, lhs_location, rhs_expr, rhs_location)
+            });
+
+        let formal_verification_expressions = match (ensure_attribute, require_attribute) {
+            (None, None) => vec![],
+            (None, Some(attr)) => vec![FvExpression::Requires(attr.0)],
+            (Some(attr), None) => vec![FvExpression::Ensures(attr.0)],
+            (Some(ensure_attr), Some(require_attr)) => {
+                vec![FvExpression::Ensures(ensure_attr.0), FvExpression::Requires(require_attr.0)]
+            }
+        };
+        
         let function = ast::Function {
             id,
             name,
