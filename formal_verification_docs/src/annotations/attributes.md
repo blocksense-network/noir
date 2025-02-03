@@ -75,3 +75,43 @@ fn main() {
     let n = quadruple(25);
 }
 ```
+## Postconditions (ensures attributes)
+
+Postconditions allow us to specify properties about the return value of a function. Let’s revisit the `quadruple` function and verify that its return value is indeed **four times** the input argument. Let's try putting an assertion in `main` to check that `quadruple(10)` returns `40`:
+```rust,ignore
+fn main() {
+    let n = quadruple(10);
+    assert(n == 40);
+}
+```
+Although `quadruple(10)` does return `40`, Noir FV nevertheless reports an error:
+```
+error: assertion failed
+   ┌─ src/main.nr:10:12
+   │
+10 │     assert(n == 40);
+   │            -------- assertion failed
+   │
+
+Error: Verification failed!
+```
+The error occurs because, even though `quadruple` multiplies its argument by `4`, `quadruple` doesn’t publicize this fact to the other functions in the program. To do this, we can add postconditions (ensures attributes) to `quadruple` specifying some properties of `quadruple`’s return value. In Noir FV, the return value is referred to using the keyword `result`:
+```rust,ignore
+#[requires(-32 <= x1 & x1 < 32)]
+#[ensures(result == 4 * x1)]
+fn quadruple(x1: i8) -> pub i8 {
+    let x2 = x1 + x1;
+    x2 + x2 
+}
+```
+With this postcondition, Noir FV can now prove that `quadruple` behaves as intended. When `main` calls quadruple, the SMT solver uses the postcondition to verify the assertion `n == 40`.
+### Modular Verification
+Preconditions and postconditions enable modular verification, a key feature of Noir FV. This approach establishes a clear contract between functions:
+1. When `main` calls `quadruple`, Noir FV checks that the arguments satisfy `quadruple`’s preconditions.
+2. When verifying `quadruple`’s body, Noir FV assumes the preconditions hold and ensures the postconditions are satisfied.
+3. When verifying `main`, Noir FV relies on `quadruple`’s postconditions without needing to inspect its implementation.
+
+This modularity breaks verification into smaller, manageable pieces, making it more efficient than verifying the entire program at once. However, writing precise preconditions and postconditions requires effort. For large programs, you’ll likely spend significant time crafting these specifications to ensure correctness.
+
+### Assert and SMT Solvers
+During verification with `nargo fv`, the `assert` keyword is used to make local requests to the SMT solver (Z3) to prove a specific fact. Importantly, Noir's `assert` behaves differently depending on whether you’re running `nargo fv` (verification) or `nargo execute` (execution). 
