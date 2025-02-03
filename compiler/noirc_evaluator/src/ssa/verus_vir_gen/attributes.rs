@@ -1,16 +1,16 @@
 use std::sync::Arc;
 
 use im::HashSet;
-use vir::ast::{Expr, ExprX, Exprs, Mode, SpannedTyped, Stmt};
+use vir::ast::{Expr, ExprX, Exprs, Mode, SpannedTyped, Stmt, TypX, VarIdent};
 
 use crate::ssa::verus_vir_gen::{
-    build_span,
+    build_span, empty_span,
     expr_to_vir::{
         exprs::{
             get_enable_side_effects_value_id, instruction_to_expr, is_instruction_call_to_print,
         },
         patterns::instruction_to_stmt,
-        types::get_function_ret_type,
+        types::{from_noir_type, get_function_ret_type},
     },
 };
 
@@ -89,7 +89,17 @@ fn func_attributes_to_vir_expr(
                 vir::ast::StmtX::Decl { pattern: _, mode: _, init } => {
                     init.clone().expect("Expected quant to be initialized")
                 }
-            }
+            } // &from_noir_type(dfg.type_of_value(*value), None)
+        } else if let Instruction::Store { address, value } = last_instruction {
+            let exprx = ExprX::Var(VarIdent(
+                Arc::new(address.to_string()),
+                vir::ast::VarIdentDisambiguate::RustcId(address.to_usize()),
+            ));
+            SpannedTyped::new(
+                &build_span(address, String::from("test"), Some(dfg.get_call_stack(*last_instruction_id))),
+                &from_noir_type(dfg.type_of_value(*value), None),
+                exprx,
+            )
         } else {
             instruction_to_expr(
                 last_instruction_id.clone(),

@@ -76,12 +76,8 @@ impl Ssa {
             let mut is_done = false;
             for fv_instruction in dfg.fv_instructions.iter() {
                 let wrapper_function = match fv_instruction {
-                    FvInstruction::Requires(_) => {
-                            |instr| FvInstruction::Requires(instr)
-                    }
-                    FvInstruction::Ensures(_) => {
-                            |instr| FvInstruction::Ensures(instr)
-                    }
+                    FvInstruction::Requires(_) => |instr| FvInstruction::Requires(instr),
+                    FvInstruction::Ensures(_) => |instr| FvInstruction::Ensures(instr),
                 };
                 self.handle_fv_instruction(
                     function,
@@ -238,7 +234,11 @@ fn inline_expand(
         .iter()
         .zip(new_instructions[new_instructions.len().saturating_sub(result_ids.len())..].iter())
         .for_each(|(result_id, (instruction_id, _))| {
-            value_id_map.insert(callee_dfg.instruction_results(*instruction_id)[0], *result_id);
+            if callee_dfg.instruction_results(*instruction_id).len() == 0 {
+                value_id_map.insert(*result_id, *result_id);
+            } else {
+                value_id_map.insert(callee_dfg.instruction_results(*instruction_id)[0], *result_id);
+            }
         });
 
     for (instruction_id, _) in new_instructions.iter() {
