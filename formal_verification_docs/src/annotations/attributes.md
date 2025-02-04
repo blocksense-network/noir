@@ -21,8 +21,8 @@ error: possible arithmetic underflow/overflow
 
 Error: Verification failed!
 ```
-Noir FV cannot prove that the result of `x1 + x1` fits in an 8-bit `i8` value, which allows values in the range `-128`…`127`. For example, if `x1` were `100`, then `x1 + x1` would be `200`, which exceeds `127`. We need to make sure that the argument `x1` stays within a safe range.  
-We can do this by adding preconditions (also known as `requires` attributes) to `main` specifying which values for `x1` are allowed. In Noir FV, preconditions are written using Noir's attributes syntax:
+Noir FV cannot prove that the result of `x1 + x1` fits in an `i8` value, i.e. is in the range `-128`…`127`. For example, if `x1` were `100`, then `x1 + x1` would be `200`, which exceeds `127`. We need to make sure that the argument `x1` stays within a safe range.  
+We can do this by adding preconditions (also known as `requires` attributes) to `main` specifying which values for `x1` are allowed. Preconditions are written using Noir's attributes syntax and they have a boolean body expression which can utilize the function's arguments:
 ```rust,ignore
 #[requires(-64 <= x1 & x1 < 64)]
 fn main(x1: i8) -> pub i8 {
@@ -30,7 +30,7 @@ fn main(x1: i8) -> pub i8 {
     x2 + x2 
 }
 ```
-The two preconditions above say that x1 must be at least `-64` and less than `64`, so that `x1 + x1` will fit in the range `-128`…`127`. This fixes the error about `x1 + x1`, but we still get an error about `x2 + x2`:
+The precondition above says that `x1` must be at least `-64` and less than `64`, so that `x1 + x1` will fit in the range `-128`…`127`. This fixes the error about `x1 + x1`, but we still get an error about `x2 + x2`:
 ```
 error: possible arithmetic underflow/overflow
   ┌─ src/main.nr:4:5
@@ -95,7 +95,7 @@ error: assertion failed
 
 Error: Verification failed!
 ```
-The error occurs because, even though `quadruple` multiplies its argument by `4`, `quadruple` doesn’t publicize this fact to the other functions in the program. To do this, we can add postconditions (ensures attributes) to `quadruple` specifying some properties of `quadruple`’s return value. In Noir FV, the return value is referred to using the keyword `result`:
+The error occurs because, even though `quadruple` multiplies its argument by `4`, `quadruple` doesn’t publicize this fact to the other functions in the program. To do this, we can add postconditions (ensures attributes) to `quadruple` specifying some properties of `quadruple`’s return value. In Noir FV, the return value is referred with the variable name `result`:
 ```rust,ignore
 #[requires(-32 <= x1 & x1 < 32)]
 #[ensures(result == 4 * x1)]
