@@ -278,13 +278,15 @@ fn binary_instruction_to_expr(
     );
 
     if let Some(condition_id) = current_context.side_effects_condition {
-        return wrap_with_an_if_logic(
-            condition_id,
-            binary_expr,
-            lhs_expr,
-            dfg,
-            current_context.result_id_fixer,
-        );
+        if !matches!(operator, BinaryOp::Eq) {  // Eq is not a dangerous operation
+            return wrap_with_an_if_logic(
+                condition_id,
+                binary_expr,
+                lhs_expr,
+                dfg,
+                current_context.result_id_fixer,
+            );
+        }
     }
     binary_expr
 }
@@ -1189,7 +1191,7 @@ fn extract_quant_index_id(quant_index: &str) -> Option<usize> {
             let val_id: String = chars.collect();
             return val_id.parse::<usize>().ok();
         }
-    } 
+    }
     None
 }
 
