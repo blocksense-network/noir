@@ -126,7 +126,8 @@ impl Context {
         match instruction {
             Binary(binary) => match binary.operator {
                 BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul => {
-                    dfg.type_of_value(binary.lhs).is_unsigned()
+                    // dfg.type_of_value(binary.lhs).is_unsigned() // TODO(totel) An issue should be filed upstream 
+                    true
                 }
                 BinaryOp::Div | BinaryOp::Mod => {
                     if let Some(rhs) = dfg.get_numeric_constant(binary.rhs) {
