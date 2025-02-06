@@ -1,7 +1,7 @@
 # Summary
 
 - [Noir FV overview](./noir_fv_overview.md)
-- [Getting Started](./starters.md)
+- [Getting Started](./getting_started.md)
 - [Annotations](./annotations/README.md)
   - [Requires, Ensures](./annotations/attributes.md)
   - [Quantifiers](./annotations/quantifiers.md)
