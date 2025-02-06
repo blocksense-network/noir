@@ -15,6 +15,7 @@ in
     packages =
       [
         pkgs.alejandra
+        pkgs.mdbook
         pkgs.z3_4_12
         venir
         self'.legacyPackages.rustToolchain
