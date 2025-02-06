@@ -51,7 +51,7 @@ cd noir
     export PATH=$PATH:$PWD/target/debug
     ```
 
-If you encounter any issues, refer to our [Github discussions](https://github.com/blocksense-network/noir/issues). If it's not listed, don't hesitate to report it–we're happy to assist
+If you encounter any issues, refer to our [Github discussions](https://github.com/blocksense-network/noir/issues). If it's not listed, don't hesitate to report it—we're happy to assist
 
 ## Running Noir FV
 
