@@ -13,7 +13,7 @@ means that for every pair `i` and `j` such that `0 <= i <= j < len`, `f(i, j)` m
 
 Note that `==>` has lower precedence than other Boolean operators. For instance, `a ==> b && c` is interpreted as `a ==> (b && c)`.
 
-## Forall, exists
+## Forall
 
 Suppose we need to specify that all the elements of an array are powers of 2.
 If the array is small, we could write a specification for every element separately:
@@ -58,3 +58,21 @@ fn main(arr: [i32; 3]) -> pub i32 {
     arr[1]
 }
 ```
+
+## Exists
+
+`exists` expressions are the dual of `forall`. While `forall(|i| f(i))` means that `f(i)` is true for all `i`, `exists(|i| f(i))` asserts that `f(i)` holds for at least one `i`. To prove `exists(|i| f(i))`, an SMT solver has to find one value for `i` such that `f(i)` is true. This value is called a *witness* for `exists(|i| f(i))`.
+
+The following example demonstrates how `exists` successfully finds a witness
+
+```rust,ignore
+#[requires(is_power_of_2(arr[0]))] // Potential witness
+#[requires(!is_power_of_2(arr[1]))]
+#[requires(is_power_of_2(arr[2]))] // Potential witness
+#[ensures(exists(|i| is_power_of_2(arr[i])))] // i is going to be either 0 or 2
+fn main(arr: [i32, 3]) -> [i32; 3] {
+    arr
+}
+```
+
+This verification succeeds because at least one element (`arr[0]` or `arr[2]`) is a power of 2, allowing `exists` to identify a witness.
