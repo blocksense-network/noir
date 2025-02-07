@@ -3,7 +3,7 @@
 - [Noir FV overview](./noir_fv_overview.md)
 - [Getting Started](./getting_started.md)
 - [Annotations](./annotations/README.md)
-  - [Requires, Ensures](./annotations/attributes.md)
+  - [Pre- and postconditions.md](./annotations/pre_and_postconditions.md)
   - [Quantifiers](./annotations/quantifiers.md)
   - [Ghost Functions](./annotations/ghost_funcs.md)
   - [Recursion and loops](./annotations/rec_loops.md)

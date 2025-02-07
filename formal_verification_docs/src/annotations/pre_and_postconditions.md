@@ -1,6 +1,6 @@
 # Pre- and postconditions
 
-## Preconditions (requires attributes)
+## Preconditions ("requires" attributes)
 Let’s start with a simple example. Suppose we want to verify a function `main` that multiplies a number by 4:
 
 ```rust,ignore
@@ -21,7 +21,8 @@ error: possible arithmetic underflow/overflow
 
 Error: Verification failed!
 ```
-Noir FV cannot prove that the result of `x1 + x1` fits in an `i8` value, i.e. is in the range `-128`…`127`. For example, if `x1` were `100`, then `x1 + x1` would be `200`, which exceeds `127`. We need to make sure that the argument `x1` stays within a safe range.  
+Noir FV cannot prove that the result of `x1 + x1` fits in an `i8` value, i.e. is in the range `-128`…`127`. For example, if `x1` were `100`, then `x1 + x1` would be `200`, which exceeds `127`. We need to make sure that the argument `x1` stays within a safe range.
+
 We can do this by adding preconditions (also known as `requires` attributes) to `main` specifying which values for `x1` are allowed. Preconditions are written using Noir's attributes syntax and they have a boolean body expression which can utilize the function's arguments:
 ```rust,ignore
 #[requires(-64 <= x1 & x1 < 64)]
@@ -75,7 +76,7 @@ fn main() {
     let n = quadruple(25);
 }
 ```
-## Postconditions (ensures attributes)
+## Postconditions ("ensures" attributes)
 
 Postconditions allow us to specify properties about the return value of a function. Let’s revisit the `quadruple` function and verify that its return value is indeed **four times** the input argument. Let's try putting an assertion in `main` to check that `quadruple(10)` returns `40`:
 ```rust,ignore
