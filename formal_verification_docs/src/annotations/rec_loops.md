@@ -23,3 +23,7 @@ fn main(x: u32, y: u32) {
 }
 ```
 Since `sum` is always increasing and `x` is non-negative, the assertion `sum >= y` holds for all valid inputs. Noir FV can verify this automatically without requiring additional annotations.
+
+### Recursion
+
+In Noir FV you *can* prove statements for recursive functions but this is not beneficial because programs with recursion **can not** be built by the standard Noir compiler.
