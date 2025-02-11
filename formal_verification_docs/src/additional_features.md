@@ -1,9 +1,11 @@
 # Additional Features
 
 Noir FV supports formal verification for **structures**, **tuples**, and **generic functions**, enabling proofs for more complex data types and abstractions.
+These features are seamless—no additional syntax, complex attributes, or overhead is required.
 
 ## Verifying Structs
 ### Example: Verifying a Student’s Scholarship Eligibility
+This program returns true if the student is qualified for a scholarship.
 ```rust,ignore
 global MIN_GRADE: u8 = 8;
 global MAX_GRADE: u8 = 10;
@@ -21,14 +23,12 @@ fn main(student: Student) -> pub bool{
     student.grade >= MIN_GRADE
 }
 ```
-Noir FV enables writing precise and verifiable specifications for structured data, reducing potential errors and improving code reliability.
 
 ## Verifying Traits and Generic Functions
 
-Noir FV supports **traits** and **generic functions**, allowing for modular verification across different implementations.
-
 ### Example: Verifying a Banking System
 This example defines a `BankAccount` trait and verifies that different account types correctly implement it.
+We are receiving as arguments two types of accounts. They have in common a value amount and we want to sum them.
 ```rust,ignore
 trait BankAccount {
   fn get_amount(self) -> u64;
