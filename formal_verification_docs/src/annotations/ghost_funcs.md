@@ -1,6 +1,6 @@
 # Ghost Functions
-In many formal verification systems, there is a strict separation between mathematical proof code and executable code.
-Some systems, like **Verus**, introduce explicit ghost functions—special functions used purely for proofs and omitted from compiled code.
+In many formal verification systems, there is a strict separation code for mathematical proofs and for execution.
+Some systems, like **Verus**, introduce explicit "ghost functions"—special functions used purely for proofs and omitted from compiled code.
 Others, like **Prusti**, allow calling regular functions inside specifications without requiring them to be ghost functions.
 
 **Noir FV does not have ghost functions**. Instead, we prioritize executable code while ensuring that functions used in specifications are **pure**—they must have no side effects and always return the same output for the same input.
