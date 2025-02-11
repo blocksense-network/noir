@@ -33,21 +33,21 @@ impl Workspace {
         self.target_directory_path().join(name).with_extension("json")
     }
 
-    pub fn contracts_directory_path(&self, package: &Package) -> PathBuf {
-        let name: String = package.name.clone().into();
-        self.root_dir.join(CONTRACT_DIR).join(name)
-    }
-
-    pub fn proofs_directory_path(&self) -> PathBuf {
-        self.root_dir.join(PROOFS_DIR)
-    }
-
     pub fn target_directory_path(&self) -> PathBuf {
         self.root_dir.join(TARGET_DIR)
     }
 
     pub fn export_directory_path(&self) -> PathBuf {
         self.root_dir.join(EXPORT_DIR)
+    }
+
+    pub fn contracts_directory_path(&self, package: &Package) -> PathBuf {
+        let name: String = package.name.clone().into();
+        self.root_dir.join(CONTRACT_DIR).join(name)
+    }
+    
+    pub fn proofs_directory_path(&self) -> PathBuf {
+        self.root_dir.join(PROOFS_DIR)
     }
 
     /// Returns a new `FileManager` for the root directory of this workspace.
