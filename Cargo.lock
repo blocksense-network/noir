@@ -3097,6 +3097,7 @@ dependencies = [
  "dap",
  "dirs",
  "fm",
+ "format_trace",
  "fs2",
  "fxhash",
  "hex",
