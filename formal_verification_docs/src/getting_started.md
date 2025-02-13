@@ -75,7 +75,7 @@ nargo new my_project
 cd my_project
 ```
 
-Now, let's try running Noir FV on the following simple Noir program:
+Now, let's try running Noir FV on the following simple Noir program. Copy the following in `src/main.nr`:
 
 ```rust,ignore
 #[requires(x >= 100)]
