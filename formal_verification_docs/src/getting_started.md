@@ -9,12 +9,12 @@ First, fetch the source code from our [Noir Github fork](https://github.com/bloc
 
 ```bash
 git clone https://github.com/blocksense-network/noir.git -b formal-verification
-cd noir
 ```
 
 * Nix-powered machines with `direnv` only need to do:
 
     ```bash
+    cd noir
     direnv allow
     cargo build
     ```
@@ -22,6 +22,7 @@ cd noir
 * Nix-powered machines without `direnv` have to do the following:
 
     ```bash
+    cd noir
     nix develop
     cargo build
     export PATH=$PATH:$PWD/target/debug
@@ -30,23 +31,35 @@ cd noir
 * For other systems, you will need to have `rustup` installed. Follow those instructions:
 
     ```bash
-    git clone git@github.com:blocksense-network/Venir.git
+    git clone https://github.com/blocksense-network/Venir.git
 
     pushd Venir
-    export RUSTC_BOOTSTRAP=1;
+    export RUSTC_BOOTSTRAP=1
     cargo build
     export LD_LIBRARY_PATH="${HOME}/.rustup/toolchains/1.76.0-x86_64-unknown-linux-gnu/lib:${LD_LIBRARY_PATH}"
     export PATH=$PATH:$PWD/target/debug
-    
     popd
+
+    pushd noir
     mkdir lib
-    
-    git clone git@github.com:Aristotelis2002/verus-lib.git
-    pushd verus-lib
-    cargo build
-    cp ./target/debug/vstd.vir ../lib/
-    
     popd
+
+    git clone https://github.com/Aristotelis2002/verus-lib.git
+    
+    pushd verus-lib/source/
+    pushd tools
+    ./get-z3.sh
+    export VERUS_Z3_PATH=$PWD/z3
+    popd
+    export RUSTC_BOOTSTRAP=1
+    export VERUS_IN_VARGO=1
+    export RUSTFLAGS="--cfg proc_macro_span --cfg verus_keep_ghost --cfg span_locations"
+    cargo build
+    cargo run -p vstd_build -- ./target/debug/
+    cp ./target/debug/vstd.vir ../../noir/lib/
+    popd
+
+    pushd noir
     cargo build
     export PATH=$PATH:$PWD/target/debug
     ```
