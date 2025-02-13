@@ -38,7 +38,7 @@ One implication of this is the need for additional parentheses to ensure the cor
 
 Noir FV enforces type checking within annotation expressions. While this ensures consistency, it may sometimes produce errors that seem unintuitive, especially to users familiar with other formal verification systems.
 
-In some cases, you may need to add explicit type casts to satisfy the type checker. When doing so, always prefer **upcasting** rather than **downcasting**, as downcasting can result in loss of information, leading to incorrect verification results. While downcasting may allow the type checker to accept an expression, it can introduce unintended behavior that prevents the verifier from proving correctness.
+In some cases, you may need to add explicit type casts to satisfy the type checker. When doing so, always prefer **upcasting** (from a concrete class to a more abstract one) rather than **downcasting** (from an abstract class to a concrete one), as downcasting can result in loss of information, leading to incorrect verification results. While downcasting may allow the type checker to accept an expression, it can introduce unintended behavior that prevents the verifier from proving correctness.
 
 ### Example: Why Upcasting is Necessary
 Consider the following function::
