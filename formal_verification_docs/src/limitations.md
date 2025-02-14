@@ -12,7 +12,7 @@ These limitations may change as Noir FV evolves.
 
 These examples show the errors produced when using unsupported features in Noir FV.
 
-## Non-Local Mutable References
+## Mutable Reference Parameters
 ```rust,ignore
 fn main() {
     let mut x = 5;
@@ -128,3 +128,5 @@ error: assertion failed
 
 Error: Verification failed!
 ```
+
+Although some of these examples may seem easy to support we have decided to focus on completing our prototype sooner so we can get early feedback on the features that we think matter the most.
