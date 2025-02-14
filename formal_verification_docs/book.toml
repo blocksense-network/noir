@@ -3,4 +3,4 @@ authors = ["Blocksense Network"]
 language = "en"
 multilingual = false
 src = "src"
-title = "Noir formal verification docs"
+title = "The Blocksense Noir Compiler"
