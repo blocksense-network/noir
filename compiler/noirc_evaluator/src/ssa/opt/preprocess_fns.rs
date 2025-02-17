@@ -30,10 +30,11 @@ impl Ssa {
             }
         };
         // As a heuristic to avoid optimizing functions near the entry point, find a cutoff weight.
-        let total_weight = bottom_up.iter().fold(0usize, |acc, (_, (_, w))| (acc.saturating_add(*w)));
+        let total_weight =
+            bottom_up.iter().fold(0usize, |acc, (_, (_, w))| (acc.saturating_add(*w)));
         let mean_weight = total_weight / bottom_up.len();
         let cutoff_weight = mean_weight;
-      
+
         for (id, (own_weight, transitive_weight)) in bottom_up {
             let function = &self.functions[&id];
 
@@ -55,6 +56,7 @@ impl Ssa {
             // Help unrolling determine bounds.
             function.as_slice_optimization();
             // Prepare for unrolling
+            // TODO(BSN-2273): Uncomment this, once bug is fixed.
             // function.loop_invariant_code_motion();
             // We might not be able to unroll all loops without fully inlining them, so ignore errors.
             let _ = function.unroll_loops_iteratively();
