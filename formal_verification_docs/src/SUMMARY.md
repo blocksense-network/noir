@@ -12,4 +12,5 @@
   - [Limitations](./noir_formal_verification/limitations.md)
 - [Noir PLONKY2 Backend](./noir_plonky2_backend/README.md)
   - [Getting Started](./noir_plonky2_backend/getting_started.md)
+- [Noir Tracer](./noir_tracer/README.md)
 
