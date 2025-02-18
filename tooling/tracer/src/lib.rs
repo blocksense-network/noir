@@ -1,6 +1,8 @@
 mod source_location;
+use acvm::acir::circuit::{ErrorSelector, RawAssertionPayload, ResolvedAssertionPayload};
 use acvm::pwg::OpcodeResolutionError;
 use nargo::errors::ExecutionError;
+use noirc_abi::AbiErrorType;
 use noirc_evaluator::debug_trace::DebugTraceList;
 use source_location::SourceLocation;
 
@@ -30,6 +32,7 @@ use noir_debugger::foreign_calls::DefaultDebugForeignCallExecutor;
 use noirc_artifacts::debug::DebugArtifact;
 use runtime_tracing::{Line, Tracer, TypeKind};
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::rc::Rc;
 use tracing::debug;
 
@@ -241,6 +244,7 @@ pub fn trace_circuit<B: BlackBoxFunctionSolver<FieldElement>>(
     debug_artifact: &DebugArtifact,
     initial_witness: WitnessMap<FieldElement>,
     unconstrained_functions: &[BrilligBytecode<FieldElement>],
+    error_types: &BTreeMap<ErrorSelector, AbiErrorType>,
     mut debug_trace_list: Option<DebugTraceList>,
     tracer: &mut Tracer,
 ) -> Result<(), NargoError<FieldElement>> {
@@ -267,11 +271,27 @@ pub fn trace_circuit<B: BlackBoxFunctionSolver<FieldElement>>(
                     OpcodeResolutionError::BrilligFunctionFailed {
                         function_id,
                         call_stack,
-                        payload: _,
+                        payload,
                     },
                     _,
                 )) = &err
                 {
+                    let err_str =
+                        if let Some(ResolvedAssertionPayload::Raw(RawAssertionPayload {
+                            selector,
+                            data: _,
+                        })) = payload
+                        {
+                            if let Some(AbiErrorType::String { string }) = error_types.get(selector)
+                            {
+                                string.clone()
+                            } else {
+                                err.to_string()
+                            }
+                        } else {
+                            err.to_string()
+                        };
+
                     let mut debug_locations = vec![];
                     for opcode_loc in call_stack {
                         debug_locations.push(noir_debugger::context::DebugLocation {
@@ -286,7 +306,7 @@ pub fn trace_circuit<B: BlackBoxFunctionSolver<FieldElement>>(
                     );
 
                     tracing_context.update_record(tracer, &source_locations, &mut debug_trace_list);
-                    register_error(tracer, err.to_string().as_str());
+                    register_error(tracer, err_str.as_str());
                     break;
                 } else {
                     println!("Error: {err}");
