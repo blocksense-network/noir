@@ -3335,6 +3335,7 @@ dependencies = [
  "fm",
  "nargo",
  "noir_debugger",
+ "noirc_abi",
  "noirc_artifacts",
  "noirc_evaluator",
  "noirc_printable_type",
