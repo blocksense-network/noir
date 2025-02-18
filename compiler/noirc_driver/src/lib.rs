@@ -14,7 +14,9 @@ use noirc_errors::{CustomDiagnostic, DiagnosticKind, FileDiagnostic};
 use noirc_evaluator::brillig::BrilligOptions;
 use noirc_evaluator::create_program;
 use noirc_evaluator::errors::RuntimeError;
-use noirc_evaluator::ssa::{create_plonky2_circuit, SsaLogging, SsaProgramArtifact};
+use noirc_evaluator::ssa::{
+    create_plonky2_circuit, OptimizationLevel, SsaEvaluatorOptions, SsaLogging, SsaProgramArtifact,
+};
 use noirc_frontend::debug::build_debug_crate_file;
 use noirc_frontend::hir::def_map::{Contract, CrateDefMap};
 use noirc_frontend::hir::Context;
@@ -660,9 +662,15 @@ pub fn compile_no_check(
     compile_plonky2_circuit: bool,
     create_debug_trace_list: bool,
 ) -> Result<CompiledProgram, CompileError> {
+    let compiling_for_debug = options.instrument_debug;
     let force_unconstrained = options.force_brillig;
-    let monomorph = if options.instrument_debug {
-        monomorphize_debug(main_function, &mut context.def_interner, &context.debug_instrumenter, force_unconstrained)?
+    let monomorph = if compiling_for_debug {
+        monomorphize_debug(
+            main_function,
+            &mut context.def_interner,
+            &context.debug_instrumenter,
+            force_unconstrained,
+        )?
     } else {
         monomorphize(main_function, &mut context.def_interner, force_unconstrained)?
     };
@@ -691,7 +699,7 @@ pub fn compile_no_check(
     }
 
     let return_visibility = monomorph.return_visibility;
-    let ssa_evaluator_options = noirc_evaluator::ssa::SsaEvaluatorOptions {
+    let ssa_evaluator_options = SsaEvaluatorOptions {
         ssa_logging: match &options.show_ssa_pass {
             Some(string) => SsaLogging::Contains(string.clone()),
             None => {
@@ -701,6 +709,11 @@ pub fn compile_no_check(
                     SsaLogging::None
                 }
             }
+        },
+        optimization_level: if compiling_for_debug {
+            OptimizationLevel::Debug
+        } else {
+            OptimizationLevel::All
         },
         brillig_options: BrilligOptions {
             enable_debug_trace: options.show_brillig,
