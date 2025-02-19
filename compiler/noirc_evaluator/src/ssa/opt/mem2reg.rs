@@ -106,7 +106,7 @@ use crate::ssa::{
         cfg::ControlFlowGraph,
         function::Function,
         function_inserter::FunctionInserter,
-        instruction::{Instruction, InstructionId, TerminatorInstruction},
+        instruction::{FvInstruction, Instruction, InstructionId, TerminatorInstruction},
         post_order::PostOrder,
         types::Type,
         value::ValueId,
@@ -136,7 +136,55 @@ impl Function {
         context.mem2reg();
         context.remove_instructions();
         context.update_data_bus();
+        update_annotation_bodies(&mut context);
     }
+}
+
+fn update_annotation_bodies(context: &mut PerFunctionContext) {
+    // Get addresses and values of the store instructions that will be
+    // removed after mem2reg finishes.
+    let mut stores_to_be_removed: HashMap<ValueId, ValueId> = HashMap::default();
+    for instruction_id in context.instructions_to_remove.iter() {
+        if let Instruction::Store { address, value } =
+            context.inserter.function.dfg[*instruction_id]
+        {
+            stores_to_be_removed.insert(address, value);
+        }
+    }
+    // Update FV load instructions that reference an address scheduled for removal.
+    let fv_instructions = context
+        .inserter
+        .function
+        .dfg
+        .fv_instructions
+        .drain(..)
+        .map(|fv_instruction| match fv_instruction {
+            FvInstruction::Requires(instruction) => {
+                if let Instruction::Load { address } = &instruction {
+                    if let Some(&new_address) = stores_to_be_removed.get(address) {
+                        FvInstruction::Requires(Instruction::Load { address: new_address })
+                    } else {
+                        FvInstruction::Requires(instruction)
+                    }
+                } else {
+                    FvInstruction::Requires(instruction)
+                }
+            }
+            FvInstruction::Ensures(instruction) => {
+                if let Instruction::Load { address } = &instruction {
+                    if let Some(&new_address) = stores_to_be_removed.get(address) {
+                        FvInstruction::Ensures(Instruction::Load { address: new_address })
+                    } else {
+                        FvInstruction::Ensures(instruction)
+                    }
+                } else {
+                    FvInstruction::Ensures(instruction)
+                }
+            }
+        })
+        .collect();
+
+    context.inserter.function.dfg.fv_instructions = fv_instructions;
 }
 
 struct PerFunctionContext<'f> {
