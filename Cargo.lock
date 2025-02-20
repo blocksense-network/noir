@@ -83,6 +83,7 @@ dependencies = [
  "acvm",
  "bn254_blackbox_solver",
  "clap 4.5.23",
+ "clap-markdown",
  "color-eyre",
  "const_format",
  "nargo",
