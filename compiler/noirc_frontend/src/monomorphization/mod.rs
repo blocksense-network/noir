@@ -11,7 +11,6 @@
 use crate::ast::{FunctionKind, IntegerBitSize, Signedness, UnaryOp, Visibility};
 use crate::hir::comptime::InterpreterError;
 use crate::hir::type_check::NoMatchingImplFoundError;
-use crate::hir_def::expr;
 use crate::node_interner::{ExprId, ImplSearchErrorKind};
 use crate::{
     debug::DebugInstrumenter,

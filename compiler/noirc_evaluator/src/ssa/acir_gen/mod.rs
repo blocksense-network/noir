@@ -596,7 +596,7 @@ impl<'a> Context<'a> {
                 Ok(AcirValue::Var(make_var(self, *numeric_type)?, typ))
             }
             Type::Array(element_types, length) => {
-                let mut elements = im::Vector::new();
+                let mut elements = Vector::new();
 
                 for _ in 0..*length {
                     for element in element_types.iter() {
@@ -1254,7 +1254,7 @@ impl<'a> Context<'a> {
                 Ok(AcirValue::Var(new_value, AcirType::field()))
             }
             (AcirValue::Array(values), AcirValue::Array(dummy_values)) => {
-                let mut elements = im::Vector::new();
+                let mut elements = Vector::new();
 
                 assert_eq!(
                     values.len(),
@@ -1290,7 +1290,7 @@ impl<'a> Context<'a> {
                     Ok::<AcirValue, RuntimeError>(AcirValue::Var(read, AcirType::field()))
                 })?;
 
-                let mut elements = im::Vector::new();
+                let mut elements = Vector::new();
                 for (val, dummy_val) in values.iter().zip(dummy_values) {
                     elements.push_back(self.convert_array_set_store_value(val, &dummy_val)?);
                 }
@@ -2845,7 +2845,7 @@ impl<'a> Context<'a> {
                 let error = "ICE - cannot get slice length when converting slice to AcirValue";
                 let len = values.last().expect(error).borrow_var().expect(error);
                 let len = self.acir_context.constant(len).to_u128();
-                let mut element_values = im::Vector::new();
+                let mut element_values = Vector::new();
                 for _ in 0..len {
                     for element_type in elements_type.iter() {
                         let element = Self::convert_var_type_to_values(element_type, &mut vars);
@@ -2870,7 +2870,7 @@ impl<'a> Context<'a> {
     ) -> AcirValue {
         match result_type {
             Type::Array(elements, size) => {
-                let mut element_values = im::Vector::new();
+                let mut element_values = Vector::new();
                 for _ in 0..*size {
                     for element_type in elements.iter() {
                         let element = Self::convert_var_type_to_values(element_type, vars);

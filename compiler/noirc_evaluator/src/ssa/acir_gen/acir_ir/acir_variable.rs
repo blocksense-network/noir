@@ -949,7 +949,7 @@ impl<F: AcirField> AcirContext<F> {
         bits: u32,
     ) -> Result<(), RuntimeError> {
         const fn num_bits<T>() -> usize {
-            std::mem::size_of::<T>() * 8
+            size_of::<T>() * 8
         }
 
         fn bit_size_u128(a: u128) -> u32 where {

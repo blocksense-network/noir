@@ -30,6 +30,7 @@ nargo.workspace = true
 const_format.workspace = true
 bn254_blackbox_solver.workspace = true
 acir.workspace = true
+clap-markdown = { git = "https://github.com/noir-lang/clap-markdown", rev = "450d759532c88f0dba70891ceecdbc9ff8f25d2b", optional = true }
 
 # Logs
 tracing-subscriber.workspace = true
@@ -41,3 +42,6 @@ time = "^0.3.35" # stanm: this is a dependency of tracing-appender and earlier
 rand.workspace = true
 proptest = "1.2.0"
 paste = "1.0.14"
+
+[features]
+codegen-docs = ["dep:clap-markdown"]

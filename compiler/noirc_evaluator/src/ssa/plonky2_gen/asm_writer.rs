@@ -12,7 +12,6 @@ use plonky2::iop::{
     wire::Wire,
 };
 use plonky2_u32::gadgets::arithmetic_u32::{CircuitBuilderU32, U32Target};
-use tracing::Instrument;
 
 use crate::ssa::ir::dfg::CallStack;
 

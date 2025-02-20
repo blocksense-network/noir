@@ -146,7 +146,7 @@ impl Plonky2Circuit {
     fn set_array_parameter(
         &self,
         j: &mut usize,
-        input_values: &Vec<noirc_abi::input_parser::InputValue>,
+        input_values: &Vec<InputValue>,
         pw: &mut PartialWitness<P2Field>,
     ) -> Result<(), Plonky2GenError> {
         for input_value in input_values.iter() {

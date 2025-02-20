@@ -14,7 +14,7 @@ use crate::ssa::{
     ir::{
         basic_block::BasicBlockId,
         function::{Function, FunctionId, Signature},
-        instruction::{BinaryOp, FvInstruction, Instruction, InstructionId},
+        instruction::{BinaryOp, Instruction, InstructionId},
         types::{NumericType, Type},
         value::{Value, ValueId},
     },
