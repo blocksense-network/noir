@@ -68,7 +68,6 @@ color-eyre.workspace = true
 tokio = { version = "1.0", features = ["io-std", "rt"] }
 dap.workspace = true
 clap-markdown = { git = "https://github.com/noir-lang/clap-markdown", rev = "450d759532c88f0dba70891ceecdbc9ff8f25d2b", optional = true }
-proptest.workspace = true
 runtime_tracing.workspace = true
 noirc_evaluator.workspace = true
 
@@ -80,8 +79,6 @@ termion = "3.0.0"
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-appender = "0.2.3"
-time = "^0.3.35" # stanm: this is a dependency of tracing-appender and earlier
-                 # versions break the build
 clap_complete = "4.5.36"
 fs2 = "0.4.3"
 format_trace.workspace = true
