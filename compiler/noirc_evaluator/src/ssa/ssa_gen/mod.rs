@@ -846,7 +846,7 @@ impl<'a> FunctionContext<'a> {
         body: &Expression,
     ) -> Result<Values, RuntimeError> {
         let mut index_to_val_id: HashMap<&str, ValueId> = HashMap::new();
-        
+
         indexes.iter().for_each(|ident| {
             if let ast::Definition::Local(id) = ident.definition {
                 let converted_type = FunctionContext::<'a>::convert_non_tuple_type(&ident.typ);
@@ -875,7 +875,10 @@ impl<'a> FunctionContext<'a> {
         self.builder.insert_instruction(new_instruction, None);
 
         let body_values = self.codegen_expression(body)?;
-        assert!(body_values.count_leaves() == 1, "Quant body expressions result should be only one");
+        assert!(
+            body_values.count_leaves() == 1,
+            "Quant body expressions result should be only one"
+        );
 
         let quant_end_instruction = Instruction::QuantEnd {
             quant_type: *quant,
