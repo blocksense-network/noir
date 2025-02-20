@@ -69,8 +69,8 @@ The following example demonstrates how `exists` successfully finds a witness
 #[requires(is_power_of_2(arr[0]))] // Potential witness
 #[requires(!is_power_of_2(arr[1]))]
 #[requires(is_power_of_2(arr[2]))] // Potential witness
-#[ensures(exists(|i| is_power_of_2(result[i])))] // i is going to be either 0 or 2
-fn main(arr: [i32, 3]) -> [i32; 3] {
+#[ensures(exists(|i| (0 <= i) & (i < 3) ==> is_power_of_2(result[i])))] // i is going to be either 0 or 2
+fn main(arr: [i32; 3]) -> pub [i32; 3] {
     arr
 }
 ```
