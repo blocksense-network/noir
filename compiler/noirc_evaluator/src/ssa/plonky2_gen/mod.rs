@@ -223,14 +223,14 @@ impl P2Type {
     fn from_noir_numeric_type(typ: NumericType) -> Result<P2Type, Plonky2GenError> {
         Ok(match typ {
             NumericType::NativeField => P2Type::Field,
-                NumericType::Unsigned { bit_size } => {
-                    if bit_size == 1 {
-                        P2Type::Boolean
-                    } else {
-                        P2Type::Integer(bit_size, false)
-                    }
+            NumericType::Unsigned { bit_size } => {
+                if bit_size == 1 {
+                    P2Type::Boolean
+                } else {
+                    P2Type::Integer(bit_size, false)
                 }
-                NumericType::Signed { bit_size } => P2Type::Integer(bit_size, true),
+            }
+            NumericType::Signed { bit_size } => P2Type::Integer(bit_size, true),
         })
     }
 
@@ -325,7 +325,6 @@ pub(crate) struct Builder {
     translation: HashMap<ValueId, P2Value>,
     dfg: DataFlowGraph,
     function_names: BTreeMap<FunctionId, String>,
-    show_plonky2: bool,
 }
 
 impl Builder {
@@ -347,7 +346,6 @@ impl Builder {
             translation: HashMap::new(),
             dfg: DataFlowGraph::default(),
             function_names: BTreeMap::new(),
-            show_plonky2,
         }
     }
 
@@ -440,8 +438,11 @@ impl Builder {
     ) -> Result<P2Value, Plonky2GenError> {
         let (type_a, target_a) = self.get_integer(lhs)?;
         let (type_b, target_b) = self.get_integer(rhs)?;
-        if type_a != type_b && type_a != P2Type::Field && type_b != P2Type::Field &&
-           !(type_a.is_1bit_integer_or_boolean() && type_b.is_1bit_integer_or_boolean()) {
+        if type_a != type_b
+            && type_a != P2Type::Field
+            && type_b != P2Type::Field
+            && !(type_a.is_1bit_integer_or_boolean() && type_b.is_1bit_integer_or_boolean())
+        {
             let message = format!("mismatching arg types: {:?} and {:?}", type_a, type_b);
             return Err(Plonky2GenError::ICE { message });
         }
@@ -554,19 +555,6 @@ impl Builder {
         func_name == "print_unconstrained"
     }
 
-    fn get_integer_bitsize(typ: &P2Type) -> Option<usize> {
-        Some(
-            usize::try_from(match typ {
-                P2Type::Integer(bit_size, _) => *bit_size,
-                P2Type::Field => FIELD_BIT_SIZE,
-                _ => {
-                    return None;
-                }
-            })
-            .unwrap(),
-        )
-    }
-
     fn get_integer_bitsize_and_sign(typ: &P2Type) -> Option<(usize, bool)> {
         Some(match typ {
             P2Type::Integer(bit_size, signed) => (usize::try_from(*bit_size).unwrap(), *signed),
@@ -578,13 +566,14 @@ impl Builder {
     }
 
     fn add_instruction(&mut self, instruction_id: InstructionId) -> Result<(), Plonky2GenError> {
-        self.asm_writer.comment_update_call_stack(self.dfg.get_instruction_call_stack(instruction_id));
+        self.asm_writer
+            .comment_update_call_stack(self.dfg.get_instruction_call_stack(instruction_id));
         let instruction = self.dfg[instruction_id].clone();
 
         match instruction {
             Instruction::Binary(Binary { lhs, rhs, operator }) => {
                 let p2value = match operator {
-                    super::ir::instruction::BinaryOp::Mul{..} => self.multi_convert_integer_op(
+                    super::ir::instruction::BinaryOp::Mul { .. } => self.multi_convert_integer_op(
                         lhs,
                         rhs,
                         AsmWriter::mul,
@@ -640,7 +629,7 @@ impl Builder {
                         }
                     }
 
-                    super::ir::instruction::BinaryOp::Add{..} => self.multi_convert_integer_op(
+                    super::ir::instruction::BinaryOp::Add { .. } => self.multi_convert_integer_op(
                         lhs,
                         rhs,
                         AsmWriter::add,
@@ -648,7 +637,7 @@ impl Builder {
                         "Add",
                     ),
 
-                    super::ir::instruction::BinaryOp::Sub{..} => {
+                    super::ir::instruction::BinaryOp::Sub { .. } => {
                         self.convert_integer_op(lhs, rhs, AsmWriter::sub)
                     }
 
@@ -794,9 +783,7 @@ impl Builder {
                         }
                         self.get_boolean(argument)?
                     }
-                    P2Type::Boolean => {
-                        self.get_boolean(argument)?
-                    }
+                    P2Type::Boolean => self.get_boolean(argument)?,
                     _ => {
                         let feature_name = format!("Not instruction on {:?}", typ);
                         return Err(Plonky2GenError::UnsupportedFeature { name: feature_name });
@@ -1006,7 +993,10 @@ impl Builder {
                                 }
 
                                 let p2value = P2Value {
-                                    typ: P2Type::Array(Box::new(P2Type::Boolean), result.len().try_into().unwrap()),
+                                    typ: P2Type::Array(
+                                        Box::new(P2Type::Boolean),
+                                        result.len().try_into().unwrap(),
+                                    ),
                                     target: P2Target::ArrayTarget(result),
                                 };
 

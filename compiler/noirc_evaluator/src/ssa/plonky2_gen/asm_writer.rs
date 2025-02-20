@@ -1,6 +1,6 @@
 use std::{
     borrow::Borrow,
-    collections::{HashMap, VecDeque},
+    collections::VecDeque,
     fmt::Display,
     fs::File,
     io::{BufWriter, Write},
@@ -15,8 +15,6 @@ use plonky2::iop::{
     wire::Wire,
 };
 use plonky2_u32::gadgets::arithmetic_u32::{CircuitBuilderU32, U32Target};
-use serde::{Deserialize, Serialize};
-use tracing::Instrument;
 
 use crate::{
     debug_trace::{AsmListIndexRange, DebugTraceList, SourcePoint},
