@@ -898,8 +898,9 @@ fn plonky2_trace_plonky2_{test_name}() {{
     cmd.arg("--program-dir").arg(test_program_dir_path.to_str().unwrap());
     cmd.arg("trace").arg("--trace-dir").arg(temp_dir.path()).arg("--trace-plonky2");
 
+    let trace_dir_path = temp_dir.path().as_os_str().to_str().unwrap();
     let trace_file_path = temp_dir.path().join("trace.json");
-    let file_written_message = format!("Saved trace to {{:?}}", trace_file_path);
+    let file_written_message = format!("Saved trace to {{}}", trace_dir_path);
 
     cmd.assert().success().stdout(predicate::str::contains(file_written_message));
 
