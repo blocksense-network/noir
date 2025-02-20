@@ -151,26 +151,39 @@ impl<'a> FunctionContext<'a> {
                 .last()
                 .unwrap_or(self.builder.current_function.entry_block());
 
-            return_value = return_value.map(|value| {
-                let value_id = match value {
-                    value::Value::Normal(ir_value_id) => ir_value_id,
-                    value::Value::Mutable(ir_value_id, _) => ir_value_id,
-                };
-
-                let new_instruction = self.builder.current_function.dfg.make_instruction(
-                    Instruction::Load { address: value_id },
-                    Some(vec![self.builder.current_function.dfg.type_of_value(value_id)]),
-                );
-
-                self.builder.current_function.dfg[block_id].insert_instruction(new_instruction);
-                let new_value_id =
-                    self.builder.current_function.dfg.instruction_results(new_instruction)[0];
-
-                Tree::Leaf(match value {
-                    value::Value::Normal(_) => value::Value::Normal(new_value_id),
-                    value::Value::Mutable(_, typ) => value::Value::Mutable(new_value_id, typ),
+            let is_last_instruction_load = self.builder.current_function.dfg[block_id]
+                .instructions()
+                .last()
+                .filter(|last_instruction| {
+                    matches!(
+                        self.builder.current_function.dfg[**last_instruction],
+                        Instruction::Load { .. }
+                    )
                 })
-            });
+                .is_some();
+
+            if !is_last_instruction_load {
+                return_value = return_value.map(|value| {
+                    let value_id = match value {
+                        value::Value::Normal(ir_value_id) => ir_value_id,
+                        value::Value::Mutable(ir_value_id, _) => ir_value_id,
+                    };
+
+                    let new_instruction = self.builder.current_function.dfg.make_instruction(
+                        Instruction::Load { address: value_id },
+                        Some(vec![self.builder.current_function.dfg.type_of_value(value_id)]),
+                    );
+
+                    self.builder.current_function.dfg[block_id].insert_instruction(new_instruction);
+                    let new_value_id =
+                        self.builder.current_function.dfg.instruction_results(new_instruction)[0];
+
+                    Tree::Leaf(match value {
+                        value::Value::Normal(_) => value::Value::Normal(new_value_id),
+                        value::Value::Mutable(_, typ) => value::Value::Mutable(new_value_id, typ),
+                    })
+                });
+            }
         }
         self.return_value = return_value.clone();
         let results = return_value.into_value_list(self);
