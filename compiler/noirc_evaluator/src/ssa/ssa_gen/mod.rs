@@ -255,7 +255,7 @@ impl<'a> FunctionContext<'a> {
                             let value = value.replace('{', "{{").replace('}', "}}");
                             string.push_str(&value);
                         }
-                        FmtStrFragment::Interpolation(value, _span) => {
+                        FmtStrFragment::Interpolation(value, _) => {
                             string.push('{');
                             string.push_str(value);
                             string.push('}');
