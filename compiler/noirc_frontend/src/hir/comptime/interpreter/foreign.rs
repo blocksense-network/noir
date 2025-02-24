@@ -46,7 +46,7 @@ impl<'local, 'context> Interpreter<'local, 'context> {
             arguments,
             return_type,
             location,
-            self.pedantic_solving,
+            self.elaborator.pedantic_solving(),
         )
     }
 }

@@ -26,8 +26,7 @@ impl Clone for Plonky2Circuit {
 }
 
 impl std::hash::Hash for Plonky2Circuit {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H)
-    {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.parameters.hash(state);
         self.parameter_names.hash(state);
         self.debug_trace_list.hash(state);
@@ -157,7 +156,7 @@ impl Plonky2Circuit {
     fn set_array_parameter(
         &self,
         j: &mut usize,
-        input_values: &Vec<noirc_abi::input_parser::InputValue>,
+        input_values: &Vec<InputValue>,
         pw: &mut PartialWitness<P2Field>,
     ) -> Result<(), Plonky2GenError> {
         for input_value in input_values.iter() {

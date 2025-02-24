@@ -2,7 +2,7 @@ use super::dc_mod::collect_defs;
 use super::errors::{DefCollectorErrorKind, DuplicateType};
 use crate::elaborator::Elaborator;
 use crate::graph::CrateId;
-use crate::hir::comptime::InterpreterError;
+use crate::hir::comptime::{ComptimeError, InterpreterError};
 use crate::hir::def_map::{CrateDefMap, LocalModuleId, ModuleId};
 use crate::hir::resolution::errors::ResolverError;
 use crate::hir::type_check::TypeCheckError;
@@ -14,18 +14,19 @@ use crate::{Generics, Type};
 use crate::hir::resolution::import::{resolve_import, ImportDirective};
 use crate::hir::Context;
 
-use crate::ast::Expression;
+use crate::ast::{Expression, NoirEnumeration};
 use crate::node_interner::{
-    FuncId, GlobalId, ModuleAttributes, NodeInterner, ReferenceId, StructId, TraitId, TraitImplId,
-    TypeAliasId,
+    FuncId, GlobalId, ModuleAttributes, NodeInterner, ReferenceId, TraitId, TraitImplId,
+    TypeAliasId, TypeId,
 };
 
 use crate::ast::{
-    ExpressionKind, GenericTypeArgs, Ident, ItemVisibility, LetStatement, Literal, NoirFunction,
-    NoirStruct, NoirTrait, NoirTypeAlias, Path, PathKind, PathSegment, UnresolvedGenerics,
+    ExpressionKind, Ident, ItemVisibility, LetStatement, Literal, NoirFunction, NoirStruct,
+    NoirTrait, NoirTypeAlias, Path, PathKind, PathSegment, UnresolvedGenerics,
     UnresolvedTraitConstraint, UnresolvedType, UnsupportedNumericGenericType,
 };
 
+use crate::elaborator::FrontendOptions;
 use crate::parser::{ParserError, SortedModule};
 use noirc_errors::{CustomDiagnostic, Location, Span};
 
@@ -64,6 +65,12 @@ pub struct UnresolvedStruct {
     pub struct_def: NoirStruct,
 }
 
+pub struct UnresolvedEnum {
+    pub file_id: FileId,
+    pub module_id: LocalModuleId,
+    pub enum_def: NoirEnumeration,
+}
+
 #[derive(Clone)]
 pub struct UnresolvedTrait {
     pub file_id: FileId,
@@ -77,8 +84,7 @@ pub struct UnresolvedTrait {
 pub struct UnresolvedTraitImpl {
     pub file_id: FileId,
     pub module_id: LocalModuleId,
-    pub trait_generics: GenericTypeArgs,
-    pub trait_path: Path,
+    pub r#trait: UnresolvedType,
     pub object_type: UnresolvedType,
     pub methods: UnresolvedFunctions,
     pub generics: UnresolvedGenerics,
@@ -141,7 +147,8 @@ pub struct DefCollector {
 #[derive(Default)]
 pub struct CollectedItems {
     pub functions: Vec<UnresolvedFunctions>,
-    pub(crate) types: BTreeMap<StructId, UnresolvedStruct>,
+    pub(crate) structs: BTreeMap<TypeId, UnresolvedStruct>,
+    pub(crate) enums: BTreeMap<TypeId, UnresolvedEnum>,
     pub(crate) type_aliases: BTreeMap<TypeAliasId, UnresolvedTypeAlias>,
     pub(crate) traits: BTreeMap<TraitId, UnresolvedTrait>,
     pub globals: Vec<UnresolvedGlobal>,
@@ -153,7 +160,8 @@ pub struct CollectedItems {
 impl CollectedItems {
     pub fn is_empty(&self) -> bool {
         self.functions.is_empty()
-            && self.types.is_empty()
+            && self.structs.is_empty()
+            && self.enums.is_empty()
             && self.type_aliases.is_empty()
             && self.traits.is_empty()
             && self.globals.is_empty()
@@ -169,16 +177,19 @@ impl CollectedItems {
 /// Note that because these are keyed by unresolved types, the impl map is one of the few instances
 /// of HashMap rather than BTreeMap. For this reason, we should be careful not to iterate over it
 /// since it would be non-deterministic.
-pub(crate) type ImplMap =
-    HashMap<(UnresolvedType, LocalModuleId), Vec<(UnresolvedGenerics, Span, UnresolvedFunctions)>>;
+pub(crate) type ImplMap = HashMap<
+    (UnresolvedType, LocalModuleId),
+    Vec<(UnresolvedGenerics, Location, UnresolvedFunctions)>,
+>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CompilationError {
     ParseError(ParserError),
     DefinitionError(DefCollectorErrorKind),
     ResolverError(ResolverError),
     TypeError(TypeCheckError),
     InterpreterError(InterpreterError),
+    ComptimeError(ComptimeError),
     DebugComptimeScopeNotFound(Vec<PathBuf>),
 }
 
@@ -191,6 +202,7 @@ impl std::fmt::Display for CompilationError {
             CompilationError::TypeError(error) => write!(f, "{}", error),
             CompilationError::InterpreterError(error) => write!(f, "{:?}", error),
             CompilationError::DebugComptimeScopeNotFound(error) => write!(f, "{:?}", error),
+            CompilationError::ComptimeError(error) => write!(f, "{:?}", error),
         }
     }
 }
@@ -203,6 +215,7 @@ impl<'a> From<&'a CompilationError> for CustomDiagnostic {
             CompilationError::ResolverError(error) => error.into(),
             CompilationError::TypeError(error) => error.into(),
             CompilationError::InterpreterError(error) => error.into(),
+            CompilationError::ComptimeError(error) => error.into(),
             CompilationError::DebugComptimeScopeNotFound(error) => {
                 let msg = "multiple files found matching --debug-comptime path".into();
                 let secondary = error.iter().fold(String::new(), |mut output, path| {
@@ -254,7 +267,8 @@ impl DefCollector {
             imports: vec![],
             items: CollectedItems {
                 functions: vec![],
-                types: BTreeMap::new(),
+                structs: BTreeMap::new(),
+                enums: BTreeMap::new(),
                 type_aliases: BTreeMap::new(),
                 traits: BTreeMap::new(),
                 impls: HashMap::default(),
@@ -274,8 +288,7 @@ impl DefCollector {
         context: &mut Context,
         ast: SortedModule,
         root_file_id: FileId,
-        debug_comptime_in_file: Option<&str>,
-        pedantic_solving: bool,
+        options: FrontendOptions,
     ) -> Vec<(CompilationError, FileId)> {
         let mut errors: Vec<(CompilationError, FileId)> = vec![];
         let crate_id = def_map.krate;
@@ -288,12 +301,7 @@ impl DefCollector {
         let crate_graph = &context.crate_graph[crate_id];
 
         for dep in crate_graph.dependencies.clone() {
-            errors.extend(CrateDefMap::collect_defs(
-                dep.crate_id,
-                context,
-                debug_comptime_in_file,
-                pedantic_solving,
-            ));
+            errors.extend(CrateDefMap::collect_defs(dep.crate_id, context, options));
 
             let dep_def_map =
                 context.def_map(&dep.crate_id).expect("ice: def map was just created");
@@ -350,15 +358,13 @@ impl DefCollector {
         for collected_import in std::mem::take(&mut def_collector.imports) {
             let local_module_id = collected_import.module_id;
             let module_id = ModuleId { krate: crate_id, local_id: local_module_id };
-            let current_def_map = context.def_maps.get(&crate_id).unwrap();
-            let file_id = current_def_map.file_id(local_module_id);
 
             let resolved_import = resolve_import(
                 collected_import.path.clone(),
                 module_id,
                 &context.def_maps,
                 &mut context.usage_tracker,
-                Some(ReferencesTracker::new(&mut context.def_interner, file_id)),
+                Some(ReferencesTracker::new(&mut context.def_interner)),
             );
 
             match resolved_import {
@@ -412,12 +418,21 @@ impl DefCollector {
                                 visibility,
                             );
 
-                            if visibility != ItemVisibility::Private {
+                            if context.def_interner.is_in_lsp_mode()
+                                && visibility != ItemVisibility::Private
+                            {
                                 context.def_interner.register_name_for_auto_import(
                                     name.to_string(),
                                     module_def_id,
                                     visibility,
                                     Some(defining_module),
+                                );
+
+                                context.def_interner.add_reexport(
+                                    module_def_id,
+                                    defining_module,
+                                    name.clone(),
+                                    visibility,
                                 );
                             }
                         }
@@ -450,21 +465,22 @@ impl DefCollector {
             }
         }
 
-        let debug_comptime_in_file = debug_comptime_in_file.and_then(|debug_comptime_in_file| {
-            let file = context.file_manager.find_by_path_suffix(debug_comptime_in_file);
+        let debug_comptime_in_file = options.debug_comptime_in_file.and_then(|file_suffix| {
+            let file = context.file_manager.find_by_path_suffix(file_suffix);
             file.unwrap_or_else(|error| {
                 errors.push((CompilationError::DebugComptimeScopeNotFound(error), root_file_id));
                 None
             })
         });
 
-        let mut more_errors = Elaborator::elaborate(
-            context,
-            crate_id,
-            def_collector.items,
+        let cli_options = crate::elaborator::ElaboratorOptions {
             debug_comptime_in_file,
-            pedantic_solving,
-        );
+            pedantic_solving: options.pedantic_solving,
+            enabled_unstable_features: options.enabled_unstable_features,
+        };
+
+        let mut more_errors =
+            Elaborator::elaborate(context, crate_id, def_collector.items, cli_options);
 
         errors.append(&mut more_errors);
 
@@ -481,15 +497,15 @@ impl DefCollector {
         let unused_imports = context.usage_tracker.unused_items().iter();
         let unused_imports = unused_imports.filter(|(module_id, _)| module_id.krate == crate_id);
 
-        errors.extend(unused_imports.flat_map(|(module_id, usage_tracker)| {
-            let module = &context.def_maps[&crate_id].modules()[module_id.local_id.0];
+        errors.extend(unused_imports.flat_map(|(_, usage_tracker)| {
             usage_tracker.iter().map(|(ident, unused_item)| {
                 let ident = ident.clone();
+                let file = ident.location().file;
                 let error = CompilationError::ResolverError(ResolverError::UnusedItem {
                     ident,
                     item: *unused_item,
                 });
-                (error, module.location.file)
+                (error, file)
             })
         }));
     }
@@ -522,7 +538,7 @@ fn inject_prelude(
             .map(|segment| {
                 crate::ast::PathSegment::from(crate::ast::Ident::new(
                     segment.into(),
-                    Span::default(),
+                    Location::dummy(),
                 ))
             })
             .collect();
@@ -530,7 +546,7 @@ fn inject_prelude(
         let path = Path {
             segments: segments.clone(),
             kind: crate::ast::PathKind::Plain,
-            span: Span::default(),
+            location: Location::dummy(),
         };
 
         if let Ok(resolved_import) = resolve_import(
@@ -549,14 +565,14 @@ fn inject_prelude(
 
             for path in prelude {
                 let mut segments = segments.clone();
-                segments.push(PathSegment::from(Ident::new(path.to_string(), Span::default())));
+                segments.push(PathSegment::from(Ident::new(path.to_string(), Location::dummy())));
 
                 collected_imports.insert(
                     0,
                     ImportDirective {
                         visibility: ItemVisibility::Private,
                         module_id: crate_root,
-                        path: Path { segments, kind: PathKind::Plain, span: Span::default() },
+                        path: Path { segments, kind: PathKind::Plain, location: Location::dummy() },
                         alias: None,
                         is_prelude: true,
                     },

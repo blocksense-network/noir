@@ -11,10 +11,14 @@ use fm::{FileId, FileManager};
 use iter_extended::vecmap;
 use noirc_abi::{AbiParameter, AbiType, AbiValue};
 use noirc_errors::{CustomDiagnostic, DiagnosticKind, FileDiagnostic};
+use noirc_evaluator::brillig::BrilligOptions;
 use noirc_evaluator::create_program;
 use noirc_evaluator::errors::RuntimeError;
-use noirc_evaluator::ssa::{create_plonky2_circuit, SsaLogging, SsaProgramArtifact};
+use noirc_evaluator::ssa::{
+    create_plonky2_circuit, OptimizationLevel, SsaEvaluatorOptions, SsaLogging, SsaProgramArtifact,
+};
 use noirc_frontend::debug::build_debug_crate_file;
+use noirc_frontend::elaborator::{FrontendOptions, UnstableFeature};
 use noirc_frontend::hir::def_map::{Contract, CrateDefMap};
 use noirc_frontend::hir::Context;
 use noirc_frontend::monomorphization::{
@@ -73,7 +77,11 @@ pub struct CompileOptions {
     /// Only show SSA passes whose name contains the provided string.
     /// This setting takes precedence over `show_ssa` if it's not empty.
     #[arg(long, hide = true)]
-    pub show_ssa_pass_name: Option<String>,
+    pub show_ssa_pass: Option<String>,
+
+    /// Only show the SSA and ACIR for the contract function with a given name.
+    #[arg(long, hide = true)]
+    pub show_contract_fn: Option<String>,
 
     /// Emit the unoptimized SSA IR to file.
     /// The IR will be dumped into the workspace target directory,
@@ -110,10 +118,6 @@ pub struct CompileOptions {
     #[arg(long, conflicts_with = "deny_warnings")]
     pub silence_warnings: bool,
 
-    /// Disables the builtin Aztec macros being used in the compiler
-    #[arg(long, hide = true)]
-    pub disable_macros: bool,
-
     /// Outputs the monomorphized IR to stdout for debugging
     #[arg(long, hide = true)]
     pub show_monomorphized: bool,
@@ -141,11 +145,25 @@ pub struct CompileOptions {
     #[arg(long)]
     pub skip_underconstrained_check: bool,
 
-    /// Flag to turn off the compiler check for missing Brillig call constrains.
-    /// Warning: This can improve compilation speed but can also lead to correctness errors.
+    /// Flag to turn on the compiler check for missing Brillig call constraints.
+    /// Warning: This can degrade compilation speed but will also find some correctness errors.
     /// This check should always be run on production code.
     #[arg(long)]
+    pub enable_brillig_constraints_check: bool,
+
+    /// Flag to turn on extra Brillig bytecode to be generated to guard against invalid states in testing.
+    #[arg(long, hide = true)]
+    pub enable_brillig_debug_assertions: bool,
+
+    /// Hidden Brillig call check flag to maintain CI compatibility (currently ignored)
+    #[arg(long, hide = true)]
     pub skip_brillig_constraints_check: bool,
+
+    /// Flag to turn on the lookback feature of the Brillig call constraints
+    /// check, allowing tracking argument values before the call happens preventing
+    /// certain rare false positives (leads to a slowdown on large rollout functions)
+    #[arg(long)]
+    pub enable_brillig_constraints_check_lookback: bool,
 
     /// Setting to decide on an inlining strategy for Brillig functions.
     /// A more aggressive inliner should generate larger programs but more optimized
@@ -170,6 +188,11 @@ pub struct CompileOptions {
     /// Used internally to test for non-determinism in the compiler.
     #[clap(long, hide = true)]
     pub check_non_determinism: bool,
+
+    /// Unstable features to enable for this current build
+    #[arg(value_parser = clap::value_parser!(UnstableFeature))]
+    #[clap(long, short = 'Z', value_delimiter = ',')]
+    pub unstable_features: Vec<UnstableFeature>,
 }
 
 pub fn parse_expression_width(input: &str) -> Result<ExpressionWidth, std::io::Error> {
@@ -185,6 +208,16 @@ pub fn parse_expression_width(input: &str) -> Result<ExpressionWidth, std::io::E
             ErrorKind::InvalidInput,
             format!("has to be 0 or at least {MIN_EXPRESSION_WIDTH}"),
         )),
+    }
+}
+
+impl CompileOptions {
+    pub fn frontend_options(&self) -> FrontendOptions {
+        FrontendOptions {
+            debug_comptime_in_file: self.debug_comptime_in_file.as_deref(),
+            pedantic_solving: self.pedantic_solving,
+            enabled_unstable_features: &self.unstable_features,
+        }
     }
 }
 
@@ -327,12 +360,7 @@ pub fn check_crate(
     crate_id: CrateId,
     options: &CompileOptions,
 ) -> CompilationResult<()> {
-    let diagnostics = CrateDefMap::collect_defs(
-        crate_id,
-        context,
-        options.debug_comptime_in_file.as_deref(),
-        options.pedantic_solving,
-    );
+    let diagnostics = CrateDefMap::collect_defs(crate_id, context, options.frontend_options());
     let crate_files = context.crate_files(&crate_id);
     let warnings_and_errors: Vec<FileDiagnostic> = diagnostics
         .into_iter()
@@ -461,6 +489,11 @@ pub fn compile_contract(
 
         if options.print_acir {
             for contract_function in &compiled_contract.functions {
+                if let Some(ref name) = options.show_contract_fn {
+                    if name != &contract_function.name {
+                        continue;
+                    }
+                }
                 println!(
                     "Compiled ACIR for {}::{} (unoptimized):",
                     compiled_contract.name, contract_function.name
@@ -505,14 +538,23 @@ fn compile_contract_inner(
             continue;
         }
 
+        let mut options = options.clone();
+
+        if let Some(ref name_filter) = options.show_contract_fn {
+            let show = name == *name_filter;
+            options.show_ssa &= show;
+            options.show_ssa_pass = options.show_ssa_pass.filter(|_| show);
+        };
+
         let function =
-            match compile_no_check(context, options, function_id, None, true, false, false) {
+            match compile_no_check(context, &options, function_id, None, true, false, false) {
                 Ok(function) => function,
                 Err(new_error) => {
                     errors.push(FileDiagnostic::from(new_error));
                     continue;
                 }
             };
+
         warnings.extend(function.warnings);
         let modifiers = context.def_interner.function_modifiers(&function_id);
 
@@ -552,11 +594,12 @@ fn compile_contract_inner(
                 let structs = structs
                     .into_iter()
                     .map(|struct_id| {
-                        let typ = context.def_interner.get_struct(struct_id);
+                        let typ = context.def_interner.get_type(struct_id);
                         let typ = typ.borrow();
-                        let fields = vecmap(typ.get_fields(&[]), |(name, typ)| {
-                            (name, abi_type_from_hir_type(context, &typ))
-                        });
+                        let fields =
+                            vecmap(typ.get_fields(&[]).unwrap_or_default(), |(name, typ)| {
+                                (name, abi_type_from_hir_type(context, &typ))
+                            });
                         let path =
                             context.fully_qualified_struct_path(context.root_crate_id(), typ.id);
                         AbiType::Struct { path, fields }
@@ -626,9 +669,15 @@ pub fn compile_no_check(
     compile_plonky2_circuit: bool,
     create_debug_trace_list: bool,
 ) -> Result<CompiledProgram, CompileError> {
+    let compiling_for_debug = options.instrument_debug;
     let force_unconstrained = options.force_brillig;
-    let monomorph = if options.instrument_debug {
-        monomorphize_debug(main_function, &mut context.def_interner, &context.debug_instrumenter, force_unconstrained)?
+    let monomorph = if compiling_for_debug {
+        monomorphize_debug(
+            main_function,
+            &mut context.def_interner,
+            &context.debug_instrumenter,
+            force_unconstrained,
+        )?
     } else {
         monomorphize(main_function, &mut context.def_interner, force_unconstrained)?
     };
@@ -657,8 +706,8 @@ pub fn compile_no_check(
     }
 
     let return_visibility = monomorph.return_visibility;
-    let ssa_evaluator_options = noirc_evaluator::ssa::SsaEvaluatorOptions {
-        ssa_logging: match &options.show_ssa_pass_name {
+    let ssa_evaluator_options = SsaEvaluatorOptions {
+        ssa_logging: match &options.show_ssa_pass {
             Some(string) => SsaLogging::Contains(string.clone()),
             None => {
                 if options.show_ssa {
@@ -668,7 +717,15 @@ pub fn compile_no_check(
                 }
             }
         },
-        enable_brillig_logging: options.show_brillig,
+        optimization_level: if compiling_for_debug {
+            OptimizationLevel::Debug
+        } else {
+            OptimizationLevel::All
+        },
+        brillig_options: BrilligOptions {
+            enable_debug_trace: options.show_brillig,
+            enable_debug_assertions: options.enable_brillig_debug_assertions,
+        },
         print_codegen_timings: options.benchmark_codegen,
         expression_width: if options.bounded_codegen {
             options.expression_width.unwrap_or(DEFAULT_EXPRESSION_WIDTH)
@@ -679,7 +736,9 @@ pub fn compile_no_check(
         show_plonky2: options.show_plonky2,
         plonky2_print_file: options.plonky2_print_file.clone(),
         skip_underconstrained_check: options.skip_underconstrained_check,
-        skip_brillig_constraints_check: options.skip_brillig_constraints_check,
+        enable_brillig_constraints_check_lookback: options
+            .enable_brillig_constraints_check_lookback,
+        enable_brillig_constraints_check: options.enable_brillig_constraints_check,
         inliner_aggressiveness: options.inliner_aggressiveness,
         max_bytecode_increase_percent: options.max_bytecode_increase_percent,
     };

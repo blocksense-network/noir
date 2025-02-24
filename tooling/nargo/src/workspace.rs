@@ -20,6 +20,8 @@ use crate::{
 #[derive(Clone)]
 pub struct Workspace {
     pub root_dir: PathBuf,
+    /// Optional target directory override.
+    pub target_dir: Option<PathBuf>,
     pub members: Vec<Package>,
     // If `Some()`, the `selected_package_index` is used to select the only `Package` when iterating a Workspace
     pub selected_package_index: Option<usize>,
@@ -33,21 +35,21 @@ impl Workspace {
         self.target_directory_path().join(name).with_extension("json")
     }
 
-    pub fn contracts_directory_path(&self, package: &Package) -> PathBuf {
-        let name: String = package.name.clone().into();
-        self.root_dir.join(CONTRACT_DIR).join(name)
-    }
-
-    pub fn proofs_directory_path(&self) -> PathBuf {
-        self.root_dir.join(PROOFS_DIR)
-    }
-
     pub fn target_directory_path(&self) -> PathBuf {
-        self.root_dir.join(TARGET_DIR)
+        self.target_dir.as_ref().cloned().unwrap_or_else(|| self.root_dir.join(TARGET_DIR))
     }
 
     pub fn export_directory_path(&self) -> PathBuf {
         self.root_dir.join(EXPORT_DIR)
+    }
+
+    pub fn contracts_directory_path(&self, package: &Package) -> PathBuf {
+        let name: String = package.name.clone().into();
+        self.root_dir.join(CONTRACT_DIR).join(name)
+    }
+    
+    pub fn proofs_directory_path(&self) -> PathBuf {
+        self.root_dir.join(PROOFS_DIR)
     }
 
     /// Returns a new `FileManager` for the root directory of this workspace.

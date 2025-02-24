@@ -56,3 +56,7 @@ tooling/noir_js/lib
 .direnv
 result
 .env
+codegen
+
+**/cspell.json
+!./cspell.json

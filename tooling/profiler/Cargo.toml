@@ -1,6 +1,6 @@
 [package]
 name = "noir_profiler"
-description = "Profiler for noir circuits"
+description = "Profiler for Noir circuits"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -35,6 +35,7 @@ nargo.workspace = true
 noirc_errors.workspace = true
 noirc_abi.workspace = true
 noirc_evaluator.workspace = true
+thiserror.workspace = true
 
 cfg-if.workspace = true
 

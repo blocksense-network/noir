@@ -28,6 +28,8 @@ fn main() {
 
     // Rebuild if the tests have changed
     println!("cargo:rerun-if-changed=tests");
+    // TODO: Running the tests changes the timestamps on test_programs files (file lock?).
+    // That has the knock-on effect of then needing to rebuild the tests after running the tests.
     println!("cargo:rerun-if-changed={}", test_dir.as_os_str().to_str().unwrap());
 
     generate_execution_success_tests(&mut test_file, &test_dir);
@@ -77,11 +79,14 @@ const INLINER_MIN_OVERRIDES: [(&str, i64); 1] = [
 
 /// Some tests are expected to have warnings
 /// These should be fixed and removed from this list.
-const TESTS_WITH_EXPECTED_WARNINGS: [&str; 2] = [
+const TESTS_WITH_EXPECTED_WARNINGS: [&str; 4] = [
     // TODO(https://github.com/noir-lang/noir/issues/6238): remove from list once issue is closed
     "brillig_cast",
     // TODO(https://github.com/noir-lang/noir/issues/6238): remove from list once issue is closed
     "macros_in_comptime",
+    // We issue a "experimental feature" warning for all enums until they're stabilized
+    "enums",
+    "comptime_enums",
 ];
 
 /// Discovers all test directories for the given `test_sub_dir` (if it exists) and returns an
@@ -202,6 +207,11 @@ fn test_{test_name}(force_brillig: ForceBrillig, inliner_aggressiveness: Inliner
     nargo.arg("--inliner-aggressiveness").arg(inliner_aggressiveness.0.to_string());
     // Check whether the test case is non-deterministic
     nargo.arg("--check-non-determinism");
+    // Allow more bytecode in exchange to catch illegal states.
+    nargo.arg("--enable-brillig-debug-assertions");
+
+    // Enable enums as an unstable feature
+    nargo.arg("-Zenums");
 
     if force_brillig.0 {{
         nargo.arg("--force-brillig");
@@ -367,7 +377,7 @@ fn generate_compile_success_empty_tests(test_file: &mut File, test_data_dir: &Pa
 
         assert_zero_opcodes += r#"
         // `compile_success_empty` tests should be able to compile down to an empty circuit.
-        let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|e| {{
+        let json: Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|e| {{
             panic!("JSON was not well-formatted {:?}\n\n{:?}", e, std::str::from_utf8(&output.stdout))
         }});
         let num_opcodes = &json["programs"][0]["functions"][0]["opcodes"];
@@ -440,6 +450,7 @@ fn generate_compile_success_no_bug_tests(test_file: &mut File, test_data_dir: &P
             &test_dir,
             "compile",
             r#"
+                nargo.arg("--enable-brillig-constraints-check");
                 nargo.assert().success().stderr(predicate::str::contains("bug:").not());
             "#,
             &MatrixConfig::default(),
@@ -469,6 +480,7 @@ fn generate_compile_success_with_bug_tests(test_file: &mut File, test_data_dir: 
             &test_dir,
             "compile",
             r#"
+                nargo.arg("--enable-brillig-constraints-check");
                 nargo.assert().success().stderr(predicate::str::contains("bug:"));
             "#,
             &MatrixConfig::default(),
@@ -808,8 +820,9 @@ fn plonky2_trace_{test_name}() {{
     cmd.arg("--program-dir").arg(test_program_dir_path.to_str().unwrap());
     cmd.arg("trace").arg("--trace-dir").arg(temp_dir.path());
 
+    let trace_dir_path = temp_dir.path().as_os_str().to_str().unwrap();
     let trace_file_path = temp_dir.path().join("trace.json");
-    let file_written_message = format!("Saved trace to {{:?}}", trace_file_path);
+    let file_written_message = format!("Saved trace to {{}}", trace_dir_path);
 
     cmd.assert().success().stdout(predicate::str::contains(file_written_message));
 
@@ -890,8 +903,9 @@ fn plonky2_trace_plonky2_{test_name}() {{
     cmd.arg("--program-dir").arg(test_program_dir_path.to_str().unwrap());
     cmd.arg("trace").arg("--trace-dir").arg(temp_dir.path()).arg("--trace-plonky2");
 
+    let trace_dir_path = temp_dir.path().as_os_str().to_str().unwrap();
     let trace_file_path = temp_dir.path().join("trace.json");
-    let file_written_message = format!("Saved trace to {{:?}}", trace_file_path);
+    let file_written_message = format!("Saved trace to {{}}", trace_dir_path);
 
     cmd.assert().success().stdout(predicate::str::contains(file_written_message));
 
@@ -981,7 +995,7 @@ fn plonky2_show_plonky2_regression_{test_name}() {{
     cmd_diff.arg(plonky2_generated_output.clone());
     cmd_diff.assert().success();
 
-    std::fs::remove_file(plonky2_generated_output).unwrap();
+    fs::remove_file(plonky2_generated_output).unwrap();
 }}
             "#,
             test_dir = test_dir.display(),

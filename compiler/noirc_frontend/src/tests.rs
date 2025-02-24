@@ -17,6 +17,7 @@ mod visibility;
 // A test harness will allow for more expressive and readable tests
 use std::collections::BTreeMap;
 
+use crate::elaborator::{FrontendOptions, UnstableFeature};
 use fm::FileId;
 
 use iter_extended::vecmap;
@@ -60,15 +61,28 @@ pub(crate) fn remove_experimental_warnings(errors: &mut Vec<(CompilationError, F
 }
 
 pub(crate) fn get_program(src: &str) -> (ParsedModule, Context, Vec<(CompilationError, FileId)>) {
-    get_program_with_maybe_parser_errors(
-        src, false, // allow parser errors
-    )
+    let allow_parser_errors = false;
+    get_program_with_maybe_parser_errors(src, allow_parser_errors, FrontendOptions::test_default())
 }
 
+pub(crate) fn get_program_using_features(
+    src: &str,
+    features: &[UnstableFeature],
+) -> (ParsedModule, Context<'static, 'static>, Vec<(CompilationError, FileId)>) {
+    let allow_parser_errors = false;
+    let mut options = FrontendOptions::test_default();
+    options.enabled_unstable_features = features;
+    get_program_with_maybe_parser_errors(src, allow_parser_errors, options)
+}
+
+/// Compile a program.
+///
+/// The stdlib is not available for these snippets.
 pub(crate) fn get_program_with_maybe_parser_errors(
     src: &str,
     allow_parser_errors: bool,
-) -> (ParsedModule, Context, Vec<(CompilationError, FileId)>) {
+    options: FrontendOptions,
+) -> (ParsedModule, Context<'static, 'static>, Vec<(CompilationError, FileId)>) {
     let root = std::path::Path::new("/");
     let fm = FileManager::new(root);
 
@@ -77,7 +91,7 @@ pub(crate) fn get_program_with_maybe_parser_errors(
     let root_file_id = FileId::dummy();
     let root_crate_id = context.crate_graph.add_crate_root(root_file_id);
 
-    let (program, parser_errors) = parse_program(src);
+    let (program, parser_errors) = parse_program(src, root_file_id);
     let mut errors = vecmap(parser_errors, |e| (e.into(), root_file_id));
     remove_experimental_warnings(&mut errors);
 
@@ -113,17 +127,13 @@ pub(crate) fn get_program_with_maybe_parser_errors(
             extern_prelude: BTreeMap::new(),
         };
 
-        let debug_comptime_in_file = None;
-        let pedantic_solving = true;
-
         // Now we want to populate the CrateDefMap using the DefCollector
         errors.extend(DefCollector::collect_crate_and_dependencies(
             def_map,
             &mut context,
             program.clone().into_sorted(),
             root_file_id,
-            debug_comptime_in_file,
-            pedantic_solving,
+            options,
         ));
     }
     (program, context, errors)
@@ -897,9 +907,10 @@ fn find_lambda_captures(stmts: &[StmtId], interner: &NodeInterner, result: &mut 
             HirStatement::Expression(expr_id) => expr_id,
             HirStatement::Let(let_stmt) => let_stmt.expression,
             HirStatement::Assign(assign_stmt) => assign_stmt.expression,
-            HirStatement::Constrain(constr_stmt) => constr_stmt.0,
             HirStatement::Semi(semi_expr) => semi_expr,
             HirStatement::For(for_loop) => for_loop.block,
+            HirStatement::Loop(block) => block,
+            HirStatement::While(_, block) => block,
             HirStatement::Error => panic!("Invalid HirStatement!"),
             HirStatement::Break => panic!("Unexpected break"),
             HirStatement::Continue => panic!("Unexpected continue"),
@@ -2814,12 +2825,13 @@ fn duplicate_struct_field() {
     let errors = get_program_errors(src);
     assert_eq!(errors.len(), 1);
 
-    let CompilationError::DefinitionError(DefCollectorErrorKind::DuplicateField {
+    let CompilationError::DefinitionError(DefCollectorErrorKind::Duplicate {
+        typ: _,
         first_def,
         second_def,
     }) = &errors[0].0
     else {
-        panic!("Expected a duplicate field error, got {:?}", errors[0].0);
+        panic!("Expected a 'duplicate' error, got {:?}", errors[0].0);
     };
 
     assert_eq!(first_def.to_string(), "x");
@@ -3012,13 +3024,13 @@ fn do_not_eagerly_error_on_cast_on_type_variable() {
 #[test]
 fn error_on_cast_over_type_variable() {
     let src = r#"
-    pub fn foo<T, U>(x: T, f: fn(T) -> U) -> U {
+    pub fn foo<T, U>(f: fn(T) -> U, x: T, ) -> U {
         f(x)
     }
 
     fn main() {
         let x = "a";
-        let _: Field = foo(x, |x| x as Field);
+        let _: Field = foo(|x| x as Field, x);
     }
     "#;
 
@@ -3453,6 +3465,11 @@ fn arithmetic_generics_rounding_fail_on_struct() {
 
 #[test]
 fn unconditional_recursion_fail() {
+    // These examples are self recursive top level functions, which would actually
+    // not be inlined in the SSA (there is nothing to inline into but self), so it
+    // wouldn't panic due to infinite recursion, but the errors asserted here
+    // come from the compilation checks, which does static analysis to catch the
+    // problem before it even has a chance to cause a panic.
     let srcs = vec![
         r#"
         fn main() {
@@ -3894,10 +3911,10 @@ fn errors_on_cyclic_globals() {
 #[test]
 fn warns_on_unneeded_unsafe() {
     let src = r#"
-    fn main() { 
+    fn main() {
+        // Safety: test
         unsafe {
-            //@safety: test
-            foo() 
+            foo()
         }
     }
 
@@ -3914,12 +3931,12 @@ fn warns_on_unneeded_unsafe() {
 #[test]
 fn warns_on_nested_unsafe() {
     let src = r#"
-    fn main() { 
-        unsafe { 
-            //@safety: test
+    fn main() {
+        // Safety: test
+        unsafe {
+            // Safety: test
             unsafe {
-                //@safety: test
-                foo() 
+                foo()
             }
         }
     }
@@ -3951,4 +3968,529 @@ fn mutable_self_call() {
     }
     "#;
     assert_no_errors(src);
+}
+
+#[test]
+fn checks_visibility_of_trait_related_to_trait_impl_on_method_call() {
+    let src = r#"
+    mod moo {
+        pub struct Bar {}
+    }
+
+    trait Foo {
+        fn foo(self);
+    }
+
+    impl Foo for moo::Bar {
+        fn foo(self) {}
+    }
+
+    fn main() {
+        let bar = moo::Bar {};
+        bar.foo();
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn infers_lambda_argument_from_method_call_function_type() {
+    let src = r#"
+    struct Foo {
+        value: Field,
+    }
+
+    impl Foo {
+        fn foo(self) -> Field {
+            self.value
+        }
+    }
+
+    struct Box<T> {
+        value: T,
+    }
+
+    impl<T> Box<T> {
+        fn map<U>(self, f: fn(T) -> U) -> Box<U> {
+            Box { value: f(self.value) }
+        }
+    }
+
+    fn main() {
+        let box = Box { value: Foo { value: 1 } };
+        let _ = box.map(|foo| foo.foo());
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn infers_lambda_argument_from_call_function_type() {
+    let src = r#"
+    struct Foo {
+        value: Field,
+    }
+
+    fn call(f: fn(Foo) -> Field) -> Field {
+        f(Foo { value: 1 })
+    }
+
+    fn main() {
+        let _ = call(|foo| foo.value);
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn infers_lambda_argument_from_call_function_type_in_generic_call() {
+    let src = r#"
+    struct Foo {
+        value: Field,
+    }
+
+    fn call<T>(t: T, f: fn(T) -> Field) -> Field {
+        f(t)
+    }
+
+    fn main() {
+        let _ = call(Foo { value: 1 }, |foo| foo.value);
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn infers_lambda_argument_from_call_function_type_as_alias() {
+    let src = r#"
+    struct Foo {
+        value: Field,
+    }
+
+    type MyFn = fn(Foo) -> Field;
+
+    fn call(f: MyFn) -> Field {
+        f(Foo { value: 1 })
+    }
+
+    fn main() {
+        let _ = call(|foo| foo.value);
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn infers_lambda_argument_from_function_return_type() {
+    let src = r#"
+    pub struct Foo {
+        value: Field,
+    }
+
+    pub fn func() -> fn(Foo) -> Field {
+        |foo| foo.value
+    }
+
+    fn main() {
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn infers_lambda_argument_from_function_return_type_multiple_statements() {
+    let src = r#"
+    pub struct Foo {
+        value: Field,
+    }
+
+    pub fn func() -> fn(Foo) -> Field {
+        let _ = 1;
+        |foo| foo.value
+    }
+
+    fn main() {
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn infers_lambda_argument_from_function_return_type_when_inside_if() {
+    let src = r#"
+    pub struct Foo {
+        value: Field,
+    }
+
+    pub fn func() -> fn(Foo) -> Field {
+        if true {
+            |foo| foo.value
+        } else {
+            |foo| foo.value
+        }
+    }
+
+    fn main() {
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn infers_lambda_argument_from_variable_type() {
+    let src = r#"
+    pub struct Foo {
+        value: Field,
+    }
+
+    fn main() {
+      let _: fn(Foo) -> Field = |foo| foo.value;
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn infers_lambda_argument_from_variable_alias_type() {
+    let src = r#"
+    pub struct Foo {
+        value: Field,
+    }
+
+    type FooFn = fn(Foo) -> Field;
+
+    fn main() {
+      let _: FooFn = |foo| foo.value;
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn infers_lambda_argument_from_variable_double_alias_type() {
+    let src = r#"
+    pub struct Foo {
+        value: Field,
+    }
+
+    type FooFn = fn(Foo) -> Field;
+    type FooFn2 = FooFn;
+
+    fn main() {
+      let _: FooFn2 = |foo| foo.value;
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn infers_lambda_argument_from_variable_tuple_type() {
+    let src = r#"
+    pub struct Foo {
+        value: Field,
+    }
+
+    fn main() {
+      let _: (fn(Foo) -> Field, _) = (|foo| foo.value, 1);
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn infers_lambda_argument_from_variable_tuple_type_aliased() {
+    let src = r#"
+    pub struct Foo {
+        value: Field,
+    }
+
+    type Alias = (fn(Foo) -> Field, Field);
+
+    fn main() {
+      let _: Alias = (|foo| foo.value, 1);
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn regression_7088() {
+    // A test for code that initially broke when implementing inferring
+    // lambda parameter types from the function type related to the call
+    // the lambda is in (PR #7088).
+    let src = r#"
+    struct U60Repr<let N: u32, let NumSegments: u32> {}
+
+    impl<let N: u32, let NumSegments: u32> U60Repr<N, NumSegments> {
+        fn new<let NumFieldSegments: u32>(_: [Field; N * NumFieldSegments]) -> Self {
+            U60Repr {}
+        }
+    }
+
+    fn main() {
+        let input: [Field; 6] = [0; 6];
+        let _: U60Repr<3, 6> = U60Repr::new(input);
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn error_with_duplicate_enum_variant() {
+    let src = r#"
+    enum Foo {
+        Bar(i32),
+        Bar(u8),
+    }
+
+    fn main() {}
+    "#;
+    let errors = get_program_errors(src);
+    assert_eq!(errors.len(), 2);
+    assert!(matches!(
+        &errors[0].0,
+        CompilationError::DefinitionError(DefCollectorErrorKind::Duplicate { .. })
+    ));
+    assert!(matches!(
+        &errors[1].0,
+        CompilationError::ResolverError(ResolverError::UnusedItem { .. })
+    ));
+}
+
+#[test]
+fn errors_on_empty_loop_no_break() {
+    let src = r#"
+    fn main() {
+        // Safety: test
+        unsafe {
+            foo()
+        }
+    }
+
+    unconstrained fn foo() {
+        loop {}
+    }
+    "#;
+    let errors = get_program_errors(src);
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(
+        &errors[0].0,
+        CompilationError::ResolverError(ResolverError::LoopWithoutBreak { .. })
+    ));
+}
+
+#[test]
+fn errors_on_loop_without_break() {
+    let src = r#"
+    fn main() {
+        // Safety: test
+        unsafe {
+            foo()
+        }
+    }
+
+    unconstrained fn foo() {
+        let mut x = 1;
+        loop {
+            x += 1;
+            bar(x);
+        }
+    }
+
+    fn bar(_: Field) {}
+    "#;
+    let errors = get_program_errors(src);
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(
+        &errors[0].0,
+        CompilationError::ResolverError(ResolverError::LoopWithoutBreak { .. })
+    ));
+}
+
+#[test]
+fn errors_on_loop_without_break_with_nested_loop() {
+    let src = r#"
+    fn main() {
+        // Safety: test
+        unsafe {
+            foo()
+        }
+    }
+
+    unconstrained fn foo() {
+        let mut x = 1;
+        loop {
+            x += 1;
+            bar(x);
+            loop {
+                x += 2;
+                break;
+            }
+        }
+    }
+
+    fn bar(_: Field) {}
+    "#;
+    let errors = get_program_errors(src);
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(
+        &errors[0].0,
+        CompilationError::ResolverError(ResolverError::LoopWithoutBreak { .. })
+    ));
+}
+
+#[test]
+fn call_function_alias_type() {
+    let src = r#"
+    type Alias<Env> = fn[Env](Field) -> Field;
+
+    fn main() {
+        call_fn(|x| x + 1);
+    }
+
+    fn call_fn<Env>(f: Alias<Env>) {
+        assert_eq(f(0), 1);
+    }
+    "#;
+    assert_no_errors(src);
+}
+
+#[test]
+fn errors_on_if_without_else_type_mismatch() {
+    let src = r#"
+    fn main() {
+        if true {
+            1
+        }
+    }
+    "#;
+    let errors = get_program_errors(src);
+    assert_eq!(errors.len(), 1);
+
+    let CompilationError::TypeError(TypeCheckError::Context { err, .. }) = &errors[0].0 else {
+        panic!("Expected a Context error");
+    };
+    assert!(matches!(**err, TypeCheckError::TypeMismatch { .. }));
+}
+
+#[test]
+fn does_not_stack_overflow_on_many_comments_in_a_row() {
+    let src = "//\n".repeat(10_000);
+    assert_no_errors(&src);
+}
+
+#[test]
+fn errors_if_for_body_type_is_not_unit() {
+    let src = r#"
+    fn main() {
+        for _ in 0..1 {
+            1
+        }
+    }
+    "#;
+    let errors = get_program_errors(src);
+    assert_eq!(errors.len(), 1);
+
+    let CompilationError::TypeError(TypeCheckError::TypeMismatch { .. }) = &errors[0].0 else {
+        panic!("Expected a TypeMismatch error");
+    };
+}
+
+#[test]
+fn errors_if_loop_body_type_is_not_unit() {
+    let src = r#"
+    unconstrained fn main() {
+        loop {
+            if false { break; }
+
+            1
+        }
+    }
+    "#;
+    let errors = get_program_errors(src);
+    assert_eq!(errors.len(), 1);
+
+    let CompilationError::TypeError(TypeCheckError::TypeMismatch { .. }) = &errors[0].0 else {
+        panic!("Expected a TypeMismatch error");
+    };
+}
+
+#[test]
+fn errors_if_while_body_type_is_not_unit() {
+    let src = r#"
+    unconstrained fn main() {
+        while 1 == 1 {
+            1
+        }
+    }
+    "#;
+    let errors = get_program_errors(src);
+    assert_eq!(errors.len(), 1);
+
+    let CompilationError::TypeError(TypeCheckError::TypeMismatch { .. }) = &errors[0].0 else {
+        panic!("Expected a TypeMismatch error");
+    };
+}
+
+#[test]
+fn errors_on_unspecified_unstable_enum() {
+    // Enums are experimental - this will need to be updated when they are stabilized
+    let src = r#"
+    enum Foo { Bar }
+
+    fn main() {
+        let _x = Foo::Bar;
+    }
+    "#;
+
+    let no_features = &[];
+    let errors = get_program_using_features(src, no_features).2;
+    assert_eq!(errors.len(), 1);
+
+    let CompilationError::ParseError(error) = &errors[0].0 else {
+        panic!("Expected a ParseError experimental feature error");
+    };
+
+    assert!(matches!(error.reason(), Some(ParserErrorReason::ExperimentalFeature(_))));
+}
+
+#[test]
+fn errors_on_unspecified_unstable_match() {
+    // Enums are experimental - this will need to be updated when they are stabilized
+    let src = r#"
+    fn main() {
+        match 3 {
+            _ => (),
+        }
+    }
+    "#;
+
+    let no_features = &[];
+    let errors = get_program_using_features(src, no_features).2;
+    assert_eq!(errors.len(), 1);
+
+    let CompilationError::ParseError(error) = &errors[0].0 else {
+        panic!("Expected a ParseError experimental feature error");
+    };
+
+    assert!(matches!(error.reason(), Some(ParserErrorReason::ExperimentalFeature(_))));
+}
+
+#[test]
+fn errors_on_repeated_match_variables_in_pattern() {
+    let src = r#"
+    fn main() {
+        match (1, 2) {
+            (_x, _x) => (),
+        }
+    }
+    "#;
+
+    let errors = get_program_errors(src);
+    assert_eq!(errors.len(), 1);
+
+    assert!(matches!(
+        &errors[0].0,
+        CompilationError::ResolverError(ResolverError::VariableAlreadyDefinedInPattern { .. })
+    ));
 }

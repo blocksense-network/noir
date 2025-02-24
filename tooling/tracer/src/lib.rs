@@ -1,15 +1,24 @@
 mod source_location;
+use acvm::acir::circuit::{ErrorSelector, RawAssertionPayload, ResolvedAssertionPayload};
+use acvm::pwg::OpcodeResolutionError;
+use nargo::errors::ExecutionError;
+use noirc_abi::AbiErrorType;
 use noirc_evaluator::debug_trace::DebugTraceList;
 use source_location::SourceLocation;
 
 mod stack_frame;
-use stack_frame::StackFrame;
+use stack_frame::{StackFrame, Variable};
 
 mod debugger_glue;
-use debugger_glue::{get_current_source_locations, get_stack_frames};
+use debugger_glue::{
+    get_current_source_locations, get_source_locations_for_call_stack, get_stack_frames,
+};
 
 pub mod tracer_glue;
-use tracer_glue::{register_call, register_return, register_step, register_variables};
+use tracer_glue::{
+    register_call, register_error, register_print, register_return, register_step,
+    register_variables,
+};
 
 pub mod tail_diff_vecs;
 use tail_diff_vecs::tail_diff_vecs;
@@ -21,8 +30,10 @@ use nargo::NargoError;
 use noir_debugger::context::{DebugCommandResult, DebugContext};
 use noir_debugger::foreign_calls::DefaultDebugForeignCallExecutor;
 use noirc_artifacts::debug::DebugArtifact;
-use runtime_tracing::{Line, Tracer};
-use std::path::PathBuf;
+use runtime_tracing::{Tracer, TypeKind};
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::rc::Rc;
 use tracing::debug;
 
 /// The result from step_debugger: the debugger either paused at a new location, reached the end of
@@ -45,6 +56,8 @@ pub struct TracingContext<'a, B: BlackBoxFunctionSolver<FieldElement>> {
     source_locations: Vec<SourceLocation>,
     /// The stack trace at the current moment; last call is last in the vector.
     stack_frames: Vec<StackFrame>,
+    saved_return_value: Option<Variable>,
+    print_output: Rc<RefCell<String>>,
 }
 
 impl<'a, B: BlackBoxFunctionSolver<FieldElement>> TracingContext<'a, B> {
@@ -55,8 +68,14 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> TracingContext<'a, B> {
         initial_witness: WitnessMap<FieldElement>,
         unconstrained_functions: &'a [BrilligBytecode<FieldElement>],
     ) -> Self {
-        let foreign_call_executor =
-            Box::new(DefaultDebugForeignCallExecutor::from_artifact(nargo::PrintOutput::Stdout, debug_artifact));
+        let print_output = Rc::new(RefCell::new(String::new()));
+        let foreign_call_executor = Box::new(DefaultDebugForeignCallExecutor::from_artifact(
+            nargo::PrintOutput::PrintCallback(Box::new({
+                let print_output_clone = Rc::clone(&print_output);
+                move |s| *Rc::clone(&print_output_clone).borrow_mut() = s
+            })),
+            debug_artifact,
+        ));
         let debug_context = DebugContext::new(
             blackbox_solver,
             circuits,
@@ -66,7 +85,51 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> TracingContext<'a, B> {
             unconstrained_functions,
         );
 
-        Self { debug_context, source_locations: vec![], stack_frames: vec![] }
+        Self {
+            debug_context,
+            source_locations: vec![],
+            stack_frames: vec![],
+            saved_return_value: None,
+            print_output,
+        }
+    }
+
+    fn are_src_locations_equal(
+        src_location_1: &Vec<SourceLocation>,
+        src_location_2: &Vec<SourceLocation>,
+    ) -> bool {
+        if src_location_1.len() != src_location_2.len() {
+            false
+        } else {
+            for i in 0..src_location_1.len() {
+                if src_location_1[i] != src_location_2[i] {
+                    return false;
+                }
+            }
+            true
+        }
+    }
+
+    /// Steps debugging execution until the next source location, while simultaneously checking for return values after each opcode
+    fn next_into_with_return_values_check(&mut self) -> DebugCommandResult {
+        let start_location = self.debug_context.get_current_source_location();
+        loop {
+            let result = self.debug_context.step_into_opcode();
+            if !matches!(result, DebugCommandResult::Ok) {
+                return result;
+            }
+
+            // check for return values
+            let stack_frames = get_stack_frames(&self.debug_context);
+            if let Some(frame) = stack_frames.last() {
+                Self::maybe_update_saved_return_value(frame, &mut self.saved_return_value);
+            }
+
+            let new_location = self.debug_context.get_current_source_location();
+            if new_location.is_some() && new_location != start_location {
+                return DebugCommandResult::Ok;
+            }
+        }
     }
 
     /// Steps the debugger until a new line is reached, or the debugger returns anything other than
@@ -75,7 +138,7 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> TracingContext<'a, B> {
     /// Propagates the debugger result.
     fn step_debugger(&mut self) -> DebugStepResult<NargoError<FieldElement>> {
         loop {
-            match self.debug_context.next_into() {
+            match self.next_into_with_return_values_check() {
                 DebugCommandResult::Done => return DebugStepResult::Finished,
                 DebugCommandResult::Error(error) => return DebugStepResult::Error(error),
                 DebugCommandResult::BreakpointReached(loc) => {
@@ -91,10 +154,7 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> TracingContext<'a, B> {
                 println!("Warning: no call stack");
                 continue;
             };
-
-            if self.source_locations.len() == source_locations.len()
-                && self.source_locations.last().unwrap() == source_locations.last().unwrap()
-            {
+            if Self::are_src_locations_equal(&self.source_locations, &source_locations) {
                 // Continue stepping until a new line in the same file is reached, or the current file
                 // has changed.
                 // TODO(coda-bug/r916): a function call could result in an extra step
@@ -102,6 +162,26 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> TracingContext<'a, B> {
             }
 
             return DebugStepResult::Paused(source_locations);
+        }
+    }
+
+    fn maybe_update_saved_return_value(
+        frame: &StackFrame,
+        saved_return_value: &mut Option<Variable>,
+    ) {
+        for variable in &frame.variables {
+            if variable.name == "__debug_return_expr" {
+                *saved_return_value = Some(variable.clone());
+                break;
+            }
+        }
+    }
+
+    fn maybe_report_print_events(&self, tracer: &mut Tracer) {
+        let mut s = self.print_output.borrow_mut();
+        if !(*s).is_empty() {
+            register_print(tracer, (*s).as_str());
+            *s = String::new();
         }
     }
 
@@ -117,7 +197,8 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> TracingContext<'a, B> {
             tail_diff_vecs(&self.stack_frames, &stack_frames);
 
         for _ in dropped_frames {
-            register_return(tracer);
+            register_return(tracer, &self.saved_return_value);
+            self.saved_return_value = None;
             if self.source_locations.len() > 1 {
                 // This branch is for returns not from main.
                 assert!(first_nomatch > 0, "no matching frames after return");
@@ -128,6 +209,8 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> TracingContext<'a, B> {
                     let frame = &stack_frames[first_nomatch - 1];
                     register_step(tracer, call_site_location, debug_trace_list);
                     register_variables(tracer, frame);
+                    Self::maybe_update_saved_return_value(frame, &mut self.saved_return_value);
+                    self.maybe_report_print_events(tracer);
                 }
             }
         }
@@ -142,8 +225,13 @@ impl<'a, B: BlackBoxFunctionSolver<FieldElement>> TracingContext<'a, B> {
         if index >= 0 {
             let index = index as usize;
             let location = &source_locations[index];
+            self.maybe_report_print_events(tracer);
             register_step(tracer, location, debug_trace_list);
             register_variables(tracer, &stack_frames[index]);
+            Self::maybe_update_saved_return_value(
+                &stack_frames[index],
+                &mut self.saved_return_value,
+            );
         }
 
         self.stack_frames = stack_frames;
@@ -156,6 +244,7 @@ pub fn trace_circuit<B: BlackBoxFunctionSolver<FieldElement>>(
     debug_artifact: &DebugArtifact,
     initial_witness: WitnessMap<FieldElement>,
     unconstrained_functions: &[BrilligBytecode<FieldElement>],
+    error_types: &BTreeMap<ErrorSelector, AbiErrorType>,
     mut debug_trace_list: Option<DebugTraceList>,
     tracer: &mut Tracer,
 ) -> Result<(), NargoError<FieldElement>> {
@@ -172,14 +261,56 @@ pub fn trace_circuit<B: BlackBoxFunctionSolver<FieldElement>>(
         return Ok(());
     }
 
-    let SourceLocation { filepath, line_number } = SourceLocation::create_unknown();
-    tracer.start(&PathBuf::from(filepath.to_string()), Line(line_number as i64));
+    let _ = tracer.ensure_type_id(TypeKind::None, "None");
     loop {
         let source_locations = match tracing_context.step_debugger() {
             DebugStepResult::Finished => break,
             DebugStepResult::Error(err) => {
-                println!("Error: {err}");
-                break;
+                if let NargoError::ExecutionError(ExecutionError::SolvingError(
+                    OpcodeResolutionError::BrilligFunctionFailed {
+                        function_id,
+                        call_stack,
+                        payload,
+                    },
+                    _,
+                )) = &err
+                {
+                    let err_str =
+                        if let Some(ResolvedAssertionPayload::Raw(RawAssertionPayload {
+                            selector,
+                            data: _,
+                        })) = payload
+                        {
+                            if let Some(AbiErrorType::String { string }) = error_types.get(selector)
+                            {
+                                string.clone()
+                            } else {
+                                err.to_string()
+                            }
+                        } else {
+                            err.to_string()
+                        };
+
+                    let mut debug_locations = vec![];
+                    for opcode_loc in call_stack {
+                        debug_locations.push(noir_debugger::context::DebugLocation {
+                            circuit_id: 0,
+                            opcode_location: *opcode_loc,
+                            brillig_function_id: Some(function_id.clone()),
+                        });
+                    }
+                    let source_locations = get_source_locations_for_call_stack(
+                        &tracing_context.debug_context,
+                        debug_locations,
+                    );
+
+                    tracing_context.update_record(tracer, &source_locations, &mut debug_trace_list);
+                    register_error(tracer, err_str.as_str());
+                    break;
+                } else {
+                    println!("Error: {err}");
+                    break;
+                }
             }
             DebugStepResult::Paused(source_location) => source_location,
         };

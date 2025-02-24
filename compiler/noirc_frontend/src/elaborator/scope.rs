@@ -1,4 +1,4 @@
-use noirc_errors::Spanned;
+use noirc_errors::Located;
 
 use crate::ast::{Ident, Path, ERROR_IDENT};
 use crate::hir::def_map::{LocalModuleId, ModuleId};
@@ -10,8 +10,8 @@ use crate::{
         expr::{HirCapturedVar, HirIdent},
         traits::Trait,
     },
-    node_interner::{DefinitionId, StructId, TraitId},
-    Shared, StructType,
+    node_interner::{DefinitionId, TraitId, TypeId},
+    DataType, Shared,
 };
 use crate::{Type, TypeAlias};
 
@@ -37,8 +37,8 @@ impl<'context> Elaborator<'context> {
         current_module
     }
 
-    pub(super) fn get_struct(&self, type_id: StructId) -> Shared<StructType> {
-        self.interner.get_struct(type_id)
+    pub(super) fn get_type(&self, type_id: TypeId) -> Shared<DataType> {
+        self.interner.get_type(type_id)
     }
 
     pub(super) fn get_trait_mut(&mut self, trait_id: TraitId) -> &mut Trait {
@@ -121,8 +121,11 @@ impl<'context> Elaborator<'context> {
             if let Some(definition_info) = self.interner.try_definition(unused_var.id) {
                 let name = &definition_info.name;
                 if name != ERROR_IDENT && !definition_info.is_global() {
-                    let ident = Ident(Spanned::from(unused_var.location.span, name.to_owned()));
-                    self.push_err(ResolverError::UnusedVariable { ident });
+                    let ident = Ident(Located::from(unused_var.location, name.to_owned()));
+                    self.push_err(
+                        ResolverError::UnusedVariable { ident },
+                        unused_var.location.file,
+                    );
                 }
             }
         }
@@ -138,45 +141,51 @@ impl<'context> Elaborator<'context> {
 
     /// Lookup a given trait by name/path.
     pub fn lookup_trait_or_error(&mut self, path: Path) -> Option<&mut Trait> {
-        let span = path.span();
+        let location = path.location;
         match self.resolve_path_or_error(path) {
             Ok(item) => {
                 if let PathResolutionItem::Trait(trait_id) = item {
                     Some(self.get_trait_mut(trait_id))
                 } else {
-                    self.push_err(ResolverError::Expected {
-                        expected: "trait",
-                        got: item.description(),
-                        span,
-                    });
+                    self.push_err(
+                        ResolverError::Expected {
+                            expected: "trait",
+                            got: item.description(),
+                            span: location.span,
+                        },
+                        location.file,
+                    );
                     None
                 }
             }
             Err(err) => {
-                self.push_err(err);
+                self.push_err(err, location.file);
                 None
             }
         }
     }
 
     /// Lookup a given struct type by name.
-    pub fn lookup_struct_or_error(&mut self, path: Path) -> Option<Shared<StructType>> {
-        let span = path.span();
+    pub fn lookup_datatype_or_error(&mut self, path: Path) -> Option<Shared<DataType>> {
+        let location = path.location;
         match self.resolve_path_or_error(path) {
             Ok(item) => {
-                if let PathResolutionItem::Struct(struct_id) = item {
-                    Some(self.get_struct(struct_id))
+                if let PathResolutionItem::Type(struct_id) = item {
+                    Some(self.get_type(struct_id))
                 } else {
-                    self.push_err(ResolverError::Expected {
-                        expected: "type",
-                        got: item.description(),
-                        span,
-                    });
+                    self.push_err(
+                        ResolverError::Expected {
+                            expected: "type",
+                            got: item.description(),
+                            span: location.span,
+                        },
+                        location.file,
+                    );
                     None
                 }
             }
             Err(err) => {
-                self.push_err(err);
+                self.push_err(err, location.file);
                 None
             }
         }
@@ -192,12 +201,12 @@ impl<'context> Elaborator<'context> {
             }
         }
 
-        let span = path.span;
+        let location = path.location;
         match self.resolve_path_or_error(path) {
-            Ok(PathResolutionItem::Struct(struct_id)) => {
-                let struct_type = self.get_struct(struct_id);
+            Ok(PathResolutionItem::Type(struct_id)) => {
+                let struct_type = self.get_type(struct_id);
                 let generics = struct_type.borrow().instantiate(self.interner);
-                Some(Type::Struct(struct_type, generics))
+                Some(Type::DataType(struct_type, generics))
             }
             Ok(PathResolutionItem::TypeAlias(alias_id)) => {
                 let alias = self.interner.get_type_alias(alias_id);
@@ -205,15 +214,18 @@ impl<'context> Elaborator<'context> {
                 Some(alias.instantiate(self.interner))
             }
             Ok(other) => {
-                self.push_err(ResolverError::Expected {
-                    expected: "type",
-                    got: other.description(),
-                    span,
-                });
+                self.push_err(
+                    ResolverError::Expected {
+                        expected: "type",
+                        got: other.description(),
+                        span: location.span,
+                    },
+                    location.file,
+                );
                 None
             }
             Err(error) => {
-                self.push_err(error);
+                self.push_err(error, location.file);
                 None
             }
         }

@@ -1,4 +1,5 @@
 use std::io::{self, Write};
+use std::path::PathBuf;
 
 use acir::circuit::Program;
 use acir::native_types::{WitnessMap, WitnessStack};
@@ -13,11 +14,12 @@ cfg_if::cfg_if! {
 use clap::Args;
 use nargo::PrintOutput;
 
-use crate::cli::fs::inputs::{read_bytecode_from_file, read_inputs_from_file};
-use crate::errors::CliError;
 use nargo::{foreign_calls::DefaultForeignCallBuilder, ops::execute_program};
+use noir_artifact_cli::errors::CliError;
+use noir_artifact_cli::fs::artifact::read_bytecode_from_file;
+use noir_artifact_cli::fs::witness::save_witness_to_dir;
 
-use super::fs::witness::{create_output_witness_string, save_witness_to_dir};
+use crate::fs::witness::{create_output_witness_string, read_witness_from_file};
 
 /// Executes a circuit to calculate its return value
 #[derive(Debug, Clone, Args)]
@@ -36,7 +38,7 @@ pub(crate) struct ExecuteCommand {
 
     /// The working directory
     #[clap(long, short)]
-    working_directory: String,
+    working_directory: PathBuf,
 
     /// Set to print output witness to stdout
     #[clap(long, short, action)]
@@ -51,9 +53,9 @@ pub(crate) struct ExecuteCommand {
 
 fn run_command(args: ExecuteCommand) -> Result<String, CliError> {
     let bytecode = read_bytecode_from_file(&args.working_directory, &args.bytecode)?;
-    let circuit_inputs = read_inputs_from_file(&args.working_directory, &args.input_witness)?;
+    let input_witness = read_witness_from_file(&args.working_directory.join(&args.input_witness))?;
     let output_witness =
-        execute_program_from_witness(circuit_inputs, &bytecode, args.pedantic_solving)?;
+        execute_program_from_witness(input_witness, &bytecode, args.pedantic_solving)?;
     assert_eq!(output_witness.length(), 1, "ACVM CLI only supports a witness stack of size 1");
     let output_witness_string = create_output_witness_string(
         &output_witness.peek().expect("Should have a witness stack item").witness,
@@ -82,14 +84,18 @@ pub(crate) fn execute_program_from_witness(
     bytecode: &[u8],
     pedantic_solving: bool,
 ) -> Result<WitnessStack<FieldElement>, CliError> {
-    let program: Program<FieldElement> = Program::deserialize_program(bytecode)
-        .map_err(|_| CliError::CircuitDeserializationError())?;
+    let program: Program<FieldElement> =
+        Program::deserialize_program(bytecode).map_err(CliError::CircuitDeserializationError)?;
     execute_program(
         &program,
         inputs_map,
         &Bn254BlackBoxSolver(pedantic_solving),
-        &mut DefaultForeignCallBuilder { output: PrintOutput::Stdout, ..Default::default() }
-            .build(),
+        &mut DefaultForeignCallBuilder {
+            output: PrintOutput::Stdout,
+            enable_mocks: false,
+            ..Default::default()
+        }
+        .build(),
     )
     .map_err(CliError::CircuitExecutionError)
 }

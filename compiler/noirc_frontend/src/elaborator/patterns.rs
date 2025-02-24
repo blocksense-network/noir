@@ -17,7 +17,7 @@ use crate::{
         stmt::HirPattern,
     },
     node_interner::{DefinitionId, DefinitionKind, ExprId, FuncId, GlobalId, TraitImplKind},
-    Kind, Shared, StructType, Type, TypeAlias, TypeBindings,
+    DataType, Kind, Shared, Type, TypeAlias, TypeBindings,
 };
 
 use super::{path_resolution::PathResolutionItem, Elaborator, ResolverMeta};
@@ -81,7 +81,7 @@ impl<'context> Elaborator<'context> {
                 let ident = if let DefinitionKind::Global(global_id) = definition {
                     // Globals don't need to be added to scope, they're already in the def_maps
                     let id = self.interner.get_global(global_id).definition_id;
-                    let location = Location::new(name.span(), self.file);
+                    let location = name.location();
                     HirIdent::non_trait_method(id, location)
                 } else {
                     self.add_variable_decl(
@@ -96,23 +96,25 @@ impl<'context> Elaborator<'context> {
                 new_definitions.push(ident.clone());
                 HirPattern::Identifier(ident)
             }
-            Pattern::Mutable(pattern, span, _) => {
+            Pattern::Mutable(pattern, location, _) => {
                 if let Some(first_mut) = mutable {
-                    self.push_err(ResolverError::UnnecessaryMut { first_mut, second_mut: span });
+                    self.push_err(
+                        ResolverError::UnnecessaryMut { first_mut, second_mut: location.span },
+                        location.file,
+                    );
                 }
 
                 let pattern = self.elaborate_pattern_mut(
                     *pattern,
                     expected_type,
                     definition,
-                    Some(span),
+                    Some(location.span),
                     new_definitions,
                     warn_if_unused,
                 );
-                let location = Location::new(span, self.file);
                 HirPattern::Mutable(Box::new(pattern), location)
             }
-            Pattern::Tuple(fields, span) => {
+            Pattern::Tuple(fields, location) => {
                 let field_types = match expected_type.follow_bindings() {
                     Type::Tuple(fields) => fields,
                     Type::Error => Vec::new(),
@@ -120,12 +122,15 @@ impl<'context> Elaborator<'context> {
                         let tuple =
                             Type::Tuple(vecmap(&fields, |_| self.interner.next_type_variable()));
 
-                        self.push_err(TypeCheckError::TypeMismatchWithSource {
-                            expected: expected_type,
-                            actual: tuple,
-                            span,
-                            source: Source::Assignment,
-                        });
+                        self.push_err(
+                            TypeCheckError::TypeMismatchWithSource {
+                                expected: expected_type,
+                                actual: tuple,
+                                span: location.span,
+                                source: Source::Assignment,
+                            },
+                            location.file,
+                        );
                         Vec::new()
                     }
                 };
@@ -141,13 +146,12 @@ impl<'context> Elaborator<'context> {
                         warn_if_unused,
                     )
                 });
-                let location = Location::new(span, self.file);
                 HirPattern::Tuple(fields, location)
             }
-            Pattern::Struct(name, fields, span) => self.elaborate_struct_pattern(
+            Pattern::Struct(name, fields, location) => self.elaborate_struct_pattern(
                 name,
                 fields,
-                span,
+                location,
                 expected_type,
                 definition,
                 mutable,
@@ -172,14 +176,14 @@ impl<'context> Elaborator<'context> {
         &mut self,
         name: Path,
         fields: Vec<(Ident, Pattern)>,
-        span: Span,
+        location: Location,
         expected_type: Type,
         definition: DefinitionKind,
         mutable: Option<Span>,
         new_definitions: &mut Vec<HirIdent>,
     ) -> HirPattern {
         let last_segment = name.last_segment();
-        let name_span = last_segment.ident.span();
+        let name_location = last_segment.ident.location();
         let is_self_type = last_segment.ident.is_self_type_name();
 
         let error_identifier = |this: &mut Self| {
@@ -192,39 +196,47 @@ impl<'context> Elaborator<'context> {
         };
 
         let (struct_type, generics) = match self.lookup_type_or_error(name) {
-            Some(Type::Struct(struct_type, struct_generics)) => (struct_type, struct_generics),
+            Some(Type::DataType(struct_type, struct_generics))
+                if struct_type.borrow().is_struct() =>
+            {
+                (struct_type, struct_generics)
+            }
             None => return error_identifier(self),
             Some(typ) => {
                 let typ = typ.to_string();
-                self.push_err(ResolverError::NonStructUsedInConstructor { typ, span });
+                self.push_err(
+                    ResolverError::NonStructUsedInConstructor { typ, span: location.span },
+                    location.file,
+                );
                 return error_identifier(self);
             }
         };
 
-        let turbofish_span = last_segment.turbofish_span();
+        let turbofish_location = last_segment.turbofish_location();
 
         let generics = self.resolve_struct_turbofish_generics(
             &struct_type.borrow(),
             generics,
             last_segment.generics,
-            turbofish_span,
+            turbofish_location,
         );
 
-        let actual_type = Type::Struct(struct_type.clone(), generics);
-        let location = Location::new(span, self.file);
+        let actual_type = Type::DataType(struct_type.clone(), generics);
 
-        self.unify(&actual_type, &expected_type, || TypeCheckError::TypeMismatchWithSource {
-            expected: expected_type.clone(),
-            actual: actual_type.clone(),
-            span: location.span,
-            source: Source::Assignment,
+        self.unify(&actual_type, &expected_type, location.file, || {
+            TypeCheckError::TypeMismatchWithSource {
+                expected: expected_type.clone(),
+                actual: actual_type.clone(),
+                span: location.span,
+                source: Source::Assignment,
+            }
         });
 
         let typ = struct_type.clone();
         let fields = self.resolve_constructor_pattern_fields(
             typ,
             fields,
-            span,
+            location,
             expected_type.clone(),
             definition,
             mutable,
@@ -233,11 +245,10 @@ impl<'context> Elaborator<'context> {
 
         let struct_id = struct_type.borrow().id;
 
-        let reference_location = Location::new(name_span, self.file);
-        self.interner.add_struct_reference(struct_id, reference_location, is_self_type);
+        self.interner.add_type_reference(struct_id, name_location, is_self_type);
 
         for (field_index, field) in fields.iter().enumerate() {
-            let reference_location = Location::new(field.0.span(), self.file);
+            let reference_location = field.0.location();
             self.interner.add_struct_member_reference(struct_id, field_index, reference_location);
         }
 
@@ -250,9 +261,9 @@ impl<'context> Elaborator<'context> {
     #[allow(clippy::too_many_arguments)]
     fn resolve_constructor_pattern_fields(
         &mut self,
-        struct_type: Shared<StructType>,
+        struct_type: Shared<DataType>,
         fields: Vec<(Ident, Pattern)>,
-        span: Span,
+        location: Location,
         expected_type: Type,
         definition: DefinitionKind,
         mutable: Option<Span>,
@@ -260,7 +271,10 @@ impl<'context> Elaborator<'context> {
     ) -> Vec<(Ident, HirPattern)> {
         let mut ret = Vec::with_capacity(fields.len());
         let mut seen_fields = HashSet::default();
-        let mut unseen_fields = struct_type.borrow().field_names();
+        let mut unseen_fields = struct_type
+            .borrow()
+            .field_names()
+            .expect("This type should already be validated to be a struct");
 
         for (field, pattern) in fields {
             let (field_type, visibility) = expected_type
@@ -283,28 +297,40 @@ impl<'context> Elaborator<'context> {
                     &struct_type.borrow(),
                     &field.0.contents,
                     visibility,
-                    field.span(),
+                    field.location(),
                 );
             } else if seen_fields.contains(&field) {
                 // duplicate field
-                self.push_err(ResolverError::DuplicateField { field: field.clone() });
+                self.push_err(
+                    ResolverError::DuplicateField { field: field.clone() },
+                    field.location().file,
+                );
             } else {
                 // field not required by struct
-                self.push_err(ResolverError::NoSuchField {
-                    field: field.clone(),
-                    struct_definition: struct_type.borrow().name.clone(),
-                });
+                self.push_err(
+                    ResolverError::NoSuchField {
+                        field: field.clone(),
+                        struct_definition: struct_type.borrow().name.clone(),
+                    },
+                    field.location().file,
+                );
             }
 
             ret.push((field, resolved));
         }
 
         if !unseen_fields.is_empty() {
-            self.push_err(ResolverError::MissingFields {
-                span,
-                missing_fields: unseen_fields.into_iter().map(|field| field.to_string()).collect(),
-                struct_definition: struct_type.borrow().name.clone(),
-            });
+            self.push_err(
+                ResolverError::MissingFields {
+                    span: location.span,
+                    missing_fields: unseen_fields
+                        .into_iter()
+                        .map(|field| field.to_string())
+                        .collect(),
+                    struct_definition: struct_type.borrow().name.clone(),
+                },
+                location.file,
+            );
         }
 
         ret
@@ -322,7 +348,7 @@ impl<'context> Elaborator<'context> {
             return self.add_global_variable_decl(name, global_id);
         }
 
-        let location = Location::new(name.span(), self.file);
+        let location = name.location();
         let name = name.0.contents;
         let comptime = self.in_comptime_context();
         let id =
@@ -337,11 +363,14 @@ impl<'context> Elaborator<'context> {
 
             if !allow_shadowing {
                 if let Some(old_value) = old_value {
-                    self.push_err(ResolverError::DuplicateDefinition {
-                        name,
-                        first_span: old_value.ident.location.span,
-                        second_span: location.span,
-                    });
+                    self.push_err(
+                        ResolverError::DuplicateDefinition {
+                            name,
+                            first_span: old_value.ident.location.span,
+                            second_span: location.span,
+                        },
+                        location.file,
+                    );
                 }
             }
         }
@@ -355,14 +384,18 @@ impl<'context> Elaborator<'context> {
         ident: HirIdent,
         warn_if_unused: bool,
     ) {
-        let second_span = ident.location.span;
+        let second_location = ident.location;
+        let second_span = second_location.span;
         let resolver_meta = ResolverMeta { num_times_used: 0, ident, warn_if_unused };
 
         let old_value = self.scopes.get_mut_scope().add_key_value(name.clone(), resolver_meta);
 
         if let Some(old_value) = old_value {
             let first_span = old_value.ident.location.span;
-            self.push_err(ResolverError::DuplicateDefinition { name, first_span, second_span });
+            self.push_err(
+                ResolverError::DuplicateDefinition { name, first_span, second_span },
+                second_location.file,
+            );
         }
     }
 
@@ -375,11 +408,15 @@ impl<'context> Elaborator<'context> {
 
         let old_global_value = scope.add_key_value(name.0.contents.clone(), resolver_meta);
         if let Some(old_global_value) = old_global_value {
-            self.push_err(ResolverError::DuplicateDefinition {
-                second_span: name.span(),
-                name: name.0.contents,
-                first_span: old_global_value.ident.location.span,
-            });
+            let file = name.location().file;
+            self.push_err(
+                ResolverError::DuplicateDefinition {
+                    second_span: name.span(),
+                    name: name.0.contents,
+                    first_span: old_global_value.ident.location.span,
+                },
+                file,
+            );
         }
         ident
     }
@@ -395,7 +432,7 @@ impl<'context> Elaborator<'context> {
         let scope_tree = self.scopes.current_scope_tree();
         let variable = scope_tree.find(&name.0.contents);
 
-        let location = Location::new(name.span(), self.file);
+        let location = name.location();
         if let Some((variable_found, scope)) = variable {
             variable_found.num_times_used += 1;
             let id = variable_found.ident.id;
@@ -413,7 +450,7 @@ impl<'context> Elaborator<'context> {
         &mut self,
         func_id: &FuncId,
         unresolved_turbofish: Option<Vec<UnresolvedType>>,
-        span: Span,
+        location: Location,
     ) -> Option<Vec<Type>> {
         let direct_generic_kinds =
             vecmap(&self.interner.function_meta(func_id).direct_generics, |generic| generic.kind());
@@ -423,9 +460,9 @@ impl<'context> Elaborator<'context> {
                 let type_check_err = TypeCheckError::IncorrectTurbofishGenericCount {
                     expected_count: direct_generic_kinds.len(),
                     actual_count: unresolved_turbofish.len(),
-                    span,
+                    span: location.span,
                 };
-                self.push_err(type_check_err);
+                self.push_err(type_check_err, location.file);
             }
 
             self.resolve_turbofish_generics(direct_generic_kinds, unresolved_turbofish)
@@ -434,10 +471,10 @@ impl<'context> Elaborator<'context> {
 
     pub(super) fn resolve_struct_turbofish_generics(
         &mut self,
-        struct_type: &StructType,
+        struct_type: &DataType,
         generics: Vec<Type>,
         unresolved_turbofish: Option<Vec<UnresolvedType>>,
-        span: Span,
+        location: Location,
     ) -> Vec<Type> {
         let kinds = vecmap(&struct_type.generics, |generic| generic.kind());
         self.resolve_item_turbofish_generics(
@@ -446,7 +483,7 @@ impl<'context> Elaborator<'context> {
             kinds,
             generics,
             unresolved_turbofish,
-            span,
+            location,
         )
     }
 
@@ -456,7 +493,7 @@ impl<'context> Elaborator<'context> {
         trait_generic_kinds: Vec<Kind>,
         generics: Vec<Type>,
         unresolved_turbofish: Option<Vec<UnresolvedType>>,
-        span: Span,
+        location: Location,
     ) -> Vec<Type> {
         self.resolve_item_turbofish_generics(
             "trait",
@@ -464,7 +501,7 @@ impl<'context> Elaborator<'context> {
             trait_generic_kinds,
             generics,
             unresolved_turbofish,
-            span,
+            location,
         )
     }
 
@@ -473,7 +510,7 @@ impl<'context> Elaborator<'context> {
         type_alias: &TypeAlias,
         generics: Vec<Type>,
         unresolved_turbofish: Option<Vec<UnresolvedType>>,
-        span: Span,
+        location: Location,
     ) -> Vec<Type> {
         let kinds = vecmap(&type_alias.generics, |generic| generic.kind());
         self.resolve_item_turbofish_generics(
@@ -482,7 +519,7 @@ impl<'context> Elaborator<'context> {
             kinds,
             generics,
             unresolved_turbofish,
-            span,
+            location,
         )
     }
 
@@ -493,19 +530,22 @@ impl<'context> Elaborator<'context> {
         item_generic_kinds: Vec<Kind>,
         generics: Vec<Type>,
         unresolved_turbofish: Option<Vec<UnresolvedType>>,
-        span: Span,
+        location: Location,
     ) -> Vec<Type> {
         let Some(turbofish_generics) = unresolved_turbofish else {
             return generics;
         };
 
         if turbofish_generics.len() != generics.len() {
-            self.push_err(TypeCheckError::GenericCountMismatch {
-                item: format!("{item_kind} {item_name}"),
-                expected: generics.len(),
-                found: turbofish_generics.len(),
-                span,
-            });
+            self.push_err(
+                TypeCheckError::GenericCountMismatch {
+                    item: format!("{item_kind} {item_name}"),
+                    expected: generics.len(),
+                    found: turbofish_generics.len(),
+                    span: location.span,
+                },
+                location.file,
+            );
             return generics;
         }
 
@@ -526,7 +566,7 @@ impl<'context> Elaborator<'context> {
     pub(super) fn elaborate_variable(&mut self, variable: Path) -> (ExprId, Type) {
         let unresolved_turbofish = variable.segments.last().unwrap().generics.clone();
 
-        let span = variable.span;
+        let location = variable.location;
         let (expr, item) = self.resolve_variable(variable);
         let definition_id = expr.id;
 
@@ -540,7 +580,7 @@ impl<'context> Elaborator<'context> {
         // Resolve any generics if we the variable we have resolved is a function
         // and if the turbofish operator was used.
         let generics = if let Some(DefinitionKind::Function(func_id)) = &definition_kind {
-            self.resolve_function_turbofish_generics(func_id, unresolved_turbofish, span)
+            self.resolve_function_turbofish_generics(func_id, unresolved_turbofish, location)
         } else {
             None
         };
@@ -560,7 +600,7 @@ impl<'context> Elaborator<'context> {
 
         let id = self.interner.push_expr(HirExpression::Ident(expr.clone(), generics.clone()));
 
-        self.interner.push_expr_location(id, span, self.file);
+        self.interner.push_expr_location(id, location);
         let typ = self.type_check_variable_with_bindings(expr, id, generics, bindings);
         self.interner.push_expr_type(id, typ.clone());
 
@@ -574,15 +614,15 @@ impl<'context> Elaborator<'context> {
     ///         solve these
     fn resolve_item_turbofish(&mut self, item: PathResolutionItem) -> Vec<Type> {
         match item {
-            PathResolutionItem::StructFunction(struct_id, Some(generics), _func_id) => {
-                let struct_type = self.interner.get_struct(struct_id);
+            PathResolutionItem::Method(struct_id, Some(generics), _func_id) => {
+                let struct_type = self.interner.get_type(struct_id);
                 let struct_type = struct_type.borrow();
                 let struct_generics = struct_type.instantiate(self.interner);
                 self.resolve_struct_turbofish_generics(
                     &struct_type,
                     struct_generics,
                     Some(generics.generics),
-                    generics.span,
+                    generics.location,
                 )
             }
             PathResolutionItem::TypeAliasFunction(type_alias_id, generics, _func_id) => {
@@ -598,7 +638,7 @@ impl<'context> Elaborator<'context> {
                         &type_alias,
                         alias_generics,
                         Some(generics.generics),
-                        generics.span,
+                        generics.location,
                     )
                 } else {
                     alias_generics
@@ -621,7 +661,7 @@ impl<'context> Elaborator<'context> {
                     kinds,
                     trait_generics,
                     Some(generics.generics),
-                    generics.span,
+                    generics.location,
                 )
             }
             _ => Vec::new(),
@@ -631,12 +671,12 @@ impl<'context> Elaborator<'context> {
     fn resolve_variable(&mut self, path: Path) -> (HirIdent, Option<PathResolutionItem>) {
         if let Some(trait_path_resolution) = self.resolve_trait_generic_path(&path) {
             for error in trait_path_resolution.errors {
-                self.push_err(error);
+                self.push_err(error, path.location.file);
             }
 
             (
                 HirIdent {
-                    location: Location::new(path.span, self.file),
+                    location: path.location,
                     id: self.interner.trait_method_id(trait_path_resolution.method.method_id),
                     impl_kind: ImplKind::TraitMethod(trait_path_resolution.method),
                 },
@@ -647,7 +687,7 @@ impl<'context> Elaborator<'context> {
             // Otherwise, then it is referring to an Identifier
             // This lookup allows support of such statements: let x = foo::bar::SOME_GLOBAL + 10;
             // If the expression is a singular indent, we search the resolver's current scope as normal.
-            let span = path.span();
+            let location = path.location;
             let ((hir_ident, var_scope_index), item) = self.get_ident_from_path(path);
 
             if hir_ident.id != DefinitionId::dummy_id() {
@@ -682,8 +722,7 @@ impl<'context> Elaborator<'context> {
                         // only local variables can be captured by closures.
                         self.resolve_local_variable(hir_ident.clone(), var_scope_index);
 
-                        let reference_location = Location::new(span, self.file);
-                        self.interner.add_local_reference(hir_ident.id, reference_location);
+                        self.interner.add_local_reference(hir_ident.id, location);
                     }
                 }
             }
@@ -692,7 +731,7 @@ impl<'context> Elaborator<'context> {
         }
     }
 
-    pub(super) fn type_check_variable(
+    pub(crate) fn type_check_variable(
         &mut self,
         ident: HirIdent,
         expr_id: ExprId,
@@ -751,7 +790,11 @@ impl<'context> Elaborator<'context> {
                 let function = self.interner.function_meta(&function);
                 for mut constraint in function.trait_constraints.clone() {
                     constraint.apply_bindings(&bindings);
-                    self.push_trait_constraint(constraint, expr_id);
+
+                    self.push_trait_constraint(
+                        constraint, expr_id,
+                        false, // This constraint shouldn't lead to choosing a trait impl method
+                    );
                 }
             }
         }
@@ -767,7 +810,11 @@ impl<'context> Elaborator<'context> {
                 // Currently only one impl can be selected per expr_id, so this
                 // constraint needs to be pushed after any other constraints so
                 // that monomorphization can resolve this trait method to the correct impl.
-                self.push_trait_constraint(method.constraint, expr_id);
+                self.push_trait_constraint(
+                    method.constraint,
+                    expr_id,
+                    true, // this constraint should lead to choosing a trait impl method
+                );
             }
         }
 
@@ -792,7 +839,7 @@ impl<'context> Elaborator<'context> {
                         actual_count: turbofish_generics.len(),
                         span,
                     };
-                    self.errors.push((CompilationError::TypeError(type_check_err), location.file));
+                    self.push_err(CompilationError::TypeError(type_check_err), location.file);
                     typ.instantiate_with_bindings(bindings, self.interner)
                 } else {
                     // Fetch the count of any implicit generics on the function, such as
@@ -812,7 +859,7 @@ impl<'context> Elaborator<'context> {
         &mut self,
         path: Path,
     ) -> ((HirIdent, usize), Option<PathResolutionItem>) {
-        let location = Location::new(path.last_ident().span(), self.file);
+        let location = Location::new(path.last_ident().span(), path.location.file);
 
         let error = match path.as_ident().map(|ident| self.use_variable(ident)) {
             Some(Ok(found)) => return (found, None),
@@ -830,17 +877,17 @@ impl<'context> Elaborator<'context> {
                 Err(error) => error,
             },
         };
-        self.push_err(error);
+        self.push_err(error, location.file);
         let id = DefinitionId::dummy_id();
         ((HirIdent::non_trait_method(id, location), 0), None)
     }
 
     pub(super) fn elaborate_type_path(&mut self, path: TypePath) -> (ExprId, Type) {
-        let span = path.item.span();
+        let location = path.item.location();
         let typ = self.resolve_type(path.typ);
 
-        let Some(method) = self.lookup_method(&typ, &path.item.0.contents, span, false) else {
-            let error = Expression::new(ExpressionKind::Error, span);
+        let Some(method) = self.lookup_method(&typ, &path.item.0.contents, location, false) else {
+            let error = Expression::new(ExpressionKind::Error, location);
             return self.elaborate_expression(error);
         };
 
@@ -849,16 +896,15 @@ impl<'context> Elaborator<'context> {
             .expect("Expected trait function to be a DefinitionKind::Function");
 
         let generics =
-            path.turbofish.map(|turbofish| self.resolve_type_args(turbofish, func_id, span).0);
+            path.turbofish.map(|turbofish| self.resolve_type_args(turbofish, func_id, location).0);
 
-        let location = Location::new(span, self.file);
         let id = self.interner.function_definition_id(func_id);
 
         let impl_kind = match method {
             HirMethodReference::FuncId(_) => ImplKind::NotATraitMethod,
             HirMethodReference::TraitMethodId(method_id, generics, _) => {
                 let mut constraint =
-                    self.interner.get_trait(method_id.trait_id).as_constraint(span);
+                    self.interner.get_trait(method_id.trait_id).as_constraint(location);
                 constraint.trait_bound.trait_generics = generics;
                 ImplKind::TraitMethod(TraitMethod { method_id, constraint, assumed: false })
             }
@@ -866,7 +912,7 @@ impl<'context> Elaborator<'context> {
 
         let ident = HirIdent { location, id, impl_kind };
         let id = self.interner.push_expr(HirExpression::Ident(ident.clone(), generics.clone()));
-        self.interner.push_expr_location(id, location.span, location.file);
+        self.interner.push_expr_location(id, location);
 
         let typ = self.type_check_variable(ident, id, generics);
         self.interner.push_expr_type(id, typ.clone());
@@ -878,7 +924,7 @@ impl<'context> Elaborator<'context> {
 fn get_type_alias_generics(type_alias: &TypeAlias, generics: &[Type]) -> Vec<Type> {
     let typ = type_alias.get_type(generics);
     match typ {
-        Type::Struct(_, generics) => generics,
+        Type::DataType(_, generics) => generics,
         Type::Alias(type_alias, generics) => {
             get_type_alias_generics(&type_alias.borrow(), &generics)
         }

@@ -6,7 +6,8 @@ use std::marker::Copy;
 use fm::FileId;
 use iter_extended::vecmap;
 use noirc_arena::{Arena, Index};
-use noirc_errors::{Location, Span, Spanned};
+use noirc_errors::Located;
+use noirc_errors::{Location, Span};
 use petgraph::algo::tarjan_scc;
 use petgraph::prelude::DiGraph;
 use petgraph::prelude::NodeIndex as PetGraphIndex;
@@ -18,12 +19,13 @@ use crate::ast::{
 use crate::graph::CrateId;
 use crate::hir::comptime;
 use crate::hir::def_collector::dc_crate::CompilationError;
-use crate::hir::def_collector::dc_crate::{UnresolvedStruct, UnresolvedTrait, UnresolvedTypeAlias};
+use crate::hir::def_collector::dc_crate::{UnresolvedTrait, UnresolvedTypeAlias};
 use crate::hir::def_map::DefMaps;
 use crate::hir::def_map::{LocalModuleId, ModuleDefId, ModuleId};
 use crate::hir::type_check::generics::TraitGenerics;
 use crate::hir_def::traits::NamedType;
 use crate::hir_def::traits::ResolvedTraitBound;
+use crate::locations::AutoImportEntry;
 use crate::QuotedType;
 
 use crate::ast::{BinaryOpKind, FunctionDefinition, ItemVisibility};
@@ -32,7 +34,7 @@ use crate::hir_def::expr::HirIdent;
 use crate::hir_def::stmt::HirLetStatement;
 use crate::hir_def::traits::TraitImpl;
 use crate::hir_def::traits::{Trait, TraitConstraint};
-use crate::hir_def::types::{Kind, StructType, Type};
+use crate::hir_def::types::{DataType, Kind, Type};
 use crate::hir_def::{
     expr::HirExpression,
     function::{FuncMeta, HirFunction},
@@ -56,7 +58,7 @@ pub struct ModuleAttributes {
     pub visibility: ItemVisibility,
 }
 
-type StructAttributes = Vec<SecondaryAttribute>;
+type TypeAttributes = Vec<SecondaryAttribute>;
 
 /// The node interner is the central storage location of all nodes in Noir's Hir (the
 /// various node types can be found in hir_def). The interner is also used to collect
@@ -106,14 +108,14 @@ pub struct NodeInterner {
     // Similar to `id_to_type` but maps definitions to their type
     definition_to_type: HashMap<DefinitionId, Type>,
 
-    // Struct map.
+    // Struct and Enum map.
     //
-    // Each struct definition is possibly shared across multiple type nodes.
+    // Each type definition is possibly shared across multiple type nodes.
     // It is also mutated through the RefCell during name resolution to append
     // methods from impls to the type.
-    structs: HashMap<StructId, Shared<StructType>>,
+    data_types: HashMap<TypeId, Shared<DataType>>,
 
-    struct_attributes: HashMap<StructId, StructAttributes>,
+    type_attributes: HashMap<TypeId, TypeAttributes>,
 
     // Maps TypeAliasId -> Shared<TypeAlias>
     //
@@ -183,16 +185,13 @@ pub struct NodeInterner {
 
     next_type_variable_id: std::cell::Cell<usize>,
 
-    /// A map from a struct type and method name to a function id for the method.
+    /// A map from a type and method name to a function id for the method.
     /// This can resolve to potentially multiple methods if the same method name is
     /// specialized for different generics on the same type. E.g. for `Struct<T>`, we
     /// may have both `impl Struct<u32> { fn foo(){} }` and `impl Struct<u8> { fn foo(){} }`.
     /// If this happens, the returned Vec will have 2 entries and we'll need to further
     /// disambiguate them by checking the type of each function.
-    struct_methods: HashMap<StructId, HashMap<String, Methods>>,
-
-    /// Methods on primitive types defined in the stdlib.
-    primitive_methods: HashMap<TypeMethodKey, HashMap<String, Methods>>,
+    methods: HashMap<TypeMethodKey, HashMap<String, Methods>>,
 
     // For trait implementation functions, this is their self type and trait they belong to
     func_id_to_trait: HashMap<FuncId, (Type, TraitId)>,
@@ -257,8 +256,7 @@ pub struct NodeInterner {
     // The third value in the tuple is the module where the definition is (only for pub use).
     // These include top-level functions, global variables and types, but excludes
     // impl and trait-impl methods.
-    pub(crate) auto_import_names:
-        HashMap<String, Vec<(ModuleDefId, ItemVisibility, Option<ModuleId>)>>,
+    pub(crate) auto_import_names: HashMap<String, Vec<AutoImportEntry>>,
 
     /// Each value currently in scope in the comptime interpreter.
     /// Each element of the Vec represents a scope with every scope together making
@@ -270,6 +268,11 @@ pub struct NodeInterner {
 
     /// Captures the documentation comments for each module, struct, trait, function, etc.
     pub(crate) doc_comments: HashMap<ReferenceId, Vec<String>>,
+
+    /// Only for LSP: a map of ModuleDefId to each module that pub or pub(crate) exports it.
+    /// In LSP this is used to offer importing the item via one of these exports if
+    /// the item is not visible where it's defined.
+    reexports: HashMap<ModuleDefId, Vec<Reexport>>,
 }
 
 /// A dependency in the dependency graph may be a type or a definition.
@@ -284,7 +287,7 @@ pub struct NodeInterner {
 /// ```
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum DependencyId {
-    Struct(StructId),
+    Struct(TypeId),
     Global(GlobalId),
     Function(FuncId),
     Alias(TypeAliasId),
@@ -297,8 +300,9 @@ pub enum DependencyId {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum ReferenceId {
     Module(ModuleId),
-    Struct(StructId),
-    StructMember(StructId, usize),
+    Type(TypeId),
+    StructMember(TypeId, usize),
+    EnumVariant(TypeId, usize),
     Trait(TraitId),
     Global(GlobalId),
     Function(FuncId),
@@ -463,14 +467,14 @@ impl fmt::Display for FuncId {
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Copy, Clone, PartialOrd, Ord)]
-pub struct StructId(ModuleId);
+pub struct TypeId(ModuleId);
 
-impl StructId {
+impl TypeId {
     //dummy id for error reporting
     // This can be anything, as the program will ultimately fail
     // after resolution
-    pub fn dummy_id() -> StructId {
-        StructId(ModuleId { krate: CrateId::dummy_id(), local_id: LocalModuleId::dummy_id() })
+    pub fn dummy_id() -> TypeId {
+        TypeId(ModuleId { krate: CrateId::dummy_id(), local_id: LocalModuleId::dummy_id() })
     }
 
     pub fn module_id(self) -> ModuleId {
@@ -634,6 +638,24 @@ pub struct InternedUnresolvedTypeData(noirc_arena::Index);
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct InternedPattern(noirc_arena::Index);
 
+/// Captures a reexport that happens inside a module. For example:
+///
+/// ```noir
+/// mod moo {
+/// //  ^^^ module_id
+///
+///   pub use foo::bar as baz;
+/// //^^^ visibility      ^^^ name
+/// }
+/// ```
+///
+#[derive(Debug, Clone)]
+pub struct Reexport {
+    pub module_id: ModuleId,
+    pub name: Ident,
+    pub visibility: ItemVisibility,
+}
+
 impl Default for NodeInterner {
     fn default() -> Self {
         NodeInterner {
@@ -650,8 +672,8 @@ impl Default for NodeInterner {
             definitions: vec![],
             id_to_type: HashMap::default(),
             definition_to_type: HashMap::default(),
-            structs: HashMap::default(),
-            struct_attributes: HashMap::default(),
+            data_types: HashMap::default(),
+            type_attributes: HashMap::default(),
             type_aliases: Vec::new(),
             traits: HashMap::default(),
             trait_implementations: HashMap::default(),
@@ -666,8 +688,7 @@ impl Default for NodeInterner {
             next_type_variable_id: std::cell::Cell::new(0),
             globals: Vec::new(),
             global_attributes: HashMap::default(),
-            struct_methods: HashMap::default(),
-            primitive_methods: HashMap::default(),
+            methods: HashMap::default(),
             type_alias_ref: Vec::new(),
             type_ref_locations: Vec::new(),
             quoted_types: Default::default(),
@@ -684,6 +705,7 @@ impl Default for NodeInterner {
             comptime_scopes: vec![HashMap::default()],
             trait_impl_associated_types: HashMap::default(),
             doc_comments: HashMap::default(),
+            reexports: HashMap::default(),
         }
     }
 }
@@ -701,8 +723,8 @@ impl NodeInterner {
     }
 
     /// Stores the span for an interned expression.
-    pub fn push_expr_location(&mut self, expr_id: ExprId, span: Span, file: FileId) {
-        self.id_to_location.insert(expr_id.into(), Location::new(span, file));
+    pub fn push_expr_location(&mut self, expr_id: ExprId, location: Location) {
+        self.id_to_location.insert(expr_id.into(), location);
     }
 
     /// Interns a HIR Function.
@@ -731,8 +753,9 @@ impl NodeInterner {
             id: type_id,
             name: unresolved_trait.trait_def.name.clone(),
             crate_id: unresolved_trait.crate_id,
-            location: Location::new(unresolved_trait.trait_def.span, unresolved_trait.file_id),
+            location: unresolved_trait.trait_def.location,
             generics,
+            visibility: ItemVisibility::Private,
             self_type_typevar: TypeVariable::unbound(self.next_type_variable_id(), Kind::Normal),
             methods: Vec::new(),
             method_ids: unresolved_trait.method_ids.clone(),
@@ -744,25 +767,25 @@ impl NodeInterner {
         self.traits.insert(type_id, new_trait);
     }
 
-    pub fn new_struct(
+    /// Creates a new struct or enum type with no fields or variants.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_type(
         &mut self,
-        typ: &UnresolvedStruct,
+        name: Ident,
+        span: Span,
+        attributes: Vec<SecondaryAttribute>,
         generics: Generics,
         krate: CrateId,
         local_id: LocalModuleId,
         file_id: FileId,
-    ) -> StructId {
-        let struct_id = StructId(ModuleId { krate, local_id });
-        let name = typ.struct_def.name.clone();
+    ) -> TypeId {
+        let type_id = TypeId(ModuleId { krate, local_id });
 
-        // Fields will be filled in later
-        let no_fields = Vec::new();
-
-        let location = Location::new(typ.struct_def.span, file_id);
-        let new_struct = StructType::new(struct_id, name, location, no_fields, generics);
-        self.structs.insert(struct_id, Shared::new(new_struct));
-        self.struct_attributes.insert(struct_id, typ.struct_def.attributes.clone());
-        struct_id
+        let location = Location::new(span, file_id);
+        let new_type = DataType::new(type_id, name, location, generics);
+        self.data_types.insert(type_id, Shared::new(new_type));
+        self.type_attributes.insert(type_id, attributes);
+        type_id
     }
 
     pub fn push_type_alias(
@@ -775,7 +798,7 @@ impl NodeInterner {
         self.type_aliases.push(Shared::new(TypeAlias::new(
             type_id,
             typ.type_alias_def.name.clone(),
-            Location::new(typ.type_alias_def.span, typ.file_id),
+            typ.type_alias_def.location,
             Type::Error,
             generics,
         )));
@@ -788,8 +811,9 @@ impl NodeInterner {
     pub fn add_type_alias_ref(&mut self, type_id: TypeAliasId, location: Location) {
         self.type_alias_ref.push((type_id, location));
     }
-    pub fn update_struct(&mut self, type_id: StructId, f: impl FnOnce(&mut StructType)) {
-        let mut value = self.structs.get_mut(&type_id).unwrap().borrow_mut();
+
+    pub fn update_type(&mut self, type_id: TypeId, f: impl FnOnce(&mut DataType)) {
+        let mut value = self.data_types.get_mut(&type_id).unwrap().borrow_mut();
         f(&mut value);
     }
 
@@ -798,12 +822,8 @@ impl NodeInterner {
         f(value);
     }
 
-    pub fn update_struct_attributes(
-        &mut self,
-        type_id: StructId,
-        f: impl FnOnce(&mut StructAttributes),
-    ) {
-        let value = self.struct_attributes.get_mut(&type_id).unwrap();
+    pub fn update_type_attributes(&mut self, type_id: TypeId, f: impl FnOnce(&mut TypeAttributes)) {
+        let value = self.type_attributes.get_mut(&type_id).unwrap();
         f(value);
     }
 
@@ -953,7 +973,7 @@ impl NodeInterner {
         self.definitions.push(DefinitionInfo { name, mutable, comptime, kind, location });
 
         if is_local {
-            self.add_definition_location(ReferenceId::Local(id), None);
+            self.add_definition_location(ReferenceId::Local(id), location, None);
         }
 
         id
@@ -978,6 +998,7 @@ impl NodeInterner {
         module: ModuleId,
         location: Location,
     ) -> DefinitionId {
+        let name_location = Location::new(function.name.span(), location.file);
         let modifiers = FunctionModifiers {
             name: function.name.0.contents.clone(),
             visibility: function.visibility,
@@ -985,14 +1006,10 @@ impl NodeInterner {
             is_unconstrained: function.is_unconstrained,
             generic_count: function.generics.len(),
             is_comptime: function.is_comptime,
-            name_location: Location::new(function.name.span(), location.file),
+            name_location,
         };
         let definition_id = self.push_function_definition(id, modifiers, module, location);
-
-        // This needs to be done after pushing the definition since it will reference the
-        // location that was stored
-        self.add_definition_location(ReferenceId::Function(id), Some(module));
-
+        self.add_definition_location(ReferenceId::Function(id), name_location, Some(module));
         definition_id
     }
 
@@ -1073,8 +1090,8 @@ impl NodeInterner {
 
     pub fn function_ident(&self, func_id: &FuncId) -> crate::ast::Ident {
         let name = self.function_name(func_id).to_owned();
-        let span = self.function_meta(func_id).name.location.span;
-        crate::ast::Ident(Spanned::from(span, name))
+        let location = self.function_meta(func_id).name.location;
+        crate::ast::Ident(Located::from(location, name))
     }
 
     pub fn function_name(&self, func_id: &FuncId) -> &str {
@@ -1093,8 +1110,8 @@ impl NodeInterner {
         &self.function_modifiers[func_id].attributes
     }
 
-    pub fn struct_attributes(&self, struct_id: &StructId) -> &StructAttributes {
-        &self.struct_attributes[struct_id]
+    pub fn type_attributes(&self, struct_id: &TypeId) -> &TypeAttributes {
+        &self.type_attributes[struct_id]
     }
 
     pub fn add_module_attributes(&mut self, module_id: ModuleId, attributes: ModuleAttributes) {
@@ -1210,31 +1227,12 @@ impl NodeInterner {
         self.id_to_location.insert(id.into(), Location::new(span, file));
     }
 
-    pub fn get_struct(&self, id: StructId) -> Shared<StructType> {
-        self.structs[&id].clone()
-    }
-
-    pub fn get_struct_methods(&self, id: StructId) -> Option<&HashMap<String, Methods>> {
-        self.struct_methods.get(&id)
-    }
-
-    fn get_primitive_methods(&self, key: TypeMethodKey) -> Option<&HashMap<String, Methods>> {
-        self.primitive_methods.get(&key)
+    pub fn get_type(&self, id: TypeId) -> Shared<DataType> {
+        self.data_types[&id].clone()
     }
 
     pub fn get_type_methods(&self, typ: &Type) -> Option<&HashMap<String, Methods>> {
-        match typ {
-            Type::Struct(struct_type, _) => {
-                let struct_type = struct_type.borrow();
-                self.get_struct_methods(struct_type.id)
-            }
-            Type::Alias(type_alias, generics) => {
-                let type_alias = type_alias.borrow();
-                let typ = type_alias.get_type(generics);
-                self.get_type_methods(&typ)
-            }
-            _ => get_type_method_key(typ).and_then(|key| self.get_primitive_methods(key)),
-        }
+        get_type_method_key(typ).and_then(|key| self.methods.get(&key))
     }
 
     pub fn get_trait(&self, id: TraitId) -> &Trait {
@@ -1394,39 +1392,27 @@ impl NodeInterner {
         trait_id: Option<TraitId>,
     ) -> Option<FuncId> {
         match self_type {
-            Type::Struct(struct_type, _generics) => {
-                let id = struct_type.borrow().id;
+            Type::Error => None,
+            Type::MutableReference(element) => {
+                self.add_method(element, method_name, method_id, trait_id)
+            }
+            _ => {
+                let key = get_type_method_key(self_type).unwrap_or_else(|| {
+                    unreachable!("Cannot add a method to the unsupported type '{}'", self_type)
+                });
 
-                if trait_id.is_none() {
-                    if let Some(existing) =
-                        self.lookup_direct_method(self_type, id, &method_name, true)
+                if trait_id.is_none() && matches!(self_type, Type::DataType(..)) {
+                    if let Some(existing) = self.lookup_direct_method(self_type, &method_name, true)
                     {
                         return Some(existing);
                     }
                 }
 
-                self.struct_methods
-                    .entry(id)
-                    .or_default()
-                    .entry(method_name)
-                    .or_default()
-                    .add_method(method_id, None, trait_id);
-                None
-            }
-            Type::Error => None,
-            Type::MutableReference(element) => {
-                self.add_method(element, method_name, method_id, trait_id)
-            }
-
-            other => {
-                let key = get_type_method_key(self_type).unwrap_or_else(|| {
-                    unreachable!("Cannot add a method to the unsupported type '{}'", other)
-                });
                 // Only remember the actual type if it's FieldOrInt,
                 // so later we can disambiguate on calls like `u32::call`.
                 let typ =
                     if key == TypeMethodKey::FieldOrInt { Some(self_type.clone()) } else { None };
-                self.primitive_methods
+                self.methods
                     .entry(key)
                     .or_default()
                     .entry(method_name)
@@ -1722,7 +1708,7 @@ impl NodeInterner {
         impl_id: TraitImplId,
         impl_generics: GenericTypeVars,
         trait_impl: Shared<TraitImpl>,
-    ) -> Result<(), (Span, FileId)> {
+    ) -> Result<(), (Location, FileId)> {
         self.trait_implementations.insert(impl_id, trait_impl.clone());
 
         // Avoid adding error types to impls since they'll conflict with every other type.
@@ -1750,7 +1736,17 @@ impl NodeInterner {
         let instantiated_object_type = object_type.substitute(&substitutions);
 
         let trait_generics = &trait_impl.borrow().trait_generics;
+
+        // Replace any associated types with fresh type variables so that we match
+        // any existing impl regardless of associated types if one already exists.
+        // E.g. if we already have an `impl Foo<Bar = i32> for Baz`, we should
+        // reject `impl Foo<Bar = u32> for Baz` if it were to be added.
         let associated_types = self.get_associated_types_for_impl(impl_id);
+
+        let associated_types = vecmap(associated_types, |named| {
+            let typ = self.next_type_variable();
+            NamedType { name: named.name.clone(), typ }
+        });
 
         // Ignoring overlapping `TraitImplKind::Assumed` impls here is perfectly fine.
         // It should never happen since impls are defined at global scope, but even
@@ -1760,11 +1756,11 @@ impl NodeInterner {
             &instantiated_object_type,
             trait_id,
             trait_generics,
-            associated_types,
+            &associated_types,
         ) {
             let existing_impl = self.get_trait_implementation(existing);
             let existing_impl = existing_impl.borrow();
-            return Err((existing_impl.ident.span(), existing_impl.file));
+            return Err((existing_impl.ident.location(), existing_impl.file));
         }
 
         for method in &trait_impl.borrow().methods {
@@ -1781,83 +1777,52 @@ impl NodeInterner {
         Ok(())
     }
 
-    /// Looks up a method that's directly defined in the given struct.
+    /// Looks up a method that's directly defined in the given type.
     pub fn lookup_direct_method(
-        &self,
-        typ: &Type,
-        id: StructId,
-        method_name: &str,
-        has_self_arg: bool,
-    ) -> Option<FuncId> {
-        self.struct_methods
-            .get(&id)
-            .and_then(|h| h.get(method_name))
-            .and_then(|methods| methods.find_direct_method(typ, has_self_arg, self))
-    }
-
-    /// Looks up a methods that apply to the given struct but are defined in traits.
-    pub fn lookup_trait_methods(
-        &self,
-        typ: &Type,
-        id: StructId,
-        method_name: &str,
-        has_self_arg: bool,
-    ) -> Vec<(FuncId, TraitId)> {
-        self.struct_methods
-            .get(&id)
-            .and_then(|h| h.get(method_name))
-            .map(|methods| methods.find_trait_methods(typ, has_self_arg, self))
-            .unwrap_or_default()
-    }
-
-    /// Select the 1 matching method with an object type matching `typ`
-    fn find_matching_method(
-        &self,
-        typ: &Type,
-        methods: Option<&Methods>,
-        method_name: &str,
-        has_self_arg: bool,
-    ) -> Option<FuncId> {
-        if let Some(method) = methods.and_then(|m| m.find_matching_method(typ, has_self_arg, self))
-        {
-            Some(method)
-        } else {
-            self.lookup_generic_method(typ, method_name, has_self_arg)
-        }
-    }
-
-    /// Looks up a method at impls for all types `T`, e.g. `impl<T> Foo for T`
-    pub fn lookup_generic_method(
-        &self,
-        typ: &Type,
-        method_name: &str,
-        has_self_arg: bool,
-    ) -> Option<FuncId> {
-        let global_methods =
-            self.primitive_methods.get(&TypeMethodKey::Generic)?.get(method_name)?;
-        global_methods.find_matching_method(typ, has_self_arg, self)
-    }
-
-    /// Looks up a given method name on the given primitive type.
-    pub fn lookup_primitive_method(
         &self,
         typ: &Type,
         method_name: &str,
         has_self_arg: bool,
     ) -> Option<FuncId> {
         let key = get_type_method_key(typ)?;
-        let methods = self.primitive_methods.get(&key)?.get(method_name)?;
-        self.find_matching_method(typ, Some(methods), method_name, has_self_arg)
+
+        self.methods
+            .get(&key)
+            .and_then(|h| h.get(method_name))
+            .and_then(|methods| methods.find_direct_method(typ, has_self_arg, self))
     }
 
-    pub fn lookup_primitive_trait_method_mut(
+    /// Looks up a methods that apply to the given type but are defined in traits.
+    pub fn lookup_trait_methods(
         &self,
         typ: &Type,
         method_name: &str,
         has_self_arg: bool,
-    ) -> Option<FuncId> {
-        let typ = Type::MutableReference(Box::new(typ.clone()));
-        self.lookup_primitive_method(&typ, method_name, has_self_arg)
+    ) -> Vec<(FuncId, TraitId)> {
+        let key = get_type_method_key(typ);
+        if let Some(key) = key {
+            self.methods
+                .get(&key)
+                .and_then(|h| h.get(method_name))
+                .map(|methods| methods.find_trait_methods(typ, has_self_arg, self))
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Looks up methods at impls for all types `T`, e.g. `impl<T> Foo for T`
+    pub fn lookup_generic_methods(
+        &self,
+        typ: &Type,
+        method_name: &str,
+        has_self_arg: bool,
+    ) -> Vec<(FuncId, TraitId)> {
+        self.methods
+            .get(&TypeMethodKey::Generic)
+            .and_then(|h| h.get(method_name))
+            .map(|methods| methods.find_trait_methods(typ, has_self_arg, self))
+            .unwrap_or_default()
     }
 
     /// Returns what the next trait impl id is expected to be.
@@ -2029,7 +1994,7 @@ impl NodeInterner {
 
     /// Register that `dependent` depends on `dependency`.
     /// This is usually because `dependent` refers to `dependency` in one of its struct fields.
-    pub fn add_type_dependency(&mut self, dependent: DependencyId, dependency: StructId) {
+    pub fn add_type_dependency(&mut self, dependent: DependencyId, dependency: TypeId) {
         self.add_dependency(dependent, DependencyId::Struct(dependency));
     }
 
@@ -2082,7 +2047,7 @@ impl NodeInterner {
                 for (i, index) in scc.iter().enumerate() {
                     match self.dependency_graph[*index] {
                         DependencyId::Struct(struct_id) => {
-                            let struct_type = self.get_struct(struct_id);
+                            let struct_type = self.get_type(struct_id);
                             let struct_type = struct_type.borrow();
                             push_error(struct_type.name.to_string(), &scc, i, struct_type.location);
                             break;
@@ -2129,7 +2094,7 @@ impl NodeInterner {
     /// element at the given start index.
     fn get_cycle_error_string(&self, scc: &[PetGraphIndex], start_index: usize) -> String {
         let index_to_string = |index: PetGraphIndex| match self.dependency_graph[index] {
-            DependencyId::Struct(id) => Cow::Owned(self.get_struct(id).borrow().name.to_string()),
+            DependencyId::Struct(id) => Cow::Owned(self.get_type(id).borrow().name.to_string()),
             DependencyId::Function(id) => Cow::Borrowed(self.function_name(&id)),
             DependencyId::Alias(id) => {
                 Cow::Owned(self.get_type_alias(id).borrow().name.to_string())
@@ -2182,8 +2147,8 @@ impl NodeInterner {
         self.push_expression_kind(lvalue.as_expression().kind)
     }
 
-    pub fn get_lvalue(&self, id: InternedExpressionKind, span: Span) -> LValue {
-        LValue::from_expression_kind(self.get_expression_kind(id).clone(), span)
+    pub fn get_lvalue(&self, id: InternedExpressionKind, location: Location) -> LValue {
+        LValue::from_expression_kind(self.get_expression_kind(id).clone(), location)
             .expect("Called LValue::from_expression with an invalid expression")
     }
 
@@ -2321,6 +2286,28 @@ impl NodeInterner {
             _ => None,
         }
     }
+
+    pub fn add_reexport(
+        &mut self,
+        module_def_id: ModuleDefId,
+        module_id: ModuleId,
+        name: Ident,
+        visibility: ItemVisibility,
+    ) {
+        self.reexports.entry(module_def_id).or_default().push(Reexport {
+            module_id,
+            name,
+            visibility,
+        });
+    }
+
+    pub fn get_reexports(&self, module_def_id: ModuleDefId) -> &[Reexport] {
+        self.reexports.get(&module_def_id).map_or(&[], |reexport| reexport)
+    }
+
+    pub fn get_trait_reexports(&self, trait_id: TraitId) -> &[Reexport] {
+        self.get_reexports(ModuleDefId::TraitId(trait_id))
+    }
 }
 
 impl Methods {
@@ -2334,31 +2321,26 @@ impl Methods {
     }
 
     /// Iterate through each method, starting with the direct methods
-    pub fn iter(&self) -> impl Iterator<Item = (FuncId, &Option<Type>)> + '_ {
-        let trait_impl_methods = self.trait_impl_methods.iter().map(|m| (m.method, &m.typ));
-        let direct = self.direct.iter().copied().map(|func_id| {
-            let typ: &Option<Type> = &None;
-            (func_id, typ)
-        });
+    pub fn iter(&self) -> impl Iterator<Item = (FuncId, Option<&Type>, Option<TraitId>)> {
+        let trait_impl_methods =
+            self.trait_impl_methods.iter().map(|m| (m.method, m.typ.as_ref(), Some(m.trait_id)));
+        let direct = self.direct.iter().copied().map(|func_id| (func_id, None, None));
         direct.chain(trait_impl_methods)
     }
 
-    /// Select the 1 matching method with an object type matching `typ`
-    pub fn find_matching_method(
-        &self,
-        typ: &Type,
+    pub fn find_matching_methods<'a>(
+        &'a self,
+        typ: &'a Type,
         has_self_param: bool,
-        interner: &NodeInterner,
-    ) -> Option<FuncId> {
-        // When adding methods we always check they do not overlap, so there should be
-        // at most 1 matching method in this list.
-        for (method, method_type) in self.iter() {
+        interner: &'a NodeInterner,
+    ) -> impl Iterator<Item = (FuncId, Option<TraitId>)> + 'a {
+        self.iter().filter_map(move |(method, method_type, trait_id)| {
             if Self::method_matches(typ, has_self_param, method, method_type, interner) {
-                return Some(method);
+                Some((method, trait_id))
+            } else {
+                None
             }
-        }
-
-        None
+        })
     }
 
     pub fn find_direct_method(
@@ -2368,7 +2350,7 @@ impl Methods {
         interner: &NodeInterner,
     ) -> Option<FuncId> {
         for method in &self.direct {
-            if Self::method_matches(typ, has_self_param, *method, &None, interner) {
+            if Self::method_matches(typ, has_self_param, *method, None, interner) {
                 return Some(*method);
             }
         }
@@ -2386,7 +2368,7 @@ impl Methods {
 
         for trait_impl_method in &self.trait_impl_methods {
             let method = trait_impl_method.method;
-            let method_type = &trait_impl_method.typ;
+            let method_type = trait_impl_method.typ.as_ref();
             let trait_id = trait_impl_method.trait_id;
 
             if Self::method_matches(typ, has_self_param, method, method_type, interner) {
@@ -2401,7 +2383,7 @@ impl Methods {
         typ: &Type,
         has_self_param: bool,
         method: FuncId,
-        method_type: &Option<Type>,
+        method_type: Option<&Type>,
         interner: &NodeInterner,
     ) -> bool {
         match interner.function_meta(&method).typ.instantiate(interner).0 {
@@ -2462,6 +2444,7 @@ enum TypeMethodKey {
     Function,
     Generic,
     Quoted(QuotedType),
+    Struct(TypeId),
 }
 
 fn get_type_method_key(typ: &Type) -> Option<TypeMethodKey> {
@@ -2489,12 +2472,12 @@ fn get_type_method_key(typ: &Type) -> Option<TypeMethodKey> {
         Type::Quoted(quoted) => Some(Quoted(*quoted)),
         Type::MutableReference(element) => get_type_method_key(element),
         Type::Alias(alias, _) => get_type_method_key(&alias.borrow().typ),
+        Type::DataType(struct_type, _) => Some(Struct(struct_type.borrow().id)),
 
         // We do not support adding methods to these types
         Type::Forall(_, _)
         | Type::Constant(..)
         | Type::Error
-        | Type::Struct(_, _)
         | Type::InfixExpr(..)
         | Type::CheckedCast { .. }
         | Type::TraitAsType(..) => None,
