@@ -1,7 +1,0 @@
-[package]
-name = "apply_transactions"
-type = "bin"
-authors = [""]
-compiler_version = ">=0.35.0"
-
-[dependencies]
