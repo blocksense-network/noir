@@ -144,11 +144,24 @@ fn update_annotation_bodies(context: &mut PerFunctionContext) {
     // Get addresses and values of the store instructions that will be
     // removed after mem2reg finishes.
     let mut stores_to_be_removed: HashMap<ValueId, ValueId> = HashMap::default();
+    // Each address from which instruction it originates.
+    let mut address_from_instruction: HashMap<ValueId, InstructionId> = HashMap::default();
     for instruction_id in context.instructions_to_remove.iter() {
         if let Instruction::Store { address, value } =
             context.inserter.function.dfg[*instruction_id]
         {
-            stores_to_be_removed.insert(address, value);
+            if !stores_to_be_removed.contains_key(&address) {
+                // Insert the key if it doesn't exist.
+                stores_to_be_removed.insert(address, value);
+                address_from_instruction.insert(address,*instruction_id);
+            } else if context.timeline_for_instructions_for_removal.get(instruction_id).unwrap() <  
+                context.timeline_for_instructions_for_removal.get(address_from_instruction.get(&address).unwrap()).unwrap()
+            {
+                // Update the key,value pair if the current store instruction was
+                // inserted into the context before the previously found one.
+                stores_to_be_removed.insert(address, value);
+                address_from_instruction.insert(address,*instruction_id);
+            }
         }
     }
     // Update FV load instructions that reference an address scheduled for removal.
@@ -200,6 +213,9 @@ struct PerFunctionContext<'f> {
     /// We avoid removing individual instructions as we go since removing elements
     /// from the middle of Vecs many times will be slower than a single call to `retain`.
     instructions_to_remove: HashSet<InstructionId>,
+
+    /// We need to know the order of when instruction ids were added to the set instrucitons to remove.
+    timeline_for_instructions_for_removal: HashMap<InstructionId, usize>,
 
     /// Track a value's last load across all blocks.
     /// If a value is not used in anymore loads we can remove the last store to that value.
@@ -264,6 +280,7 @@ impl<'f> PerFunctionContext<'f> {
             inserter: FunctionInserter::new(function),
             blocks: BTreeMap::new(),
             instructions_to_remove: HashSet::default(),
+            timeline_for_instructions_for_removal: HashMap::default(),
             last_loads: HashMap::default(),
             load_results: HashMap::default(),
             calls_reference_input: HashSet::default(),
@@ -353,6 +370,7 @@ impl<'f> PerFunctionContext<'f> {
                     // If `allocation_aliases_parameter` is known to be false
                     if allocation_aliases_parameter == Some(false) {
                         self.instructions_to_remove.insert(*instruction);
+                        self.timeline_for_instructions_for_removal.insert(*instruction, self.timeline_for_instructions_for_removal.len());
                         values_to_reduce_counts.push(*allocation);
                     }
                 }
@@ -411,6 +429,7 @@ impl<'f> PerFunctionContext<'f> {
                 // If the load is known, replace it with the known value and remove the load
                 if let Some(value) = references.get_known_value(address) {
                     self.inserter.map_value(result, value);
+                    self.timeline_for_instructions_for_removal.insert(instruction, self.timeline_for_instructions_for_removal.len());
                     self.instructions_to_remove.insert(instruction);
                 } else {
                     references.mark_value_used(address, self.inserter.function);
@@ -458,6 +477,7 @@ impl<'f> PerFunctionContext<'f> {
                 // If there was another store to this address without any (unremoved) loads or
                 // function calls in-between, we can remove the previous store.
                 if let Some(last_store) = references.last_stores.get(&address) {
+                    self.timeline_for_instructions_for_removal.insert(*last_store, self.timeline_for_instructions_for_removal.len());
                     self.instructions_to_remove.insert(*last_store);
                     let Instruction::Store { address, value } =
                         self.inserter.function.dfg[*last_store]
@@ -472,6 +492,7 @@ impl<'f> PerFunctionContext<'f> {
                 if let Some(known_value) = known_value {
                     let known_value_is_address = known_value == address;
                     if known_value_is_address {
+                        self.timeline_for_instructions_for_removal.insert(instruction, self.timeline_for_instructions_for_removal.len());
                         self.instructions_to_remove.insert(instruction);
                         self.reduce_load_result_count(address);
                         self.reduce_load_result_count(value);
@@ -729,6 +750,7 @@ impl<'f> PerFunctionContext<'f> {
                 self.return_block_load_locations.remove(&(address, *block_id));
 
                 removed_loads.entry(address).and_modify(|counter| *counter += 1).or_insert(1);
+                self.timeline_for_instructions_for_removal.insert(*load_instruction, self.timeline_for_instructions_for_removal.len());
                 self.instructions_to_remove.insert(*load_instruction);
             }
         }
@@ -796,6 +818,7 @@ impl<'f> PerFunctionContext<'f> {
                 );
 
                 if all_loads_removed && !store_alias_used {
+                    self.timeline_for_instructions_for_removal.insert(*store_instruction, self.timeline_for_instructions_for_removal.len());
                     self.instructions_to_remove.insert(*store_instruction);
                     if let Some((_, counter)) = remaining_last_stores.get_mut(store_address) {
                         // TODO this was saturating https://github.com/noir-lang/noir/issues/6124
@@ -947,6 +970,7 @@ impl<'f> PerFunctionContext<'f> {
                 continue;
             }
 
+            self.timeline_for_instructions_for_removal.insert(*store_instruction, self.timeline_for_instructions_for_removal.len());
             self.instructions_to_remove.insert(*store_instruction);
 
             // Map any remaining load results to the value from the removed store
@@ -964,6 +988,7 @@ impl<'f> PerFunctionContext<'f> {
                 // We will have to map all instructions following this method
                 // as we do not know what instructions depend upon this result
                 self.inserter.map_value(*result, value);
+                self.timeline_for_instructions_for_removal.insert(context.load_instruction, self.timeline_for_instructions_for_removal.len());
                 self.instructions_to_remove.insert(context.load_instruction);
 
                 stores_were_removed = true;
