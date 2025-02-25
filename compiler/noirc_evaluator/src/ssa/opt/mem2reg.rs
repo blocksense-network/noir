@@ -148,7 +148,23 @@ fn update_annotation_bodies(context: &mut PerFunctionContext) {
         if let Instruction::Store { address, value } =
             context.inserter.function.dfg[*instruction_id]
         {
-            stores_to_be_removed.insert(address, value);
+            if !stores_to_be_removed.contains_key(&address) {
+                // Insert the key if it doesn't exist.
+                stores_to_be_removed.insert(address, value);
+            } else if stores_to_be_removed
+                .get(&address)
+                .filter(|old_value| old_value.to_usize() > value.to_usize())
+                .is_some()
+            {
+                // Otherwise update the key/value pair only if the new value is smaller than the previous one.
+                // Sometimes for one allocate instruction there are multiple store instructions.
+                // We want to process the oldest store instruction (the closes to the allocate instruction).
+                // Becuase context.instructions_to_remove is a HashSet we don't know when a certain instruction was inserted.
+                // I have made the assumption that the oldest store instruction will have the samllest value_id.
+                // Perhaps a more stable solution to the issue would be to have a map which keeps the order
+                // of when an instruction id has been added to context.instructions_to_remove.
+                stores_to_be_removed.insert(address, value);
+            }
         }
     }
     // Update FV load instructions that reference an address scheduled for removal.
