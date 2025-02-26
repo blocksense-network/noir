@@ -39,7 +39,7 @@ pub(crate) fn from_numeric_type(numeric_type: NumericType) -> Typ {
                 Arc::new(TypX::Int(IntRange::U(bit_size)))
             }
         }
-        NumericType::NativeField => Arc::new(TypX::Int(IntRange::U(FieldElement::max_num_bits()))), // TODO(totel) Document mapping Noir Fields
+        NumericType::NativeField => Arc::new(TypX::Int(IntRange::I(FieldElement::max_num_bits()))),
     }
 }
 
