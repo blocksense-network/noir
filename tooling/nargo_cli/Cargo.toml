@@ -23,6 +23,7 @@ build-data.workspace = true
 toml.workspace = true
 
 [dependencies]
+base64ct = "~1.6"
 clap.workspace = true
 fm.workspace = true
 fxhash.workspace = true
