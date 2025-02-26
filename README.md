@@ -17,6 +17,10 @@ All of these developments are expected to reach a production-ready status in
 the future and we plan to contribute them back to upstream Noir as soon as they
 are deemed acceptable by the Noir team.
 
+The Blocksense Noir compiler follows the development of upstream Noir closely and it
+should be fully compatible with any existing Noir codebase. For more complete and up-to-date
+information regarding the added functionality, please refer to our [User Guide](https://noir.blocksense.network/).
+
 ## Noir Debugging
 
 The Blocksense Noir compiler is fuly integrated in the [CodeTracer](https://github.com/metacraft-labs/codetracer)
