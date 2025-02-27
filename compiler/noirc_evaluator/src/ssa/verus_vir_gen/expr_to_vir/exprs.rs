@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::ssa::verus_vir_gen::*;
 use expr_to_vir::{
     patterns::instruction_to_stmt,
@@ -175,6 +177,69 @@ fn numeric_const_to_expr(numeric_const: &FieldElement, noir_type: &Type) -> Expr
     )
 }
 
+/// Only called from `recursive_ssa_val_to_expr`. It covers only binary operations.
+fn recursive_instruction_to_expr(
+    instruction_id: InstructionId,
+    instruction: &Instruction,
+    mode: Mode,
+    dfg: &DataFlowGraph,
+    current_context: &mut SSAContext,
+    recursion_bottom: &HashSet<ValueId>,
+) -> Expr {
+    match instruction {
+        Instruction::Binary(binary) => binary_instruction_to_expr(
+            instruction_id,
+            binary,
+            mode,
+            dfg,
+            current_context,
+            Some(recursion_bottom),
+        ),
+        _ => unreachable!(
+            "The scope of recursively compatible instructions are only binary operations"
+        ),
+    }
+}
+
+/// Should be only used when it's required to avoid `let` defined variables.
+fn recursive_ssa_val_to_expr(
+    value_id: &ValueId,
+    dfg: &DataFlowGraph,
+    current_context: &mut SSAContext,
+    recursion_bottom: &HashSet<ValueId>,
+    mode: Mode,
+) -> Expr {
+    if recursion_bottom.contains(value_id) {
+        // We have reached a quantifier index, therefore we don't have anymore `let` variables.
+        // This means that the trigger will be clean of `let` variables
+        ssa_value_to_expr(value_id, dfg, current_context.result_id_fixer)
+    } else {
+        let value_id = &dfg.resolve(*value_id);
+        let value = &dfg[*value_id];
+        match value {
+            Value::Instruction { instruction, position: _, typ: _ } => {
+                recursive_instruction_to_expr(
+                    *instruction,
+                    &dfg[*instruction],
+                    mode,
+                    dfg,
+                    current_context,
+                    recursion_bottom,
+                )
+            }
+            Value::Param { .. } | Value::NumericConstant { .. } => {
+                ssa_value_to_expr(value_id, dfg, current_context.result_id_fixer)
+            }
+            Value::Array { .. }
+            | Value::Function(_)
+            | Value::Intrinsic(_)
+            | Value::ForeignFunction(_) => {
+                unreachable!("Array get instruction was called with an obscure index: {:?}", value)
+            }
+        }
+    }
+}
+
 fn ssa_value_to_expr(
     value_id: &ValueId,
     dfg: &DataFlowGraph,
@@ -241,10 +306,22 @@ fn binary_instruction_to_expr(
     mode: Mode,
     dfg: &DataFlowGraph,
     current_context: &mut SSAContext,
+    recursion_bottom: Option<&HashSet<ValueId>>,
 ) -> Expr {
     let Binary { lhs, rhs, operator } = binary;
-    let lhs_expr = ssa_value_to_expr(lhs, dfg, current_context.result_id_fixer);
-    let rhs_expr = ssa_value_to_expr(rhs, dfg, current_context.result_id_fixer);
+    // There is a corner case where we want to build an expression recursively instead of the standard way.
+    // This occurs when we are indexing arrays inside of annotation, inside of quantifier body.
+    let (lhs_expr, rhs_expr) = if let Some(recursion_bottom) = recursion_bottom {
+        (
+            recursive_ssa_val_to_expr(lhs, dfg, current_context, recursion_bottom, mode),
+            recursive_ssa_val_to_expr(rhs, dfg, current_context, recursion_bottom, mode),
+        )
+    } else {
+        (
+            ssa_value_to_expr(lhs, dfg, current_context.result_id_fixer),
+            ssa_value_to_expr(rhs, dfg, current_context.result_id_fixer),
+        )
+    };
     let mut binary_exprx = ExprX::Binary(
         binary_op_to_vir_binary_op(operator, mode, lhs, dfg),
         lhs_expr.clone(),
@@ -619,7 +696,7 @@ fn calculate_index_and_tuple_index(
     index: &Index,
     inner_type_length: usize,
     dfg: &DataFlowGraph,
-    result_id_fixer: Option<&ResultIdFixer>,
+    current_context: &mut SSAContext,
     mode: Mode,
 ) -> (Expr, Option<BigInt>) {
     // If the inner_type_length is less than 2, then the array hasn't been flattened.
@@ -627,7 +704,7 @@ fn calculate_index_and_tuple_index(
     if inner_type_length < 2 {
         match index {
             Index::SsaValue(id) => {
-                return (ssa_value_to_expr(&id, dfg, result_id_fixer), None);
+                return (ssa_value_to_expr(&id, dfg, current_context.result_id_fixer), None);
             }
             Index::ConstIndex(const_index) => {
                 return (
@@ -673,13 +750,31 @@ fn calculate_index_and_tuple_index(
                 ExprX::Const(Constant::Int(tuple_index.clone())),
             );
 
+            // We can not have `let` variables in triggers. Triggers only exist in the context of quantifiers.
+            // To avoid `let` variables we recursively build the index expression.
+            let index_as_expr = if current_context.quantifier_context.is_inside_quantifier_body() {
+                let quantifier_indexes: HashSet<ValueId> = current_context.quantifier_context
+                    .get_top_quant_indexes()
+                    .expect("We are inside of quantifier therefore that quantifier must have some indexes")
+                    .into_iter().map(|index| {
+                        ValueId::new(
+                            extract_quant_index_id(&index).expect("All indexes should be value ids to string"),
+                        )
+                    })
+                    .collect();
+
+                recursive_ssa_val_to_expr(&index, dfg, current_context, &quantifier_indexes, mode)
+            } else {
+                ssa_value_to_expr(&index, dfg, current_context.result_id_fixer)
+            };
+
             // lhs == (index - tuple_index)
             let lhs_expr = SpannedTyped::new(
                 &empty_span(),
                 &from_noir_type(noir_type.clone(), None),
                 ExprX::Binary(
                     VirBinaryOp::Arith(ArithOp::Sub, mode),
-                    ssa_value_to_expr(&index, dfg, result_id_fixer),
+                    index_as_expr,
                     tuple_index_as_expr.clone(),
                 ),
             );
@@ -709,7 +804,7 @@ fn calculate_index_and_tuple_index(
                 &Arc::new(TypX::Bool),
                 ExprX::Binary(
                     VirBinaryOp::Inequality(InequalityOp::Ge),
-                    ssa_value_to_expr(&index, dfg, result_id_fixer),
+                    ssa_value_to_expr(&index, dfg, current_context.result_id_fixer),
                     tuple_index_as_expr,
                 ),
             );
@@ -854,7 +949,7 @@ fn array_get_to_expr(
                 &index,
                 inner_type_length,
                 dfg,
-                current_context.result_id_fixer,
+                current_context,
                 mode,
             );
         }
@@ -871,7 +966,7 @@ fn array_get_to_expr(
                 &index,
                 inner_type_length,
                 dfg,
-                current_context.result_id_fixer,
+                current_context,
                 mode,
             );
         }
@@ -1029,7 +1124,7 @@ fn if_expression_for_array_body(
         &Index::SsaValue(*index),
         inner_type_length,
         dfg,
-        current_context.result_id_fixer,
+        current_context,
         mode,
     );
 
@@ -1235,7 +1330,7 @@ pub(crate) fn instruction_to_expr(
 ) -> Expr {
     match instruction {
         Instruction::Binary(binary) => {
-            binary_instruction_to_expr(instruction_id, binary, mode, dfg, current_context)
+            binary_instruction_to_expr(instruction_id, binary, mode, dfg, current_context, None)
         }
         Instruction::Cast(val_id, noir_type) => {
             cast_instruction_to_expr(val_id, noir_type, dfg, current_context.result_id_fixer)

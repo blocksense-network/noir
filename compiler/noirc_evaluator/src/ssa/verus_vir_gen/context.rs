@@ -122,6 +122,10 @@ impl QuantifierContext {
         self.quant_body.pop()
     }
 
+    pub(crate) fn get_top_quant_indexes(&self) -> Option<&Vec<String>> {
+        self.quant_indexes.last()
+    }
+
     pub(crate) fn is_inside_quantifier_body(&self) -> bool {
         !self.quant_indexes.is_empty()
     }
