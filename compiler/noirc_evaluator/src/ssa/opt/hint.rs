@@ -6,8 +6,7 @@ mod tests {
         brillig::BrilligOptions,
         errors::RuntimeError,
         ssa::{
-            opt::assert_normalized_ssa_equals, optimize_all, Ssa, SsaBuilder, SsaEvaluatorOptions,
-            SsaLogging,
+            opt::assert_normalized_ssa_equals, optimize_all, OptimizationLevel, Ssa, SsaBuilder, SsaEvaluatorOptions, SsaLogging
         },
     };
 
@@ -25,6 +24,7 @@ mod tests {
             max_bytecode_increase_percent: None,
             show_plonky2: false,
             plonky2_print_file: None,
+            optimization_level: OptimizationLevel::All
         };
 
         let builder = SsaBuilder {

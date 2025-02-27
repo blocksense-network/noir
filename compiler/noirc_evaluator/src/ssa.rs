@@ -18,14 +18,14 @@ use crate::{
     errors::{RuntimeError, SsaReport},
 };
 use acvm::{
+    FieldElement,
     acir::{
         circuit::{
-            brillig::BrilligBytecode, Circuit, ErrorSelector, ExpressionWidth,
-            Program as AcirProgram, PublicInputs,
+            Circuit, ErrorSelector, ExpressionWidth, Program as AcirProgram, PublicInputs,
+            brillig::BrilligBytecode,
         },
         native_types::Witness,
     },
-    FieldElement,
 };
 
 use fm::FileMap;
@@ -35,7 +35,7 @@ use noirc_errors::debug_info::{DebugFunctions, DebugInfo, DebugTypes, DebugVaria
 use noirc_frontend::ast::Visibility;
 use noirc_frontend::{hir_def::function::FunctionSignature, monomorphization::ast::Program};
 use ssa_gen::Ssa;
-use tracing::{span, Level};
+use tracing::{Level, span};
 
 use self::plonky2_gen::{Builder, Plonky2Circuit};
 use crate::acir::{Artifacts, GeneratedAcir};
@@ -155,7 +155,7 @@ pub(crate) fn optimize_into_acir(
     // It could happen that we inlined all calls to a given brillig function.
     // In that case it's unused so we can remove it. This is what we check next.
     .run_pass(Ssa::remove_unreachable_functions, "Removing Unreachable Functions (4th)")
-    .run_pass(Ssa::dead_instruction_elimination, "Dead Instruction Elimination (3rd)")
+    .run_pass(Ssa::dead_instruction_elimination_acir, "Dead Instruction Elimination (3rd)")
     .finish();
 
     if !options.skip_underconstrained_check {
@@ -310,6 +310,13 @@ fn optimize_all(builder: SsaBuilder, options: &SsaEvaluatorOptions) -> Result<Ss
         .run_pass(Ssa::brillig_entry_point_analysis, "Brillig Entry Point Analysis")
         // Remove any potentially unnecessary duplication from the Brillig entry point analysis.
         .run_pass(Ssa::remove_unreachable_functions, "Removing Unreachable Functions (3rd)")
+        // This pass makes transformations specific to Brillig generation.
+        // It must be the last pass to either alter or add new instructions before Brillig generation,
+        // as other semantics in the compiler can potentially break (e.g. inserting instructions).
+        // We can safely place the pass before DIE as that pass only removes instructions.
+        // We also need DIE's tracking of used globals in case the array get transformations
+        // end up using an existing constant from the globals space.
+        .run_pass(Ssa::brillig_array_gets, "Brillig Array Get Optimizations")
         .run_pass(Ssa::dead_instruction_elimination, "Dead Instruction Elimination (2nd)")
         .finish())
 }
@@ -371,6 +378,8 @@ fn optimize_for_debug(
         .run_pass(Ssa::dead_instruction_elimination, "Dead Instruction Elimination (1st)")
         // .run_pass(Ssa::simplify_cfg, "Simplifying (3rd):")
         .run_pass(Ssa::array_set_optimization, "Array Set Optimizations")
+        .run_pass(Ssa::brillig_array_gets, "Brillig Array Get Optimizations")
+        .run_pass(Ssa::dead_instruction_elimination, "Dead Instruction Elimination (2nd)")
         .finish())
 }
 
