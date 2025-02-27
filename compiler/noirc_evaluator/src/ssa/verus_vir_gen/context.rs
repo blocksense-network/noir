@@ -98,15 +98,15 @@ impl QuantifierContext {
         (self.pop_indexes(), self.pop_quantifier_body())
     }
 
-    pub(crate) fn push_indexes(&mut self, indexes: Vec<String>) {
+    fn push_indexes(&mut self, indexes: Vec<String>) {
         self.quant_indexes.push(indexes);
     }
 
-    pub(crate) fn pop_indexes(&mut self) -> Option<Vec<String>> {
+    fn pop_indexes(&mut self) -> Option<Vec<String>> {
         self.quant_indexes.pop()
     }
 
-    pub(crate) fn create_quantifier_body(&mut self) {
+    fn create_quantifier_body(&mut self) {
         self.quant_body.push(Vec::new());
     }
 
@@ -118,7 +118,7 @@ impl QuantifierContext {
         }
     }
 
-    pub(crate) fn pop_quantifier_body(&mut self) -> Option<Vec<Stmt>> {
+    fn pop_quantifier_body(&mut self) -> Option<Vec<Stmt>> {
         self.quant_body.pop()
     }
 
