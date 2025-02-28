@@ -195,6 +195,9 @@ fn recursive_instruction_to_expr(
             current_context,
             Some(recursion_bottom),
         ),
+        Instruction::Load { address } => {
+            recursive_ssa_val_to_expr(address, dfg, current_context, recursion_bottom, mode)
+        }
         _ => unreachable!(
             "The scope of recursively compatible instructions are only binary operations"
         ),
@@ -355,7 +358,8 @@ fn binary_instruction_to_expr(
     );
 
     if let Some(condition_id) = current_context.side_effects_condition {
-        if !matches!(operator, BinaryOp::Eq) {  // Eq is not a dangerous operation
+        if !matches!(operator, BinaryOp::Eq) {
+            // Eq is not a dangerous operation
             return wrap_with_an_if_logic(
                 condition_id,
                 binary_expr,
@@ -762,8 +766,12 @@ fn calculate_index_and_tuple_index(
                         )
                     })
                     .collect();
+                
+                let return_vals = current_context.function_details.get_current_function_ret_vals(); // Index could be return val
+                let recursion_bottom: HashSet<ValueId> =
+                    return_vals.iter().cloned().chain(quantifier_indexes.into_iter()).collect();
 
-                recursive_ssa_val_to_expr(&index, dfg, current_context, &quantifier_indexes, mode)
+                recursive_ssa_val_to_expr(&index, dfg, current_context, &recursion_bottom, mode)
             } else {
                 ssa_value_to_expr(&index, dfg, current_context.result_id_fixer)
             };
@@ -888,6 +896,25 @@ fn array_get_to_expr(
         Primitive::Array,
         Arc::new(vec![inner_type.clone(), array_length_as_type.clone()]),
     ));
+
+    let array_id_as_expr = if current_context.quantifier_context.is_inside_quantifier_body() {
+        // There is a corner case where the bottom of the recursion could be the return value of the function.
+        recursive_ssa_val_to_expr(
+            array_id,
+            dfg,
+            current_context,
+            &current_context
+                .function_details
+                .get_current_function_ret_vals()
+                .iter()
+                .cloned()
+                .collect(),
+            mode,
+        )
+    } else {
+        ssa_value_to_expr(array_id, dfg, current_context.result_id_fixer)
+    };
+
     let array_as_vir_expr: Expr = SpannedTyped::new(
         &build_span(
             array_id,
@@ -895,7 +922,7 @@ fn array_get_to_expr(
             Some(dfg.get_call_stack(instruction_id)),
         ),
         &Arc::new(TypX::Decorate(TypDecoration::Ref, None, array_as_primary_vir_type.clone())),
-        (*ssa_value_to_expr(array_id, dfg, current_context.result_id_fixer)).x.clone(),
+        (*array_id_as_expr).x.clone(),
     );
 
     let index_as_vir_expr: Expr;
