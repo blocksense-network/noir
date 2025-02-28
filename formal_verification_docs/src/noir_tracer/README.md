@@ -12,11 +12,12 @@ powerful enough to handle a broad range of Noir programs.
 
 We are using the [runtime
 tracing](https://github.com/metacraft-labs/runtime_tracing) Rust library for
-the tracing format.
-
-An alternative workflow is provided by [CodeTracer](https://github.com/metacraft-labs/codetracer): a time traveling debugger with built-in support for Noir. With it you may traverse the execution timeline forwards and backwards in an intuitive GUI.
-
-More details can be found in section [Debugging with CodeTracer](#debugging-with-codetracer)
+the tracing format. Thanks to this, we have enabled the use of the time
+traveling debugger [CodeTracer](https://github.com/metacraft-labs/codetracer).
+With it you may traverse the execution timeline forwards and backwards in an
+intuitive GUI. More details about it can be found in the subpage [Debugging
+with
+CodeTracer](https://noir.blocksense.network/noir_tracer/debugging_with_codetracer).
 
 ## Installation
 
@@ -141,11 +142,3 @@ all the variables live at each step. Again, this is an early prototype and we
 are in the process of heavily optimizing it, including smart tracking of
 variables and reducing unnecessary repetition so that we keep the file size to
 a minimum.
-
-## Debugging with CodeTracer
-
-After installing [CodeTracer](https://github.com/metacraft-labs/codetracer), you can launch any Noir program with `ct run <program-folder>` to benefit from the powerful debugging experience.
-
-An example of using CodeTracer with Noir can be found in the demonstration video:
-
-[![Watch the video](https://img.youtube.com/vi/xZsJ55JVqmU/maxresdefault.jpg)](https://www.youtube.com/watch?v=xZsJ55JVqmU)
