@@ -96,7 +96,8 @@ pub(crate) fn build_funx(
 
     let ret = get_function_return_param(func)?;
     let result_id_fixer = ResultIdFixer::new(func, &ret).ok();
-    let mut current_context = SSAContext::new(result_id_fixer.as_ref(), None);
+    let return_val_ids = get_function_return_values(func)?;
+    let mut current_context = SSAContext::new(result_id_fixer.as_ref(), None, return_val_ids);
 
     let funx: FunctionX = FunctionX {
         name: func_id_into_funx_name(func_id),

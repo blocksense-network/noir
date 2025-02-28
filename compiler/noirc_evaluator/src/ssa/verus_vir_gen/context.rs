@@ -131,21 +131,35 @@ impl QuantifierContext {
     }
 }
 
+pub(crate) struct FunctionDetails {
+    function_return_args: Vec<ValueId>,
+}
+
+impl FunctionDetails {
+    pub(crate) fn get_current_function_ret_vals(&self) -> &Vec<ValueId> {
+        &self.function_return_args
+    }
+}
+
 pub(crate) struct SSAContext<'a> {
     pub result_id_fixer: Option<&'a ResultIdFixer>,
     pub side_effects_condition: Option<ValueId>,
     pub quantifier_context: QuantifierContext,
+    pub function_details: FunctionDetails,
 }
 
 impl<'a> SSAContext<'a> {
     pub(crate) fn new(
         result_id_fixer: Option<&'a ResultIdFixer>,
         side_effects_condition: Option<ValueId>,
+        function_return_args: Vec<ValueId>,
     ) -> Self {
+        let function_details = FunctionDetails { function_return_args };
         SSAContext {
             result_id_fixer,
             side_effects_condition,
             quantifier_context: QuantifierContext::new(),
+            function_details,
         }
     }
 }
