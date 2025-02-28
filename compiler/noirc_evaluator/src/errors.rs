@@ -8,7 +8,7 @@
 //!
 //! An Error of the latter is an error in the implementation of the compiler
 use iter_extended::vecmap;
-use noirc_errors::{CustomDiagnostic as Diagnostic, FileDiagnostic, Location};
+use noirc_errors::{CustomDiagnostic, Location};
 use noirc_frontend::signed_field::SignedField;
 use thiserror::Error;
 
@@ -104,8 +104,8 @@ pub enum SsaReport {
     Bug(InternalBug),
 }
 
-impl From<SsaReport> for FileDiagnostic {
-    fn from(error: SsaReport) -> FileDiagnostic {
+impl From<SsaReport> for CustomDiagnostic {
+    fn from(error: SsaReport) -> CustomDiagnostic {
         match error {
             SsaReport::Warning(warning) => {
                 let message = warning.to_string();
@@ -118,10 +118,10 @@ impl From<SsaReport> for FileDiagnostic {
                     },
                 };
                 let call_stack = vecmap(call_stack, |location| location);
-                let file_id = call_stack.last().map(|location| location.file).unwrap_or_default();
                 let location = call_stack.last().expect("Expected RuntimeError to have a location");
-                let diagnostic = Diagnostic::simple_warning(message, secondary_message, *location);
-                diagnostic.with_call_stack(call_stack).in_file(file_id)
+                let diagnostic =
+                    CustomDiagnostic::simple_warning(message, secondary_message, *location);
+                diagnostic.with_call_stack(call_stack)
             }
             SsaReport::Bug(bug) => {
                 let message = bug.to_string();
@@ -135,10 +135,10 @@ impl From<SsaReport> for FileDiagnostic {
                     InternalBug::AssertFailed { call_stack } => ("As a result, the compiled circuit is ensured to fail. Other assertions may also fail during execution".to_string(), call_stack)
                 };
                 let call_stack = vecmap(call_stack, |location| location);
-                let file_id = call_stack.last().map(|location| location.file).unwrap_or_default();
                 let location = call_stack.last().expect("Expected RuntimeError to have a location");
-                let diagnostic = Diagnostic::simple_bug(message, secondary_message, *location);
-                diagnostic.with_call_stack(call_stack).in_file(file_id)
+                let diagnostic =
+                    CustomDiagnostic::simple_bug(message, secondary_message, *location);
+                diagnostic.with_call_stack(call_stack)
             }
         }
     }
@@ -212,20 +212,19 @@ impl RuntimeError {
     }
 }
 
-impl From<RuntimeError> for FileDiagnostic {
-    fn from(error: RuntimeError) -> FileDiagnostic {
+impl From<RuntimeError> for CustomDiagnostic {
+    fn from(error: RuntimeError) -> CustomDiagnostic {
         let call_stack = vecmap(error.call_stack(), |location| *location);
-        let file_id = call_stack.last().map(|location| location.file).unwrap_or_default();
         let diagnostic = error.into_diagnostic();
-        diagnostic.with_call_stack(call_stack).in_file(file_id)
+        diagnostic.with_call_stack(call_stack)
     }
 }
 
 impl RuntimeError {
-    fn into_diagnostic(self) -> Diagnostic {
+    fn into_diagnostic(self) -> CustomDiagnostic {
         match self {
             RuntimeError::InternalError(cause) => {
-                Diagnostic::simple_error(
+                CustomDiagnostic::simple_error(
                     "Internal Consistency Evaluators Errors: \n
                     This is likely a bug. Consider opening an issue at https://github.com/noir-lang/noir/issues".to_owned(),
                     cause.to_string(),
@@ -237,7 +236,7 @@ impl RuntimeError {
                 let location =
                     self.call_stack().last().expect("Expected RuntimeError to have a location");
 
-                Diagnostic::simple_error(
+                CustomDiagnostic::simple_error(
                     primary_message,
                     "If attempting to fetch the length of a slice, try converting to an array. Slices only use dynamic lengths.".to_string(),
                     *location,
@@ -248,7 +247,7 @@ impl RuntimeError {
                 let location =
                     self.call_stack().last().unwrap_or_else(|| panic!("Expected RuntimeError to have a location. Error message: {message}"));
 
-                Diagnostic::simple_error(message, String::new(), *location)
+                CustomDiagnostic::simple_error(message, String::new(), *location)
             }
         }
     }
