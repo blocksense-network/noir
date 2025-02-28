@@ -14,4 +14,6 @@
 - [Noir PLONKY2 Backend](./noir_plonky2_backend/README.md)
   - [Getting Started](./noir_plonky2_backend/getting_started.md)
 - [Noir Tracer](./noir_tracer/README.md)
+  - [Debugging with CodeTracer](./noir_tracer/debugging_with_codetracer.md)
+
 
