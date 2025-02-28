@@ -1,5 +1,6 @@
 # Summary
 
+- [Blocksense Noir](./blocksense_noir.md)
 - [Noir Formal Verification](./noir_formal_verification/README.md)
   - [Getting Started](./noir_formal_verification/getting_started.md)
   - [Specifications](./noir_formal_verification/specifications/README.md)
