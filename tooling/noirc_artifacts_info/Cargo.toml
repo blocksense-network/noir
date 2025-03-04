@@ -17,6 +17,10 @@ serde_json.workspace = true
 acir.workspace = true
 noirc_artifacts.workspace = true
 rayon.workspace = true
-acvm = { workspace = true, features = ["bn254"] }
+acvm.workspace = true
 iter-extended.workspace = true
 prettytable-rs = "0.10"
+
+[features]
+bn254 = ["acir/bn254", "acvm/bn254", "noirc_artifacts/bn254"]
+goldilocks = ["acir/goldilocks", "acvm/goldilocks", "noirc_artifacts/goldilocks"]

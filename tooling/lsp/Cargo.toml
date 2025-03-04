@@ -40,3 +40,7 @@ wasm-bindgen.workspace = true
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["macros", "rt"] }
+
+[features]
+bn254 = ["acvm/bn254", "nargo/bn254", "nargo_fmt/bn254", "nargo_toml/bn254", "noirc_driver/bn254", "noirc_frontend/bn254"]
+goldilocks = ["acvm/goldilocks", "nargo/goldilocks", "nargo_fmt/goldilocks", "nargo_toml/goldilocks", "noirc_driver/goldilocks", "noirc_frontend/goldilocks"]

@@ -17,7 +17,7 @@ build-data.workspace = true
 acvm.workspace = true
 fm.workspace = true
 nargo.workspace = true
-noirc_frontend = { workspace = true, features = ["bn254"] }
+noirc_frontend.workspace = true
 noirc_printable_type.workspace = true
 noirc_errors.workspace = true
 noirc_driver.workspace = true
@@ -33,3 +33,7 @@ serde_json.workspace = true
 assert_cmd = "2.0.12"
 rexpect = "0.5.0"
 tempfile.workspace = true
+
+[features]
+bn254 = ["acvm/bn254", "nargo/bn254", "noirc_frontend/bn254", "noirc_printable_type/bn254", "noirc_driver/bn254", "noirc_artifacts/bn254"]
+goldilocks = ["acvm/goldilocks", "nargo/goldilocks", "noirc_frontend/goldilocks", "noirc_printable_type/goldilocks", "noirc_driver/goldilocks", "noirc_artifacts/goldilocks"]

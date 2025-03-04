@@ -29,6 +29,6 @@ rust-embed.workspace = true
 tracing.workspace = true
 
 [features]
-bn254 = ["noirc_frontend/bn254", "noirc_evaluator/bn254"]
-bls12_381 = ["noirc_frontend/bls12_381", "noirc_evaluator/bls12_381"]
-goldilocks = ["noirc_frontend/goldilocks", "noirc_evaluator/goldilocks"]
+bn254 = ["noirc_frontend/bn254", "noirc_evaluator/bn254", "noirc_abi/bn254"]
+bls12_381 = ["noirc_frontend/bls12_381", "noirc_evaluator/bls12_381", "noirc_abi/bls12_381"]
+goldilocks = ["noirc_frontend/goldilocks", "noirc_evaluator/goldilocks", "noirc_abi/goldilocks"]

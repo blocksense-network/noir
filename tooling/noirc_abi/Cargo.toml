@@ -29,6 +29,6 @@ proptest.workspace = true
 proptest-derive.workspace = true
 
 [features]
-bn254 = ["acvm/bn254"]
-bls12_381 = ["acvm/bls12_381"]
-goldilocks = ["acvm/goldilocks"]
+bn254 = ["acvm/bn254", "noirc_printable_type/bn254"]
+bls12_381 = ["acvm/bls12_381", "noirc_printable_type/bls12_381"]
+goldilocks = ["acvm/goldilocks", "noirc_printable_type/goldilocks"]

@@ -48,5 +48,5 @@ paste = "1.0.14"
 
 [features]
 default = ["bn254"]
-bn254 = ["dep:bn254_blackbox_solver"]
-goldilocks = ["dep:goldilocks_blackbox_solver"]
+bn254 = ["acir/bn254", "acvm/bn254", "nargo/bn254", "noir_artifact_cli/bn254", "dep:bn254_blackbox_solver"]
+goldilocks = ["acir/goldilocks", "acvm/goldilocks", "nargo/goldilocks", "noir_artifact_cli/goldilocks", "dep:goldilocks_blackbox_solver"]

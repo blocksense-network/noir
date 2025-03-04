@@ -41,6 +41,6 @@ proptest-derive = "0.5.0"
 
 [features]
 experimental_parser = []
-bn254 = ["dep:bn254_blackbox_solver"]
-bls12_381 = []
-goldilocks = ["dep:goldilocks_blackbox_solver"]
+bn254 = ["acvm/bn254", "noirc_printable_type/bn254", "dep:bn254_blackbox_solver"]
+bls12_381 = ["acvm/bls12_381", "noirc_printable_type/bls12_381"]
+goldilocks = ["acvm/goldilocks", "noirc_printable_type/goldilocks", "dep:goldilocks_blackbox_solver"]

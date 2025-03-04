@@ -29,3 +29,7 @@ tracing.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 test-case.workspace = true
+
+[features]
+bn254 = ["nargo/bn254", "noirc_frontend/bn254", "noirc_driver/bn254"]
+goldilocks = ["nargo/goldilocks", "noirc_frontend/goldilocks", "noirc_driver/goldilocks"]

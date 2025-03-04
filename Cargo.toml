@@ -73,7 +73,7 @@ unused_qualifications = "warn"
 acir_field_goldilocks = { version = "1.0.0-beta.3", path = "acvm-repo/acir_field_goldilocks", default-features = false }
 acir_field = { version = "1.0.0-beta.3", path = "acvm-repo/acir_field", default-features = false }
 acir = { version = "1.0.0-beta.3", path = "acvm-repo/acir", default-features = false }
-acvm = { version = "1.0.0-beta.3", path = "acvm-repo/acvm" }
+acvm = { version = "1.0.0-beta.3", path = "acvm-repo/acvm", default-features = false }
 brillig = { version = "1.0.0-beta.3", path = "acvm-repo/brillig", default-features = false }
 brillig_vm = { version = "1.0.0-beta.3", path = "acvm-repo/brillig_vm", default-features = false }
 acvm_blackbox_solver = { version = "1.0.0-beta.3", path = "acvm-repo/blackbox_solver", default-features = false }

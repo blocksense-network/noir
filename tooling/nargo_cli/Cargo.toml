@@ -124,5 +124,5 @@ harness = false
 [features]
 default = ["bn254"]
 codegen-docs = ["dep:clap-markdown"]
-bn254 = ["noirc_driver/bn254", "noirc_frontend/bn254", "noirc_evaluator/bn254", "acvm/bn254", "dep:bn254_blackbox_solver"]
-goldilocks = ["noirc_driver/goldilocks", "noirc_frontend/goldilocks", "noirc_evaluator/goldilocks", "acvm/goldilocks", "dep:goldilocks_blackbox_solver"]
+bn254 = ["nargo/bn254", "nargo_fmt/bn254", "nargo_toml/bn254", "noir_lsp/bn254", "noirc_driver/bn254", "noirc_frontend/bn254", "noirc_evaluator/bn254", "acvm/bn254", "noir_debugger/bn254", "noir_tracer/bn254", "noirc_abi/bn254", "noirc_artifacts/bn254", "noirc_artifacts_info/bn254", "dep:bn254_blackbox_solver"]
+goldilocks = ["nargo/goldilocks", "nargo_fmt/goldilocks", "nargo_toml/goldilocks", "noir_lsp/goldilocks", "noirc_driver/goldilocks", "noirc_frontend/goldilocks", "noirc_evaluator/goldilocks", "acvm/goldilocks", "noir_debugger/goldilocks", "noir_tracer/goldilocks", "noirc_abi/goldilocks", "noirc_artifacts/goldilocks", "noirc_artifacts_info/goldilocks", "dep:goldilocks_blackbox_solver"]

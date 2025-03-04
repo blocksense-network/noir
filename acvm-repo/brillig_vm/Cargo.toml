@@ -23,6 +23,6 @@ num-traits.workspace = true
 thiserror.workspace = true
 
 [features]
-bn254 = ["acir/bn254"]
-bls12_381 = ["acir/bls12_381"]
-goldilocks = ["acir/goldilocks"]
+bn254 = ["acir/bn254", "acvm_blackbox_solver/bn254"]
+bls12_381 = ["acir/bls12_381", "acvm_blackbox_solver/bls12_381"]
+goldilocks = ["acir/goldilocks", "acvm_blackbox_solver/goldilocks"]

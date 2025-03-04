@@ -18,3 +18,7 @@ thiserror.workspace = true
 
 [dev-dependencies]
 similar-asserts.workspace = true
+
+[features]
+bn254 = ["noirc_frontend/bn254"]
+goldilocks = ["noirc_frontend/goldilocks"]

@@ -19,3 +19,7 @@ noirc_evaluator.workspace = true
 noirc_printable_type.workspace = true
 runtime_tracing.workspace = true
 tracing.workspace = true
+
+[features]
+bn254 = ["acvm/bn254", "nargo/bn254", "noir_debugger/bn254", "noirc_abi/bn254", "noirc_artifacts/bn254", "noirc_evaluator/bn254", "noirc_printable_type/bn254"]
+goldilocks = ["acvm/goldilocks", "nargo/goldilocks", "noir_debugger/goldilocks", "noirc_abi/goldilocks", "noirc_artifacts/goldilocks", "noirc_evaluator/goldilocks", "noirc_printable_type/goldilocks"]

@@ -14,8 +14,8 @@ repository.workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
-acvm = { workspace = true, features = ["bn254"] }
-noirc_abi = { workspace = true, features = ["bn254"] }
+acvm.workspace = true
+noirc_abi.workspace = true
 iter-extended.workspace = true
 wasm-bindgen.workspace = true
 serde.workspace = true
@@ -33,3 +33,8 @@ build-data.workspace = true
 
 [dev-dependencies]
 wasm-bindgen-test.workspace = true
+
+[features]
+bn254 = ["acvm/bn254", "noirc_abi/bn254"]
+bls12_381 = ["acvm/bls12_381", "noirc_abi/bls12_381"]
+goldilocks = ["acvm/goldilocks", "noirc_abi/goldilocks"]

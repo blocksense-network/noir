@@ -18,3 +18,8 @@ noirc_artifacts.workspace = true
 noirc_abi.workspace = true
 proptest.workspace = true
 rand.workspace = true
+
+[features]
+bn254 = ["acvm/bn254", "noirc_artifacts/bn254", "noirc_abi/bn254"]
+bls12_381 = ["acvm/bls12_381", "noirc_artifacts/bls12_381", "noirc_abi/bls12_381"]
+goldilocks = ["acvm/goldilocks", "noirc_artifacts/goldilocks", "noirc_abi/goldilocks"]

@@ -16,8 +16,8 @@ workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-acir.workspace = true
-acvm_blackbox_solver.workspace = true
+acir = { workspace = true, features = ["goldilocks"] }
+acvm_blackbox_solver = { workspace = true, features = ["goldilocks"] }
 hex.workspace = true
 lazy_static.workspace = true
 

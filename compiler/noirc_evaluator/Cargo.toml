@@ -47,6 +47,6 @@ num-traits.workspace = true
 test-case.workspace = true
 
 [features]
-bn254 = ["noirc_frontend/bn254", "dep:bn254_blackbox_solver"]
-bls12_381 = []
-goldilocks = ["dep:goldilocks_blackbox_solver"]
+bn254 = ["noirc_frontend/bn254", "noirc_abi/bn254", "acvm/bn254", "dep:bn254_blackbox_solver"]
+bls12_381 = ["noirc_frontend/bls12_381", "noirc_abi/bls12_381", "acvm/bls12_381"]
+goldilocks = ["noirc_frontend/goldilocks", "noirc_abi/goldilocks", "acvm/goldilocks", "dep:goldilocks_blackbox_solver"]

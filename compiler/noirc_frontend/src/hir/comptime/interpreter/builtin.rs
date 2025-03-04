@@ -16,6 +16,14 @@ use noirc_errors::{Location, Span};
 use num_bigint::BigUint;
 use rustc_hash::FxHashMap as HashMap;
 
+cfg_if::cfg_if! {
+    if #[cfg(feature = "goldilocks")] {
+        use goldilocks_blackbox_solver as blackbox_solver;
+    } else {
+        use bn254_blackbox_solver as blackbox_solver;
+    }
+}
+
 use crate::{
     ast::{
         ArrayLiteral, BlockExpression, ConstrainKind, Expression, ExpressionKind, ForRange,
@@ -3014,7 +3022,7 @@ fn derive_generators(
         InterpreterError::UnknownArrayLength { length: *size, err, location }
     })?;
 
-    let generators = bn254_blackbox_solver::derive_generators(
+    let generators = blackbox_solver::derive_generators(
         &domain_separator_string,
         num_generators,
         starting_index,

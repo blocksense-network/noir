@@ -1,7 +1,13 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
 use acir::{circuit::Program, native_types::WitnessStack, FieldElement};
-use bn254_blackbox_solver::Bn254BlackBoxSolver;
+cfg_if::cfg_if! {
+    if #[cfg(feature = "goldilocks")] {
+        use goldilocks_blackbox_solver::GoldilocksBlackBoxSolver as Bn254BlackBoxSolver;
+    } else {
+        use bn254_blackbox_solver::Bn254BlackBoxSolver;
+    }
+}
 use clap::Args;
 use color_eyre::eyre::{self, bail};
 

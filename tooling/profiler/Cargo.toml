@@ -50,5 +50,5 @@ tempfile.workspace = true
 
 [features]
 default = ["bn254"]
-bn254 = ["noirc_evaluator/bn254", "dep:bn254_blackbox_solver"]
-goldilocks = ["noirc_evaluator/goldilocks", "dep:goldilocks_blackbox_solver"]
+bn254 = ["noirc_artifacts/bn254", "acir/bn254", "nargo/bn254", "noirc_abi/bn254", "noirc_evaluator/bn254", "dep:bn254_blackbox_solver"]
+goldilocks = ["noirc_artifacts/goldilocks", "acir/goldilocks", "nargo/goldilocks", "noirc_abi/goldilocks", "noirc_evaluator/goldilocks", "dep:goldilocks_blackbox_solver"]

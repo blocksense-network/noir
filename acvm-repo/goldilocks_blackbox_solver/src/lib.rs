@@ -5,11 +5,11 @@
 use acvm_blackbox_solver::{BlackBoxFunctionSolver, BlackBoxResolutionError};
 
 //mod embedded_curve_ops;
-//mod generator;
+mod generator;
 //mod poseidon2;
 
 //pub use embedded_curve_ops::{embedded_curve_add, multi_scalar_mul};
-//pub use generator::generators::derive_generators;
+pub use generator::generators::derive_generators;
 //pub use poseidon2::{
 //    field_from_hex, poseidon2_permutation, poseidon_hash, Poseidon2Config, Poseidon2Sponge,
 //    POSEIDON2_CONFIG,
