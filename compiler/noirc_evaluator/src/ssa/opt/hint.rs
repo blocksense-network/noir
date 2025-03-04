@@ -19,7 +19,7 @@ mod tests {
             emit_ssa: None,
             skip_underconstrained_check: true,
             enable_brillig_constraints_check_lookback: false,
-            enable_brillig_constraints_check: false,
+            skip_brillig_constraints_check: true,
             inliner_aggressiveness: 0,
             max_bytecode_increase_percent: None,
             show_plonky2: false,
