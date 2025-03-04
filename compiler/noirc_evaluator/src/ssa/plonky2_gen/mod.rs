@@ -296,12 +296,12 @@ impl P2Target {
     /// array, there would be multiple targets wrapped.
     fn extend_parameter_list(&self, parameters: &mut Vec<Target>) -> Result<(), Plonky2GenError> {
         Ok(match &self {
-            P2Target::ArrayTarget(ref targets) => {
+            P2Target::ArrayTarget(targets) => {
                 for target in targets {
                     let _ = target.extend_parameter_list(parameters)?;
                 }
             }
-            P2Target::StructTarget(ref targets) => {
+            P2Target::StructTarget(targets) => {
                 for target in targets {
                     let _ = target.extend_parameter_list(parameters)?;
                 }

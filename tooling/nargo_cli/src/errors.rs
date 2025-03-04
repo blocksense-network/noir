@@ -3,11 +3,7 @@ use hex::FromHexError;
 use nargo::{errors::CompileError, NargoError};
 use nargo_toml::ManifestError;
 use noir_debugger::errors::DapError;
-use noirc_abi::{
-    errors::{AbiError, InputParserError},
-    input_parser::InputValue,
-    AbiReturnType,
-};
+use noirc_abi::{errors::{AbiError, InputParserError}, input_parser::InputValue, AbiReturnType};
 use std::path::PathBuf;
 use thiserror::Error;
 
@@ -31,9 +27,6 @@ pub(crate) enum FilesystemError {
     /// WitnessStack serialization error
     #[error(transparent)]
     WitnessStackSerialization(#[from] WitnessStackError),
-
-    #[error("Error: could not deserialize build program: {0}")]
-    ProgramSerializationError(String),
 }
 
 #[derive(Debug, Error)]
@@ -50,13 +43,13 @@ pub(crate) enum CliError {
     #[error("Invalid package name {0}. Did you mean to use `--name`?")]
     InvalidPackageName(String),
 
+    /// Artifact CLI error
+    #[error(transparent)]
+    ArtifactError(#[from] noir_artifact_cli::errors::CliError),
+
     /// ABI encoding/decoding error
     #[error(transparent)]
     AbiError(#[from] AbiError),
-
-    /// Filesystem errors
-    #[error(transparent)]
-    FilesystemError(#[from] FilesystemError),
 
     #[error(transparent)]
     LspError(#[from] async_lsp::Error),
@@ -92,4 +85,16 @@ pub(crate) enum BackendError {
     #[error("Backend does not support {0}.")]
     UnfitBackend(String),
     
+}
+
+impl From<FilesystemError> for CliError {
+    fn from(error: FilesystemError) -> Self {
+        match error {
+            FilesystemError::PathNotValid(ref _path) => CliError::Generic(format!("{}", error)),
+            FilesystemError::HexArtifactNotValid(ref _e) => CliError::Generic(format!("{}", error)),
+            FilesystemError::MissingTomlFile(ref _name,ref _path) => CliError::Generic(format!("{}", error)),
+            FilesystemError::InputParserError(ref _e) => CliError::Generic(format!("{}", error)),
+            FilesystemError::WitnessStackSerialization(ref _e) => CliError::Generic(format!("{}", error)),
+        }
+    }
 }

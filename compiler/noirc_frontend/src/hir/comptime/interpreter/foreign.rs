@@ -1,7 +1,7 @@
 use acvm::{
+    AcirField, BlackBoxResolutionError, FieldElement,
     acir::BlackBoxFunc,
     blackbox_solver::{BigIntSolverWithId, BlackBoxFunctionSolver},
-    AcirField, BlackBoxResolutionError, FieldElement,
 };
 cfg_if::cfg_if! {
     if #[cfg(feature = "goldilocks")] {
@@ -14,24 +14,24 @@ use im::Vector;
 use noirc_errors::Location;
 
 use crate::{
+    Type,
     hir::comptime::{
-        errors::IResult, interpreter::builtin::builtin_helpers::to_byte_array, InterpreterError,
-        Value,
+        InterpreterError, Value, errors::IResult,
+        interpreter::builtin::builtin_helpers::to_byte_array,
     },
     node_interner::NodeInterner,
-    Type,
 };
 
 use super::{
+    Interpreter,
     builtin::builtin_helpers::{
         check_arguments, check_one_argument, check_three_arguments, check_two_arguments,
         get_array_map, get_bool, get_field, get_fixed_array_map, get_slice_map, get_struct_field,
-        get_struct_fields, get_u32, get_u64, get_u8, to_byte_slice, to_field_array, to_struct,
+        get_struct_fields, get_u8, get_u32, get_u64, to_byte_slice, to_field_array, to_struct,
     },
-    Interpreter,
 };
 
-impl<'local, 'context> Interpreter<'local, 'context> {
+impl Interpreter<'_, '_> {
     pub(super) fn call_foreign(
         &mut self,
         name: &str,
@@ -240,7 +240,7 @@ fn blake_hash(
 ///   signature: [u8; 64],
 ///   message_hash: [u8; N],
 /// ) -> bool
-
+///
 /// pub fn verify_signature_slice(
 ///   public_key_x: [u8; 32],
 ///   public_key_y: [u8; 32],
@@ -428,11 +428,11 @@ mod tests {
     use noirc_errors::Location;
     use strum::IntoEnumIterator;
 
-    use crate::hir::comptime::tests::with_interpreter;
+    use crate::Type;
     use crate::hir::comptime::InterpreterError::{
         ArgumentCountMismatch, InvalidInComptimeContext, Unimplemented,
     };
-    use crate::Type;
+    use crate::hir::comptime::tests::with_interpreter;
 
     use super::call_foreign;
 

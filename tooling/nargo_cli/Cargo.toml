@@ -23,6 +23,7 @@ build-data.workspace = true
 toml.workspace = true
 
 [dependencies]
+base64ct = "~1.6"
 clap.workspace = true
 fm.workspace = true
 fxhash.workspace = true
@@ -37,6 +38,7 @@ nargo = { workspace = true, features = ["rpc"] }
 nargo_fmt.workspace = true
 nargo_toml.workspace = true
 noir_lsp.workspace = true
+noir_artifact_cli.workspace = true
 noir_debugger.workspace = true
 noir_tracer.workspace = true
 noirc_driver.workspace = true

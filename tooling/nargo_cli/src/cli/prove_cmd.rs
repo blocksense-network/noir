@@ -6,9 +6,10 @@ use nargo::package::Package;
 use nargo::workspace::Workspace;
 use nargo::{insert_all_files_for_workspace_into_file_manager, parse_all};
 use nargo_toml::{get_package_manifest, resolve_workspace_from_toml};
+// use noir_artifact_cli::execution::execute_program;
 use noirc_abi::input_parser::Format;
 use noirc_driver::{
-    file_manager_with_stdlib, CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING,
+    CompileOptions, CompiledProgram, NOIR_ARTIFACT_VERSION_STRING, file_manager_with_stdlib,
 };
 
 use super::fs::{
@@ -16,10 +17,7 @@ use super::fs::{
     proof::save_proof_to_dir,
 };
 use super::{NargoConfig, PackageOptions};
-use crate::{
-    cli::execute_cmd::execute_program,
-    errors::{BackendError, CliError},
-};
+use crate::errors::{BackendError, CliError};
 
 /// Create proof for this program. The proof is returned as a hex encoded string.
 #[derive(Debug, Clone, Args)]
@@ -116,7 +114,7 @@ pub(crate) fn prove_package(
     let (inputs_map, _) =
         read_inputs_from_file(&package.root_dir, prover_name, Format::Toml, &compiled_program.abi)?;
 
-    let witness_stack = execute_program(
+    let witness_stack = noir_artifact_cli::execution::execute_program(
         &compiled_program,
         &inputs_map,
         foreign_call_resolver_url,

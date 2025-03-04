@@ -26,7 +26,8 @@ const_format.workspace = true
 acir.workspace = true
 noirc_artifacts.workspace = true
 noirc_artifacts_info.workspace = true
+noir_artifact_cli.workspace = true
 
 [features]
-bn254 = ["acir/bn254", "noirc_artifacts/bn254", "noirc_artifacts_info/bn254"]
-goldilocks = ["acir/goldilocks", "noirc_artifacts/goldilocks", "noirc_artifacts_info/goldilocks"]
+bn254 = ["acir/bn254", "noirc_artifacts/bn254", "noirc_artifacts_info/bn254", "noir_artifact_cli/bn254"]
+goldilocks = ["acir/goldilocks", "noirc_artifacts/goldilocks", "noirc_artifacts_info/goldilocks", "noir_artifact_cli/goldilocks"]

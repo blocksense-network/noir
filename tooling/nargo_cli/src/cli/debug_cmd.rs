@@ -1,7 +1,7 @@
-use std::path::PathBuf;
+use std::path::Path;
 
-use acvm::acir::native_types::WitnessStack;
 use acvm::FieldElement;
+use acvm::acir::native_types::WitnessStack;
 cfg_if::cfg_if! {
     if #[cfg(feature = "goldilocks")] {
         use goldilocks_blackbox_solver::GoldilocksBlackBoxSolver as Bn254BlackBoxSolver;
@@ -19,14 +19,15 @@ use nargo::package::{CrateName, Package};
 use nargo::workspace::Workspace;
 use nargo::{insert_all_files_for_workspace_into_file_manager, parse_all};
 use nargo_toml::PackageSelection;
-use noirc_abi::input_parser::{Format, InputValue};
+use noir_artifact_cli::fs::inputs::read_inputs_from_file;
+use noir_artifact_cli::fs::witness::save_witness_to_dir;
 use noirc_abi::InputMap;
-use noirc_driver::{file_manager_with_stdlib, CompileOptions, CompiledProgram};
+use noirc_abi::input_parser::InputValue;
+use noirc_driver::{CompileOptions, CompiledProgram, file_manager_with_stdlib};
 use noirc_frontend::debug::DebugInstrumenter;
 use noirc_frontend::hir::ParsedFiles;
 
 use super::compile_cmd::get_target_width;
-use super::fs::{inputs::read_inputs_from_file, witness::save_witness_to_dir};
 use super::{LockType, WorkspaceCommand};
 use crate::errors::CliError;
 
@@ -118,7 +119,7 @@ pub(crate) fn compile_bin_package_for_debugging(
     skip_instrumentation: bool,
     compile_options: CompileOptions,
 ) -> Result<CompiledProgram, CompileError> {
-    let mut workspace_file_manager = file_manager_with_stdlib(std::path::Path::new(""));
+    let mut workspace_file_manager = file_manager_with_stdlib(Path::new(""));
     insert_all_files_for_workspace_into_file_manager(workspace, &mut workspace_file_manager);
     let mut parsed_files = parse_all(&workspace_file_manager);
 
@@ -198,7 +199,7 @@ fn run_async(
     program: CompiledProgram,
     prover_name: &str,
     witness_name: &Option<String>,
-    target_dir: &PathBuf,
+    target_dir: &Path,
     pedantic_solving: bool,
     raw_source_printing: bool,
 ) -> Result<(), CliError> {
@@ -224,7 +225,7 @@ fn run_async(
 
             if let Some(witness_name) = witness_name {
                 let witness_path =
-                    save_witness_to_dir(solved_witness_stack, witness_name, target_dir)?;
+                    save_witness_to_dir(&solved_witness_stack, witness_name, target_dir)?;
 
                 println!("[{}] Witness saved to {}", package.name, witness_path.display());
             }
@@ -244,8 +245,10 @@ fn debug_program_and_decode(
     raw_source_printing: bool,
 ) -> Result<(Option<InputValue>, Option<WitnessStack<FieldElement>>), CliError> {
     // Parse the initial witness values from Prover.toml
-    let (inputs_map, _) =
-        read_inputs_from_file(&package.root_dir, prover_name, Format::Toml, &program.abi)?;
+    let (inputs_map, _) = read_inputs_from_file(
+        &package.root_dir.join(prover_name).with_extension("toml"),
+        &program.abi,
+    )?;
     let program_abi = program.abi.clone();
     let witness_stack = debug_program(program, &inputs_map, pedantic_solving, raw_source_printing)?;
 

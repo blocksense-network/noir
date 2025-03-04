@@ -1,19 +1,38 @@
 # The Blocksense Noir compiler
 
-An essential component of Blocksense is ZK proofs, the primary technology
-which eliminates bad actors from manipulating truth. In order to make it easier
-for our ZK engineers to develop this component, we built a PLONKY2 backend for
-the Noir programming language. While this backend is not completely stable, it
-already serves as a good proof-of-concept. Since our work is public and
-open-source, anyone can download it, try it out, and submit feedback.
+The Blocksense team is developing several extensions to the Noir programming
+language and its compiler that we use internally for the development of the
+Blocksense network protocol.
 
-In addition to the PLONKY2 backend, we have also developed a proof-of-concept
-formal verification system for the Noir language. Formal verification is able
-to mathematically ensure that all possible scenarios are accounted for. In this
-way it covers more possibilities than hand-made tests would and eliminates
-entire categories of bugs, rather than addressing cases one by one.
+At the moment, our extensions enable the following:
+
+* Noir time-travel debugging in the [CodeTracer](https://github.com/metacraft-labs/codetracer) environment.
+
+* Formal verification of Noir circuits, based on the Z3 SMT solver and the IR
+ language of the [Verus project](https://github.com/verus-lang/verus).
+
+* Targeting the PLONKY2 proof system from Noir.
+
+All of these developments are expected to reach a production-ready status in
+the future and we plan to contribute them back to upstream Noir as soon as they
+are deemed acceptable by the Noir team.
+
+The Blocksense Noir compiler follows the development of upstream Noir closely and it
+should be fully compatible with any existing Noir codebase. For more complete and up-to-date
+information regarding the added functionality, please refer to our [User Guide](https://noir.blocksense.network/).
+
+## Noir Debugging
+
+The Blocksense Noir compiler is fuly integrated in the [CodeTracer](https://github.com/metacraft-labs/codetracer)
+debugging environment. After installing CodeTracer, you can launch any Noir program with
+`ct run <program-folder>` to benefit from the powerful debugging experience.
 
 ## Formal Verification in Noir
+
+The goal of formal verification is able to mathematically ensure that all possible
+scenarios are accounted for. In this way, it covers more possibilities than hand-made
+tests would and eliminates entire categories of bugs, rather than addressing cases
+one by one.
 
 Targeting constraint systems introduces some natural limitations to the
 expressivity of Noir. The lack of pointers, random-access to memory, resource

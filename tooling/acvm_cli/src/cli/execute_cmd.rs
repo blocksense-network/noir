@@ -1,9 +1,9 @@
 use std::io::{self, Write};
 use std::path::PathBuf;
 
+use acir::FieldElement;
 use acir::circuit::Program;
 use acir::native_types::{WitnessMap, WitnessStack};
-use acir::FieldElement;
 cfg_if::cfg_if! {
     if #[cfg(feature = "goldilocks")] {
         use goldilocks_blackbox_solver::GoldilocksBlackBoxSolver as Bn254BlackBoxSolver;
@@ -14,7 +14,7 @@ cfg_if::cfg_if! {
 use clap::Args;
 use nargo::PrintOutput;
 
-use nargo::{foreign_calls::DefaultForeignCallBuilder, ops::execute_program};
+use nargo::foreign_calls::DefaultForeignCallBuilder;
 use noir_artifact_cli::errors::CliError;
 use noir_artifact_cli::fs::artifact::read_bytecode_from_file;
 use noir_artifact_cli::fs::witness::save_witness_to_dir;
@@ -62,7 +62,7 @@ fn run_command(args: ExecuteCommand) -> Result<String, CliError> {
     )?;
     if args.output_witness.is_some() {
         save_witness_to_dir(
-            output_witness,
+            &output_witness,
             &args.output_witness.unwrap(),
             &args.working_directory,
         )?;
@@ -86,7 +86,8 @@ pub(crate) fn execute_program_from_witness(
 ) -> Result<WitnessStack<FieldElement>, CliError> {
     let program: Program<FieldElement> =
         Program::deserialize_program(bytecode).map_err(CliError::CircuitDeserializationError)?;
-    execute_program(
+
+    nargo::ops::execute_program(
         &program,
         inputs_map,
         &Bn254BlackBoxSolver(pedantic_solving),
