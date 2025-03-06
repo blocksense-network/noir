@@ -28,6 +28,7 @@ impl<'a> std::fmt::Debug for PrintOutput<'a> {
     }
 }
 
+/// Handle `println` calls.
 #[derive(Debug, Default)]
 pub struct PrintForeignCallExecutor<'a> {
     output: PrintOutput<'a>,

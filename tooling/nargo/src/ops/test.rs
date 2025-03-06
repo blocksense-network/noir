@@ -14,7 +14,11 @@ use noirc_frontend::hir::{Context, def_map::TestFunction};
 use crate::{
     NargoError,
     errors::try_to_diagnose_runtime_error,
-    foreign_calls::{ForeignCallError, ForeignCallExecutor, layers, print::PrintOutput},
+    foreign_calls::{
+        ForeignCallError, ForeignCallExecutor, layers,
+        print::PrintOutput,
+        transcript::{ForeignCallLog, LoggingForeignCallExecutor},
+    },
 };
 
 use super::execute_program;
@@ -62,11 +66,25 @@ where
             let compiled_program = crate::ops::transform_program(compiled_program, target_width);
 
             if test_function_has_no_arguments {
+                let ignore_foreign_call_failures =
+                    std::env::var("NARGO_IGNORE_TEST_FAILURES_FROM_FOREIGN_CALLS")
+                        .is_ok_and(|var| &var == "true");
+
+                let mut foreign_call_log = ForeignCallLog::from_env("NARGO_TEST_FOREIGN_CALL_LOG");
+                let log_file = if let ForeignCallLog::File(file, _) = &foreign_call_log {
+                    Some(file.clone())
+                } else {
+                    None
+                };
                 // Run the backend to ensure the PWG evaluates functions like std::hash::pedersen,
                 // otherwise constraints involving these expressions will not error.
                 // Use a base layer that doesn't handle anything, which we handle in the `execute` below.
-                let inner_executor = build_foreign_call_executor(output, layers::Unhandled);
-                let mut foreign_call_executor = TestForeignCallExecutor::new(inner_executor);
+                let foreign_call_executor = build_foreign_call_executor(output, layers::Unhandled);
+                let foreign_call_executor = TestForeignCallExecutor::new(foreign_call_executor);
+                let mut foreign_call_executor = LoggingForeignCallExecutor::new(
+                    foreign_call_executor,
+                    foreign_call_log.print_output(),
+                );
 
                 let circuit_execution = execute_program(
                     &compiled_program.program,
@@ -81,10 +99,17 @@ where
                     &compiled_program.debug,
                     &circuit_execution,
                 );
-
-                let ignore_foreign_call_failures =
-                    std::env::var("NARGO_IGNORE_TEST_FAILURES_FROM_FOREIGN_CALLS")
-                        .is_ok_and(|var| &var == "true");
+                
+                // The following if body was written because of some hard to avoid
+                // issues with the borrow checker.
+                if let Some(path) = log_file {
+                    if let PrintOutput::String(contents) = foreign_call_executor.output {
+                        std::fs::write(path, contents).expect("failed to write foreign call log");
+                    }
+                }
+                let foreign_call_executor = foreign_call_executor.executor;
+                // TODO Borrow checker fails but in upstream it doesn't
+                // foreign_call_log.write_log().expect("failed to write foreign call log");
 
                 if let TestStatus::Fail { .. } = status {
                     if ignore_foreign_call_failures
