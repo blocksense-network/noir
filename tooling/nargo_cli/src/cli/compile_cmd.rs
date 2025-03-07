@@ -329,6 +329,7 @@ mod tests {
     use nargo::ops::compile_program;
     use nargo_toml::PackageSelection;
     use noirc_driver::{CompileOptions, CrateName};
+    use noirc_frontend::elaborator::UnstableFeature;
     use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
     use crate::cli::test_cmd::formatters::diagnostic_to_string;
@@ -407,12 +408,17 @@ mod tests {
             let binary_packages = workspace.into_iter().filter(|package| package.is_binary());
 
             for package in binary_packages {
+                let options = CompileOptions {
+                    unstable_features: vec![UnstableFeature::Enums],
+                    ..Default::default()
+                };
+
                 let (program_0, _warnings) = compile_program(
                     &file_manager,
                     &parsed_files,
                     workspace,
                     package,
-                    &CompileOptions::default(),
+                    &options,
                     None,
                     false,
                     false,
