@@ -25,17 +25,18 @@ fn get_value_bitwidth(value_id: &ValueId, dfg: &DataFlowGraph) -> IntegerTypeBit
 
 fn wrap_with_an_if_logic(
     condition_id: ValueId,
-    binary_expr: Expr,
-    lhs_expr: Expr,
+    then_expr: Expr,
+    else_expr: Expr,
     dfg: &DataFlowGraph,
     result_id_fixer: Option<&ResultIdFixer>,
 ) -> Expr {
-    let lhs_type = lhs_expr.typ.clone();
+    let lhs_type = else_expr.typ.clone();
     let if_exprx = ExprX::If(
         ssa_value_to_expr(&condition_id, dfg, result_id_fixer),
-        binary_expr,
-        Some(lhs_expr),
+        then_expr,
+        Some(else_expr),
     );
+
     SpannedTyped::new(
         &build_span(
             &condition_id,
@@ -606,7 +607,7 @@ fn call_instruction_to_expr(
     value_id: &ValueId,
     arguments: &Vec<ValueId>,
     dfg: &DataFlowGraph,
-    result_id_fixer: Option<&ResultIdFixer>,
+    current_context: &mut SSAContext,
 ) -> Expr {
     let value = &dfg[*value_id];
     let func_id = match value {
@@ -617,7 +618,10 @@ fn call_instruction_to_expr(
 
     let name = func_id_into_funx_name(*func_id);
     let arguments_as_expr: Exprs = Arc::new(
-        arguments.iter().map(|val_id| ssa_value_to_expr(val_id, dfg, result_id_fixer)).collect(),
+        arguments
+            .iter()
+            .map(|val_id| ssa_value_to_expr(val_id, dfg, current_context.result_id_fixer))
+            .collect(),
     );
     let call_exprx: ExprX = ExprX::Call(
         CallTarget::Fun(
@@ -631,7 +635,7 @@ fn call_instruction_to_expr(
     );
     let function_return_type: Typ = get_function_ret_type(dfg.instruction_results(call_id), dfg);
 
-    SpannedTyped::new(
+    let call_expr = SpannedTyped::new(
         &build_span(
             value_id,
             format!(
@@ -644,7 +648,124 @@ fn call_instruction_to_expr(
         ),
         &function_return_type,
         call_exprx,
+    );
+    if let Some(condition_id) = current_context.side_effects_condition {
+        let else_expr = build_else_expr_for_call(&call_expr, dfg.instruction_results(call_id), dfg);
+        return wrap_with_an_if_logic(
+            condition_id,
+            call_expr,
+            else_expr,
+            dfg,
+            current_context.result_id_fixer,
+        );
+    }
+
+    call_expr
+}
+
+/// Needed for the hack if-wrapping that we do for function calls.
+/// We create expressions which act as default values for the lhs of the function call.
+/// This is not problematic because if we have visited the else branch this means
+/// that the value obtained will get nullified later (by being multiplied with 0).
+/// We also assume that the SSA is coherent and this value won't be used in
+/// dangerous operations before its nullification.
+fn build_else_expr_for_call(call_expr: &Expr, results: &[Id<Value>], dfg: &DataFlowGraph) -> Expr {
+    match results.len() {
+        0 => {
+            unreachable!("Function call with no return value, must be handled at an earlier stage")
+        }
+        1 => build_default_expression(dfg[results[0]].get_type(), dfg, &call_expr.span),
+        _ => build_tuple_default_expression(
+            results.iter().map(|val_id| dfg[*val_id].get_type()).collect::<Vec<&Type>>(),
+            dfg,
+            &call_expr.span,
+        ),
+    }
+}
+
+fn build_tuple_default_expression(
+    tuple_types: Vec<&Type>,
+    dfg: &DataFlowGraph,
+    span: &Span,
+) -> Expr {
+    let mut binders: Vec<Binder<Expr>> = Vec::new();
+
+    for current_tuple_index in 0..tuple_types.len() {
+        let expr_at_current_tuple_index =
+            build_default_expression(tuple_types[current_tuple_index], dfg, span);
+        binders.push(Arc::new(BinderX {
+            name: Arc::new(current_tuple_index.to_string()),
+            a: expr_at_current_tuple_index,
+        }));
+    }
+
+    let tuple_size = tuple_types.len();
+
+    let build_tuple_exprx = ExprX::Ctor(
+        Dt::Tuple(tuple_size),
+        Arc::new(format!("tuple%{tuple_size}")),
+        Arc::new(binders),
+        None,
+    );
+    SpannedTyped::new(
+        &span,
+        &from_composite_type(Arc::new(tuple_types.into_iter().cloned().collect())),
+        build_tuple_exprx,
     )
+}
+
+fn build_default_expression(noir_type: &Type, dfg: &DataFlowGraph, span: &Span) -> Expr {
+    match noir_type {
+        Type::Numeric(numeric_type) => {
+            if numeric_type.bit_size() == 1 {
+                // Create bool default value
+                SpannedTyped::new(
+                    span,
+                    &from_noir_type(noir_type.clone(), None),
+                    ExprX::Const(Constant::Bool(false)),
+                )
+            } else {
+                // Create integer default value
+                SpannedTyped::new(
+                    span,
+                    &from_noir_type(noir_type.clone(), None),
+                    ExprX::Const(Constant::Int(BigInt::ZERO)),
+                )
+            }
+        }
+        Type::Reference(inner_type) => SpannedTyped::new(
+            span,
+            &from_noir_type(noir_type.clone(), None),
+            build_default_expression(&inner_type, dfg, span).x.clone(),
+        ),
+        Type::Array(items, arr_size) => {
+            let mut default_elements_of_array: Vec<Expr> = Vec::new();
+
+            for _ in 0..arr_size.clone() {
+                if items.len() > 1 {
+                    default_elements_of_array.push(build_tuple_default_expression(
+                        items.as_ref().iter().collect(),
+                        dfg,
+                        span,
+                    ));
+                } else {
+                    default_elements_of_array.push(build_default_expression(
+                        items.last().expect("Inner array elements must have a type"),
+                        dfg,
+                        span,
+                    ));
+                }
+            }
+            
+            SpannedTyped::new(
+                span,
+                &from_noir_type(noir_type.clone(), None),
+                ExprX::ArrayLiteral(Arc::new(default_elements_of_array)),
+            )
+        }
+        Type::Slice(_) => unreachable!("Not supported in the prototype"),
+        Type::Function => unreachable!("No possible default value for function as a return value"),
+    }
 }
 
 fn gather_all_add_instructions(instruction_id: &InstructionId, dfg: &DataFlowGraph) -> BigInt {
@@ -766,7 +887,7 @@ fn calculate_index_and_tuple_index(
                         )
                     })
                     .collect();
-                
+
                 let return_vals = current_context.function_details.get_current_function_ret_vals(); // Index could be return val
                 let recursion_bottom: HashSet<ValueId> =
                     return_vals.iter().cloned().chain(quantifier_indexes.into_iter()).collect();
@@ -1378,13 +1499,9 @@ pub(crate) fn instruction_to_expr(
         Instruction::RangeCheck { value: val_id, max_bit_size, assert_message: _ } => {
             range_limit_to_expr(val_id, *max_bit_size, false, dfg, current_context.result_id_fixer)
         }
-        Instruction::Call { func, arguments } => call_instruction_to_expr(
-            instruction_id,
-            func,
-            arguments,
-            dfg,
-            current_context.result_id_fixer,
-        ),
+        Instruction::Call { func, arguments } => {
+            call_instruction_to_expr(instruction_id, func, arguments, dfg, current_context)
+        }
         Instruction::Allocate => unreachable!(), // Should return empty expression, that's why it is skipped
         Instruction::Load { address: value_id } => {
             ssa_value_to_expr(value_id, dfg, current_context.result_id_fixer)
