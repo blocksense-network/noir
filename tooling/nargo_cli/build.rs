@@ -523,7 +523,7 @@ fn generate_noirc_frontend_failure_tests(test_file: &mut File, test_data_dir: &P
     let expected_messages = HashMap::from([
         (
             "invalid_bit_size",
-            vec!["Use of invalid bit size 60", "Allowed bit sizes for integers are 1, 8, 32, 64"],
+            vec!["Use of invalid bit size 60", "Allowed bit sizes for integers are 1, 8, 16, 32, 64, 128"],
         ),
         ("diff_bit_sizes_add", vec!["Integers must have the same bit width"]),
         ("diff_bit_sizes_mul", vec!["Integers must have the same bit width"]),
