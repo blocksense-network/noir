@@ -23,19 +23,16 @@ fn get_value_bitwidth(value_id: &ValueId, dfg: &DataFlowGraph) -> IntegerTypeBit
     }
 }
 
-fn wrap_with_an_if_logic(
+pub(crate) fn wrap_with_an_if_logic(
     condition_id: ValueId,
     then_expr: Expr,
-    else_expr: Expr,
+    else_expr: Option<Expr>,
     dfg: &DataFlowGraph,
     result_id_fixer: Option<&ResultIdFixer>,
 ) -> Expr {
-    let lhs_type = else_expr.typ.clone();
-    let if_exprx = ExprX::If(
-        ssa_value_to_expr(&condition_id, dfg, result_id_fixer),
-        then_expr,
-        Some(else_expr),
-    );
+    let lhs_type = then_expr.typ.clone();
+    let if_exprx =
+        ExprX::If(ssa_value_to_expr(&condition_id, dfg, result_id_fixer), then_expr, else_expr);
 
     SpannedTyped::new(
         &build_span(
@@ -364,7 +361,7 @@ fn binary_instruction_to_expr(
             return wrap_with_an_if_logic(
                 condition_id,
                 binary_expr,
-                lhs_expr,
+                Some(lhs_expr),
                 dfg,
                 current_context.result_id_fixer,
             );
@@ -649,15 +646,23 @@ fn call_instruction_to_expr(
         &function_return_type,
         call_exprx,
     );
+
     if let Some(condition_id) = current_context.side_effects_condition {
-        let else_expr = build_else_expr_for_call(&call_expr, dfg.instruction_results(call_id), dfg);
-        return wrap_with_an_if_logic(
-            condition_id,
-            call_expr,
-            else_expr,
-            dfg,
-            current_context.result_id_fixer,
-        );
+        // If a function returns no values, then the `if` wrapping is being done
+        // at a different stage (instruction to statement stage). This means
+        // that we should not `if` wrap the function now. 
+        if dfg.instruction_results(call_id).len() > 0 {
+            let else_expr =
+                build_else_expr_for_call(&call_expr, dfg.instruction_results(call_id), dfg);
+                
+            return wrap_with_an_if_logic(
+                condition_id,
+                call_expr,
+                Some(else_expr),
+                dfg,
+                current_context.result_id_fixer,
+            );
+        }
     }
 
     call_expr
@@ -756,7 +761,7 @@ fn build_default_expression(noir_type: &Type, dfg: &DataFlowGraph, span: &Span) 
                     ));
                 }
             }
-            
+
             SpannedTyped::new(
                 span,
                 &from_noir_type(noir_type.clone(), None),
@@ -1202,7 +1207,7 @@ fn array_get_to_expr(
         return wrap_with_an_if_logic(
             condition_id,
             array_get_vir_expr,
-            array_get_dummy,
+            Some(array_get_dummy),
             dfg,
             current_context.result_id_fixer,
         );
