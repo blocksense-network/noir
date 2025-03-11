@@ -356,8 +356,8 @@ fn binary_instruction_to_expr(
     );
 
     if let Some(condition_id) = current_context.side_effects_condition {
-        if !matches!(operator, BinaryOp::Eq) {
-            // Eq is not a dangerous operation
+        if !matches!(operator, BinaryOp::Eq | BinaryOp::Lt) {
+            // Eq and Lt are not dangerous operations
             return wrap_with_an_if_logic(
                 condition_id,
                 binary_expr,
