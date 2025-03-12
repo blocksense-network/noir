@@ -48,7 +48,7 @@ fn main() {
     generate_plonky2_prove_crash_tests(&mut test_file, &test_dir);
     generate_plonky2_verify_success_tests(&mut test_file, &test_dir);
     generate_plonky2_verify_failure_tests(&mut test_file, &test_dir);
-    generate_plonky2_trace_tests(&mut test_file, &test_dir);
+    generate_trace_tests(&mut test_file, &test_dir);
     generate_plonky2_trace_plonky2_tests(&mut test_file, &test_dir);
     generate_plonky2_show_plonky2_regression_tests(&mut test_file, &test_dir);
 }
@@ -799,15 +799,15 @@ fn plonky2_verify_failure_{test_name}() {{
     }
 }
 
-fn generate_plonky2_trace_tests(test_file: &mut File, test_data_dir: &Path) {
-    let test_type = "plonky2_trace";
+fn generate_trace_tests(test_file: &mut File, test_data_dir: &Path) {
+    let test_type = "trace";
     let test_cases = read_test_cases(test_data_dir, test_type);
     for (test_name, test_dir) in test_cases {
         write!(
             test_file,
             r#"
 #[test]
-fn plonky2_trace_{test_name}() {{
+fn trace_{test_name}() {{
     use tempfile::tempdir;
 
     let test_program_dir_path = PathBuf::from("{test_dir}");
