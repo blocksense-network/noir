@@ -124,11 +124,24 @@ pub(crate) fn z3_verify(
         }
     }
     smt_outputs.reverse();
-    
-    let verification_diagnostics: Vec<FileDiagnostic> = smt_outputs
+
+    let mut verification_diagnostics: Vec<FileDiagnostic> = smt_outputs
         .into_iter()
         .map(|smt_output| smt_output_to_diagnostic(smt_output, &workspace_file_manager))
         .collect::<Result<_, _>>()?;
+
+    // Sort errors by span.
+    verification_diagnostics.sort_by(|a, b| {
+        match (a.diagnostic.secondaries.first(), b.diagnostic.secondaries.first()) {
+            (None, None) => std::cmp::Ordering::Equal, // Errors with no span are put at the start.
+            (None, Some(_)) => std::cmp::Ordering::Less,
+            (Some(_), None) => std::cmp::Ordering::Greater,
+            (Some(a_custom_label), Some(b_custom_label)) => {
+                a_custom_label.span.start().cmp(&b_custom_label.span.start())
+            }
+        }
+    });
+
     let reported_errors: ReportedErrors = noirc_errors::reporter::report_all(
         workspace_file_manager.as_file_map(),
         &verification_diagnostics,
