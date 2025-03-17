@@ -48,6 +48,7 @@ fn main() {
     generate_plonky2_prove_crash_tests(&mut test_file, &test_dir);
     generate_plonky2_verify_success_tests(&mut test_file, &test_dir);
     generate_plonky2_verify_failure_tests(&mut test_file, &test_dir);
+    generate_plonky2_verify_crash_tests(&mut test_file, &test_dir);
     generate_trace_tests(&mut test_file, &test_dir);
     generate_trace_plonky2_tests(&mut test_file, &test_dir);
     generate_plonky2_show_plonky2_regression_tests(&mut test_file, &test_dir);
@@ -830,6 +831,37 @@ fn plonky2_verify_failure_{test_name}() {{
             r#"
 }}
 "#
+        )
+        .expect("Could not write templated test file.");
+    }
+}
+
+fn generate_plonky2_verify_crash_tests(test_file: &mut File, test_data_dir: &Path) {
+    let test_type = "plonky2_verify_crash";
+    let test_cases = read_test_cases(test_data_dir, test_type);
+    for (test_name, test_dir) in test_cases {
+        write!(
+            test_file,
+            r#"
+#[test]
+fn plonky2_verify_crash_{test_name}() {{
+    let test_program_dir = PathBuf::from("{test_dir}");
+
+    let mut cmd = Command::cargo_bin("nargo").unwrap();
+    cmd.arg("--program-dir").arg(test_program_dir.clone());
+    cmd.arg("prove");
+
+    cmd.assert().success();
+
+    let mut cmd2 = Command::cargo_bin("nargo").unwrap();
+    cmd2.arg("--program-dir").arg(test_program_dir);
+    cmd2.arg("verify");
+    cmd2.arg("--verifier-name").arg("VerifierTest");
+
+    cmd2.assert().failure().stderr(predicate::str::contains("The application panicked (crashed)."));
+}}
+            "#,
+            test_dir = test_dir.display(),
         )
         .expect("Could not write templated test file.");
     }
