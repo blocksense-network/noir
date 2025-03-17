@@ -110,9 +110,7 @@ pub(crate) fn z3_verify(
 
     let stderr_output = String::from_utf8_lossy(&output.stderr);
 
-    if !output.status.success() {
-        Err(CliError::VerificationCrash(stderr_output.trim().to_string()))?
-    }
+    let has_crashed = !output.status.success();
 
     let mut smt_outputs: Vec<SmtOutput> = Vec::new();
     let lines: Vec<String> = stderr_output.lines().map(String::from).collect();
@@ -153,7 +151,11 @@ pub(crate) fn z3_verify(
         println!("Verification successful!");
         Ok(())
     } else {
-        Err(CliError::VerificationFail(String::new()))
+        if has_crashed {
+            Err(CliError::VerificationCrash(String::new())) 
+        } else {
+            Err(CliError::VerificationFail(String::new())) 
+        }
     }
 }
 
@@ -170,11 +172,17 @@ struct WarningBlock {
 }
 
 #[derive(Deserialize)]
+struct CrashBlock {
+    crash_message: String,
+    crash_span: String,
+}
+
+#[derive(Deserialize)]
 enum SmtOutput {
     Error(ErrorBlock),
     Warning(WarningBlock),
     Note(String),
-    AirMessage(String),
+    AirMessage(CrashBlock),
 }
 
 fn smt_output_to_diagnostic(
@@ -215,7 +223,25 @@ fn smt_output_to_diagnostic(
             file_id: default_file_id,
             diagnostic: CustomDiagnostic::from_message_kind(&message, DiagnosticKind::Info),
         }),
-        SmtOutput::AirMessage(message) => Err(CliError::VerificationCrash(message)),
+        SmtOutput::AirMessage(crash_block) => Ok(FileDiagnostic {
+            file_id: if let Ok((_, _, file_id)) = convert_span(&crash_block.crash_span) {
+                FileId::new(file_id)
+            } else {
+                default_file_id
+            },
+            diagnostic: {
+                if let Ok((start_byte, final_byte, _)) = convert_span(&crash_block.crash_span)
+                {
+                    CustomDiagnostic::simple_error(
+                        String::from("Verification crashed"),
+                        crash_block.crash_message,
+                        Span::inclusive(start_byte, final_byte),
+                    )
+                } else {
+                    CustomDiagnostic::from_message(&crash_block.crash_message)
+                }
+            },
+        }),
     }
 }
 
