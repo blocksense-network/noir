@@ -1,0 +1,6 @@
+[package]
+name = "array_argument"
+type = "bin"
+authors = [""]
+
+[dependencies]
