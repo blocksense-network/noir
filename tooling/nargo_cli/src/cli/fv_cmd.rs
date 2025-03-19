@@ -51,10 +51,12 @@ pub(crate) fn run(args: FormalVerifyCommand, config: NargoConfig) -> Result<(), 
         Some(NOIR_ARTIFACT_VERSION_STRING.to_string()),
     )?;
 
+    // compile_workspace_full() inlined.
     let mut workspace_file_manager = file_manager_with_stdlib(&workspace.root_dir);
     insert_all_files_for_workspace_into_file_manager(&workspace, &mut workspace_file_manager);
     let parsed_files = parse_all(&workspace_file_manager);
 
+    // compile_workspace() inlined.
     let binary_packages = workspace.into_iter().filter(|package| package.is_binary());
     for package in binary_packages {
         let (mut context, crate_id) =
@@ -67,11 +69,12 @@ pub(crate) fn run(args: FormalVerifyCommand, config: NargoConfig) -> Result<(), 
         let compiled_program =
             noirc_driver::compile_main(&mut context, crate_id, &args.compile_options, None, false);
 
+        // Report compilation errors.
         report_errors(
             compiled_program.clone(),
             &workspace_file_manager,
             args.compile_options.deny_warnings,
-            true, // We don't want to report compile related warnings
+            true, // We don't want to report compile related warnings.
         )?;
 
         let noir_program_to_vir = compiled_program.unwrap().0.verus_vir.unwrap();
@@ -82,7 +85,8 @@ pub(crate) fn run(args: FormalVerifyCommand, config: NargoConfig) -> Result<(), 
     Ok(())
 }
 
-/// Verifies the VIR crate which the Noir code was transformed into
+/// Using Venir, formally verifies the Noir program which was transformed into a VIR krate
+/// and passed as an argument.
 pub(crate) fn z3_verify(
     vir_krate: Krate,
     workspace_file_manager: &FileManager,
@@ -90,6 +94,7 @@ pub(crate) fn z3_verify(
 ) -> Result<(), CliError> {
     let serialized_vir_krate = serde_json::to_string(&vir_krate).expect("Failed to serialize");
 
+    // Run the Venir binary which is used for verifying the vir_krate input.
     let mut child = Command::new("venir")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -140,6 +145,7 @@ pub(crate) fn z3_verify(
         }
     });
 
+    // Report errors from the verification process.
     let reported_errors: ReportedErrors = noirc_errors::reporter::report_all(
         workspace_file_manager.as_file_map(),
         &verification_diagnostics,
@@ -159,6 +165,7 @@ pub(crate) fn z3_verify(
     }
 }
 
+/// Part of the Venir output standard.
 #[derive(Deserialize)]
 struct ErrorBlock {
     error_message: String,
@@ -166,17 +173,20 @@ struct ErrorBlock {
     secondary_message: String,
 }
 
+/// Part of the Venir output standard.
 #[derive(Deserialize)]
 struct WarningBlock {
     warning_message: String,
 }
 
+/// Part of the Venir output standard.
 #[derive(Deserialize)]
 struct CrashBlock {
     crash_message: String,
     crash_span: String,
 }
 
+/// The possible outputs of the Venir binary.
 #[derive(Deserialize)]
 enum SmtOutput {
     Error(ErrorBlock),
@@ -185,6 +195,7 @@ enum SmtOutput {
     AirMessage(CrashBlock),
 }
 
+/// Maps a Venir output to a Noir diagnostic type error.
 fn smt_output_to_diagnostic(
     smt_output: SmtOutput,
     workspace_file_manager: &FileManager,
@@ -245,6 +256,10 @@ fn smt_output_to_diagnostic(
     }
 }
 
+// We have encoded the Noir expression span into a string which is attached to
+// the relevant VIR expression. We know that this is a bad pattern but all other
+// approaches that we tried resulted in failure. Therefore the following function
+// decodes span from string.
 fn convert_span(input: &str) -> Result<(u32, u32, usize), Box<dyn std::error::Error>> {
     if input.is_empty() {
         return Err("Span is empty".into());
