@@ -16,7 +16,8 @@ use asm_writer::AsmWriter;
 pub use circuit::Plonky2Circuit;
 use div_generator::add_div_mod;
 use fm::FileMap;
-use noirc_frontend::{ast::Visibility, hir_def::function::FunctionSignature};
+use noirc_frontend::hir_def::function::FunctionSignature;
+use noirc_frontend::shared::Visibility;
 use plonky2::{
     field::types::Field, iop::target::BoolTarget, iop::target::Target,
     plonk::circuit_data::CircuitConfig,
