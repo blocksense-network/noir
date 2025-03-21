@@ -1,5 +1,5 @@
 // Fields cannot be compared directly
-#[requires((-10 < x) & (x < 10) & (-10 < y) & (y < 10) & (y != 0))]
+#[requires((-10 < x as i32) & (x as i32 < 10) & (-10 < y as i32) & (y as i32 < 10) & (y != 0))]
 fn main(x: Field, y: Field) {
     let _ = plus(x, y);
     let _ = minus(x, y);

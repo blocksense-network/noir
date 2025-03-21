@@ -17,7 +17,7 @@ pub(crate) fn get_int_range(numeric_type: NumericType) -> IntRange {
     match numeric_type {
         NumericType::Signed { bit_size } => IntRange::I(bit_size),
         NumericType::Unsigned { bit_size } => IntRange::U(bit_size),
-        NumericType::NativeField => IntRange::I(FieldElement::max_num_bits()), // TODO(totel) Document mapping Noir Fields
+        NumericType::NativeField => IntRange::Int, // TODO(totel) Document mapping Noir Fields
     }
 }
 
@@ -25,7 +25,7 @@ pub(crate) fn trunc_target_int_range(numeric_type: &NumericType, target_bit_size
     match numeric_type {
         NumericType::Signed { bit_size: _ } => IntRange::I(target_bit_size),
         NumericType::Unsigned { bit_size: _ } => IntRange::U(target_bit_size),
-        NumericType::NativeField => IntRange::I(target_bit_size),
+        NumericType::NativeField => IntRange::Int,
     }
 }
 
@@ -39,7 +39,7 @@ pub(crate) fn from_numeric_type(numeric_type: NumericType) -> Typ {
                 Arc::new(TypX::Int(IntRange::U(bit_size)))
             }
         }
-        NumericType::NativeField => Arc::new(TypX::Int(IntRange::I(FieldElement::max_num_bits()))),
+        NumericType::NativeField => Arc::new(TypX::Int(IntRange::Int)),
     }
 }
 
