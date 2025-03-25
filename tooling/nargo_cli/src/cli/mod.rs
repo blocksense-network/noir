@@ -103,7 +103,6 @@ enum NargoCommand {
     New(new_cmd::NewCommand),
     Init(init_cmd::InitCommand),
     Execute(execute_cmd::ExecuteCommand),
-    #[command(hide = true)] // Hidden while the feature is being built out
     Export(export_cmd::ExportCommand),
     Debug(debug_cmd::DebugCommand),
     Prove(prove_cmd::ProveCommand),
