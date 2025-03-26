@@ -1,10 +1,11 @@
 use noirc_abi::{
-    input_parser::{Format, InputValue},
     Abi, InputMap, MAIN_RETURN_NAME,
+    input_parser::{Format, InputValue},
 };
 use std::{collections::BTreeMap, path::Path};
 
-use crate::errors::FilesystemError;
+use crate::errors::CliError;
+use noir_artifact_cli::errors::{CliError as ArtifactCliError, FilesystemError};
 
 use super::write_to_file;
 
@@ -20,7 +21,7 @@ pub(crate) fn read_inputs_from_file<P: AsRef<Path>>(
     file_name: &str,
     format: Format,
     abi: &Abi,
-) -> Result<(InputMap, Option<InputValue>), FilesystemError> {
+) -> Result<(InputMap, Option<InputValue>), CliError> {
     if abi.is_empty() {
         return Ok((BTreeMap::new(), None));
     }
@@ -32,12 +33,21 @@ pub(crate) fn read_inputs_from_file<P: AsRef<Path>>(
             // so if the ABI has no parameters we can skip reading the file if it doesn't exist.
             return Ok((BTreeMap::new(), None));
         } else {
-            return Err(FilesystemError::MissingTomlFile(file_name.to_owned(), file_path));
+            return Err(CliError::ArtifactError(ArtifactCliError::FilesystemError(
+                FilesystemError::MissingInputFile(file_path),
+            )));
         }
     }
 
     let input_string = std::fs::read_to_string(file_path).unwrap();
-    let mut input_map = format.parse(&input_string, abi)?;
+    let mut input_map = match format.parse(&input_string, abi) {
+        Ok(input_map) => input_map,
+        Err(input_parser_error) => {
+            return Err(CliError::ArtifactError(ArtifactCliError::InputDeserializationError(
+                input_parser_error.into(),
+            )));
+        }
+    };
     let return_value = input_map.remove(MAIN_RETURN_NAME);
 
     Ok((input_map, return_value))
@@ -50,7 +60,7 @@ pub(crate) fn write_inputs_to_file<P: AsRef<Path>>(
     path: P,
     file_name: &str,
     format: Format,
-) -> Result<(), FilesystemError> {
+) -> Result<(), CliError> {
     let file_path = path.as_ref().join(file_name).with_extension(format.ext());
 
     // We must insert the return value into the `InputMap` in order for it to be written to file.
@@ -60,10 +70,24 @@ pub(crate) fn write_inputs_to_file<P: AsRef<Path>>(
         Some(return_value) => {
             let mut input_map = input_map.clone();
             input_map.insert(MAIN_RETURN_NAME.to_owned(), return_value.clone());
-            format.serialize(&input_map, abi)?
+            match format.serialize(&input_map, abi) {
+                Ok(serialized) => serialized,
+                Err(input_parser_error) => {
+                    return Err(CliError::ArtifactError(
+                        ArtifactCliError::InputDeserializationError(input_parser_error.into()),
+                    ));
+                }
+            }
         }
         // If no return value exists, then we can serialize the original map directly.
-        None => format.serialize(input_map, abi)?,
+        None => match format.serialize(input_map, abi) {
+            Ok(serialized) => serialized,
+            Err(input_parser_error) => {
+                return Err(CliError::ArtifactError(ArtifactCliError::InputDeserializationError(
+                    input_parser_error.into(),
+                )));
+            }
+        },
     };
 
     write_to_file(serialized_output.as_bytes(), &file_path);
@@ -78,8 +102,8 @@ mod tests {
     use acvm::AcirField;
     use nargo::constants::VERIFIER_INPUT_FILE;
     use noirc_abi::{
-        input_parser::{Format, InputValue},
         Abi, AbiParameter, AbiReturnType, AbiType, AbiVisibility,
+        input_parser::{Format, InputValue},
     };
     use tempfile::TempDir;
 

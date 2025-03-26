@@ -5,6 +5,7 @@ use noirc_abi::{
     errors::{AbiError, InputParserError},
     input_parser::InputValue,
 };
+use hex::FromHexError;
 use std::path::PathBuf;
 use thiserror::Error;
 
@@ -30,6 +31,9 @@ pub enum FilesystemError {
 
     #[error(transparent)]
     IoError(#[from] std::io::Error),
+
+    #[error("Error: could not parse hex build artifact (proof, proving and/or verification keys, ACIR checksum) ({0})")]
+    HexArtifactNotValid(FromHexError),
 }
 
 #[derive(Debug, Error)]
@@ -39,7 +43,7 @@ pub enum CliError {
     FilesystemError(#[from] FilesystemError),
 
     /// Error related to ABI input deserialization
-    #[error("Failed to deserialize inputs")]
+    #[error(transparent)]
     InputDeserializationError(#[from] InputParserError),
 
     /// Error related to oracle transcript deserialization
