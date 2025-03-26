@@ -4,7 +4,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::errors::FilesystemError;
+use crate::errors::CliError;
+use noir_artifact_cli::errors::{CliError as ArtifactCliError, FilesystemError};
 
 pub(super) mod inputs;
 pub(super) mod proof;
@@ -30,11 +31,16 @@ pub(super) fn write_to_file(bytes: &[u8], path: &Path) -> String {
     }
 }
 
-pub(super) fn load_hex_data<P: AsRef<Path>>(path: P) -> Result<Vec<u8>, FilesystemError> {
-    let hex_data: Vec<_> = std::fs::read(&path)
-        .map_err(|_| FilesystemError::PathNotValid(path.as_ref().to_path_buf()))?;
+pub(super) fn load_hex_data<P: AsRef<Path>>(path: P) -> Result<Vec<u8>, CliError> {
+    let hex_data: Vec<_> = std::fs::read(&path).map_err(|_| {
+        CliError::ArtifactError(ArtifactCliError::FilesystemError(
+            FilesystemError::MissingInputFile(path.as_ref().to_path_buf()),
+        ))
+    })?;
 
-    let raw_bytes = hex::decode(hex_data).map_err(FilesystemError::HexArtifactNotValid)?;
+    let raw_bytes = hex::decode(hex_data).map_err(FilesystemError::HexArtifactNotValid).map_err(
+        |hex_error| CliError::ArtifactError(ArtifactCliError::FilesystemError(hex_error)),
+    )?;
 
     Ok(raw_bytes)
 }
