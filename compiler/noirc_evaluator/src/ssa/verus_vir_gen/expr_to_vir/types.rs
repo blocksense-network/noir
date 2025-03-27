@@ -43,6 +43,14 @@ pub(crate) fn from_numeric_type(numeric_type: NumericType) -> Typ {
     }
 }
 
+pub(crate) fn is_type_field(noir_type: &Type) -> bool {
+    if let Type::Numeric(numeric_type) = noir_type {
+        numeric_type.bit_size() != 1 && *numeric_type == NumericType::NativeField
+    } else {
+        false // It's not a numeric type.
+    }
+}
+
 pub(crate) fn into_vir_const_int(number: usize) -> Typ {
     Arc::new(TypX::ConstInt(BigInt::from(number)))
 }
@@ -122,14 +130,15 @@ pub(crate) fn build_tuple_type(values: &Vec<ValueId>, dfg: &DataFlowGraph) -> Ty
 pub(crate) fn get_function_ret_type(results: &[Id<Value>], dfg: &DataFlowGraph) -> Typ {
     match results.len() {
         0 => get_empty_vir_type(),
-        1 => { // Dereference return type
+        1 => {
+            // Dereference return type
             let noir_type = if let Type::Reference(inner_type) = dfg[results[0]].get_type() {
                 inner_type.as_ref().clone()
             } else {
                 dfg[results[0]].get_type().clone()
             };
             from_noir_type(noir_type, None)
-        },
+        }
         _ => build_tuple_type(&results.to_vec(), dfg),
     }
 }

@@ -6,7 +6,7 @@ use expr_to_vir::{
     types::{
         from_composite_type, from_noir_type, get_empty_vir_type, get_function_ret_type,
         get_int_range, get_integer_bit_width, instr_res_type_to_vir_type, into_vir_const_int,
-        trunc_target_int_range,
+        is_type_field, trunc_target_int_range,
     },
 };
 use noirc_frontend::ast::QuantifierType;
@@ -345,7 +345,7 @@ fn binary_instruction_to_expr(
         );
     }
 
-    let binary_expr = SpannedTyped::new(
+    let mut binary_expr = SpannedTyped::new(
         &build_span(
             &instruction_id,
             format!("lhs({}) binary_op({}) rhs({})", lhs, operator, rhs),
@@ -354,6 +354,13 @@ fn binary_instruction_to_expr(
         &instr_res_type_to_vir_type(binary.result_type(), dfg),
         binary_exprx,
     );
+
+    if is_type_field(dfg[*lhs].get_type())
+        && is_type_field(dfg[*rhs].get_type())
+        && !matches!(operator, BinaryOp::Eq | BinaryOp::Lt)
+    {
+        binary_expr = wrap_with_field_modulo(binary_expr, mode);
+    }
 
     if let Some(condition_id) = current_context.side_effects_condition {
         if !matches!(operator, BinaryOp::Eq | BinaryOp::Lt | BinaryOp::Xor) {
@@ -371,6 +378,27 @@ fn binary_instruction_to_expr(
     }
     binary_expr
 }
+
+/// For the Noir Field type we have to wrap all arithmetic instructions
+/// with a Euclidean modulo `p` operation where `p` is the modulus of
+/// the Noir Field.
+fn wrap_with_field_modulo(dividend: Expr, mode: Mode) -> Expr {
+    let expr_span = dividend.span.clone();
+    let expr_type = dividend.typ.clone();
+
+    let field_modulus: BigInt =
+        BigInt::from_biguint(num_bigint::Sign::Plus, FieldElement::modulus());
+    let divisor_expr = SpannedTyped::new(
+        &expr_span,
+        &Arc::new(TypX::Int(IntRange::Int)),
+        ExprX::Const(Constant::Int(field_modulus)),
+    );
+    let modulo_exprx =
+        ExprX::Binary(VirBinaryOp::Arith(ArithOp::EuclideanMod, mode), dividend, divisor_expr);
+
+    SpannedTyped::new(&expr_span, &expr_type, modulo_exprx)
+}
+
 /// Depending on the bit width size we want to either return a
 /// `unary boolean not` expression or a `unary bit not` expression.
 fn bitwise_not_instr_to_exprx(
@@ -652,11 +680,11 @@ fn call_instruction_to_expr(
     if let Some(condition_id) = current_context.side_effects_condition {
         // If a function returns no values, then the `if` wrapping is being done
         // at a different stage (instruction to statement stage). This means
-        // that we should not `if` wrap the function now. 
+        // that we should not `if` wrap the function now.
         if dfg.instruction_results(call_id).len() > 0 {
             let else_expr =
                 build_else_expr_for_call(&call_expr, dfg.instruction_results(call_id), dfg);
-                
+
             return wrap_with_an_if_logic(
                 condition_id,
                 call_expr,
