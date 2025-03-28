@@ -37,7 +37,7 @@ pub(crate) fn get_function_return_values(
                     return_values.iter().map(|val_id| func.dfg.resolve(*val_id)).collect();
                 Ok(return_values)
             }
-            _ => unreachable!(), // Only Brillig functions have a non Return Terminating instruction
+            _ => unreachable!(), // Only Brillig functions can have a non Return Terminating instruction
         },
         None => {
             return Err(BuildingKrateError::SomeError(
@@ -47,9 +47,9 @@ pub(crate) fn get_function_return_values(
     }
 }
 
-/// Returns default instance of FunctionAttrs
+/// Returns default instance of FunctionAttrs.
 /// By default we mean the same way a default instance would be
-/// constructed in Verus VIR
+/// constructed in Verus during the phase Rust HIR -> VIR.
 fn build_default_funx_attrs(zero_args: bool) -> FunctionAttrs {
     Arc::new(FunctionAttrsX {
         uses_ghost_blocks: true,
@@ -65,7 +65,7 @@ fn build_default_funx_attrs(zero_args: bool) -> FunctionAttrs {
         integer_ring: false,
         is_decrease_by: false,
         check_recommends: false,
-        nonlinear: true,
+        nonlinear: true, // This flag was set specifically by us to support arithmetic multiplication.
         spinoff_prover: false,
         memoize: false,
         rlimit: None,
@@ -87,6 +87,7 @@ fn func_body_to_vir_expr(func: &Function, current_context: &mut SSAContext) -> E
     )
 }
 
+// Converts the given SSA function into a VIR function.
 pub(crate) fn build_funx(
     func_id: FunctionId,
     func: &Function,
@@ -103,27 +104,27 @@ pub(crate) fn build_funx(
         name: func_id_into_funx_name(func_id),
         proxy: None, // No clue. In Verus documentation it says "Proxy used to declare the spec of this function"
         kind: get_func_kind(func), // As far as I understand all functions in SSA are of FunctionKind::Static
-        visibility: Visibility { restricted_to: None }, // None is for functions with public visibility. There is no information if the current function is public or private.
-        owning_module: Some(current_module.x.path.clone()),
+        visibility: Visibility { restricted_to: None }, // `None` is for functions with public visibility. There is no information if the current function is public or private.
+        owning_module: Some(current_module.x.path.clone()), // The module in which this function is located.
         mode: Mode::Exec, // Currently all functions are Exec. In the near future we will support ghost functions.
-        fuel: 1, // In Verus' documentation it says that 1 means visible. I don't understand visible to what exactly
+        fuel: 1, // In Verus' documentation it says that 1 means visible. I don't understand visible to what exactly.
         typ_params: empty_vec_idents(), // There are no generics in SSA
         typ_bounds: empty_vec_generic_bounds(), // There are no generics in SSA
         params: function_params.clone(),
-        ret,
+        ret, // Function return parameter
         require: func_requires_to_vir_expr(func, &mut current_context),
         ensure: func_ensures_to_vir_expr(func, &mut current_context),
-        decrease: Arc::new(vec![]), // No such feature in the prototype
-        decrease_when: None,        // No such feature in the prototype
-        decrease_by: None,          // No such feature in the prototype
-        fndef_axioms: None,         // Not sure what it is
-        mask_spec: None,            // Not sure what it is
-        unwind_spec: None, // To be able to use functions from VSTD we need None on unwinding
+        decrease: Arc::new(vec![]), // Annotation for recursive functions. We don't support it in the prototype.
+        decrease_when: None,        // Annotation for recursive functions. No such feature in the prototype.
+        decrease_by: None,          // Annotation for recursive functions. No such feature in the prototype.
+        fndef_axioms: None,         // Not sure what it is.
+        mask_spec: None,            // Not sure what it is.
+        unwind_spec: None, // To be able to use functions from Verus std we need None on unwinding.
         item_kind: ItemKind::Function,
         publish: None, // Only if we use None we pass Verus checks.
         attrs: build_default_funx_attrs(function_params.is_empty()),
-        body: Some(func_body_to_vir_expr(func, &mut current_context)), // Functions in SSA always have a boyd
-        extra_dependencies: vec![], // Not needed for the prototype
+        body: Some(func_body_to_vir_expr(func, &mut current_context)), // Functions in SSA always have a body.
+        extra_dependencies: vec![], // Not needed for the prototype. Verus claims that it's useful for trusted functions.
         ens_has_return: is_function_return_void(func), // Should be true if the function returns a value
         returns: None, // SSA functions (I believe) always return values and never expressions. They could also return zero values.
     };

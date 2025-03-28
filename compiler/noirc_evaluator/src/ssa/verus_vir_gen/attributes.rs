@@ -31,6 +31,7 @@ fn get_all_quantifier_indexes(
     quantifier_indexes
 }
 
+/// Converts annotations (aka attributes) to a vector of VIR expression.
 fn func_attributes_to_vir_expr(
     attribute_instructions: Vec<(Id<Instruction>, Instruction)>,
     dfg: &DataFlowGraph,
@@ -117,6 +118,7 @@ fn mark_quantifier_start(indexes: Vec<String>, current_context: &mut SSAContext)
     current_context.quantifier_context.start_quantifier(indexes);
 }
 
+/// For a given SSA function converts the `requires` annotations to VIR expressions. 
 pub(crate) fn func_requires_to_vir_expr(
     func: &Function,
     current_context: &mut SSAContext,
@@ -138,6 +140,7 @@ pub(crate) fn func_requires_to_vir_expr(
     Arc::new(func_attributes_to_vir_expr(attr_instrs, &func.dfg, current_context))
 }
 
+/// For a given SSA function converts the `ensures` annotations to VIR expressions. 
 pub(crate) fn func_ensures_to_vir_expr(func: &Function, current_context: &mut SSAContext) -> Exprs {
     let attr_instrs: Vec<(Id<Instruction>, Instruction)> = func
         .dfg

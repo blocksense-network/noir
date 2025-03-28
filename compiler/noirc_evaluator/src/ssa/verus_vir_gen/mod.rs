@@ -121,6 +121,8 @@ fn empty_var_ident() -> VarIdent {
     VarIdent(Arc::new("empty_tuple".to_string()), vir::ast::VarIdentDisambiguate::NoBodyParam)
 }
 
+/// Takes the program's SSA and turns it into VIR (Verus Intermediary Representation).
+/// The resulting `Krate` structure represents the VIR in Verus.
 pub(crate) fn build_krate(ssa: Ssa) -> Result<Krate, BuildingKrateError> {
     let mut vir: KrateX = KrateX {
         functions: Vec::new(),
