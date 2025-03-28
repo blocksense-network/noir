@@ -610,6 +610,7 @@ impl From<Token> for QuantifierType {
         }
     }
 }
+/// Quantifiers used in formal verification annotations.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct QuantifierExpression {
     pub quantifier_type: QuantifierType,
