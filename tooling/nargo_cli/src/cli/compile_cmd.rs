@@ -108,7 +108,7 @@ fn watch_workspace(workspace: &Workspace, compile_options: &CompileOptions) -> n
 }
 
 /// Parse all files in the workspace.
-fn parse_workspace(workspace: &Workspace, debug_compile_stdin: bool) -> (FileManager, ParsedFiles) {
+pub(crate) fn parse_workspace(workspace: &Workspace, debug_compile_stdin: bool) -> (FileManager, ParsedFiles) {
     let mut file_manager = workspace.new_file_manager();
 
     if debug_compile_stdin {
