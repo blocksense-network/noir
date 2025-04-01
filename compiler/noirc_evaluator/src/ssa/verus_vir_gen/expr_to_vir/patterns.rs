@@ -84,6 +84,7 @@ fn instruction_to_pattern(instruction_id: InstructionId, dfg: &DataFlowGraph) ->
     }
 }
 
+/// Converts SSA instruction to a VIR statement.
 pub(crate) fn instruction_to_stmt(
     instruction: &Instruction,
     dfg: &DataFlowGraph,
