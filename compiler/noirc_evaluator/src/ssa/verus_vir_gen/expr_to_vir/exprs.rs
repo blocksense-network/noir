@@ -45,6 +45,7 @@ pub(crate) fn wrap_with_an_if_logic(
     )
 }
 
+/// Maps SSA binary operations to VIR binary operations.
 fn binary_op_to_vir_binary_op(
     binary: &BinaryOp,
     mode: Mode,
@@ -69,6 +70,10 @@ fn binary_op_to_vir_binary_op(
     }
 }
 
+// In Noir's SSA boolean operations AND and OR don't exist. They are
+// represented with the binary operations ADD and MUL.
+/// Checks if the given SSA instruction is between bools
+/// and if it is it maps it to an equivalent VIR expression.
 fn is_operation_between_bools(
     lhs: &ValueId,
     binary_op: &BinaryOp,
@@ -94,6 +99,7 @@ fn is_operation_between_bools(
     }
 }
 
+/// Convert SSA array literal to VIR array literal.
 fn array_to_expr(
     array_id: &ValueId,
     array_values: &im::Vector<ValueId>,
@@ -241,6 +247,7 @@ fn recursive_ssa_val_to_expr(
     }
 }
 
+///Converts a SSA value id to VIR variable expression.
 fn ssa_value_to_expr(
     value_id: &ValueId,
     dfg: &DataFlowGraph,
@@ -283,6 +290,8 @@ fn return_values_to_expr(
             Some(ret_as_expr)
         }
         _ => {
+            // SSA can return multiple variables, therefore we must wrap them into a
+            // tuple builder.
             let tuple_exprs: Exprs = Arc::new(
                 return_values_ids
                     .iter()
@@ -454,6 +463,8 @@ fn usize_to_const_expr(const_num: usize, noir_type: &Type) -> Expr {
     )
 }
 
+/// Cast bool to integer requires special logic because Verus
+/// doesn't support direct bool to int casting.
 fn cast_bool_to_integer(
     value_id: &ValueId,
     noir_type: &Type,
@@ -579,6 +590,7 @@ fn range_limit_to_expr(
     )
 }
 
+/// Converts Noir's assert to VIR assert.
 fn constrain_instruction_to_expr(
     instruction_id: Id<Instruction>,
     lhs: &ValueId,
@@ -718,6 +730,8 @@ fn build_else_expr_for_call(call_expr: &Expr, results: &[Id<Value>], dfg: &DataF
     }
 }
 
+// Part of the hack that is needed to reverse engineer enable_side_effects to
+// a VIR `if` expression.
 fn build_tuple_default_expression(
     tuple_types: Vec<&Type>,
     dfg: &DataFlowGraph,
@@ -749,6 +763,8 @@ fn build_tuple_default_expression(
     )
 }
 
+// Part of the hack that is needed to reverse engineer enable_side_effects to
+// a VIR `if` expression. 
 fn build_default_expression(noir_type: &Type, dfg: &DataFlowGraph, span: &Span) -> Expr {
     match noir_type {
         Type::Numeric(numeric_type) => {
@@ -803,6 +819,9 @@ fn build_default_expression(noir_type: &Type, dfg: &DataFlowGraph, span: &Span) 
     }
 }
 
+/// Recursively gets all auto-generated `add` instructions and sums their constants.
+/// Noir's SSA generates `add` instructions which are used for calculating the correct index
+/// for the flatten SSA arrays.
 fn gather_all_add_instructions(instruction_id: &InstructionId, dfg: &DataFlowGraph) -> BigInt {
     match &dfg[*instruction_id] {
         Instruction::Binary(binary) => match binary.operator {
@@ -1283,6 +1302,9 @@ pub(crate) fn array_set_to_expr(
     )
 }
 
+// Because VIR doesn't support array mutation we have to create
+// an array literal expression for every SSA array mutation.
+// The following function is used for the defining the array literal body.
 fn if_expression_for_array_body(
     array_id: &ValueId,
     position_in_array: usize,
@@ -1504,6 +1526,8 @@ fn store_to_expr(
     )
 }
 
+/// This function matches a SSA instruction and converts it 
+/// into a VIR expression.
 pub(crate) fn instruction_to_expr(
     instruction_id: InstructionId,
     instruction: &Instruction,
@@ -1537,14 +1561,14 @@ pub(crate) fn instruction_to_expr(
         Instruction::Call { func, arguments } => {
             call_instruction_to_expr(instruction_id, func, arguments, dfg, current_context)
         }
-        Instruction::Allocate => unreachable!(), // Should return empty expression, that's why it is skipped
+        Instruction::Allocate => unreachable!(), // Handled at an earlier level.
         Instruction::Load { address: value_id } => {
             ssa_value_to_expr(value_id, dfg, current_context.result_id_fixer)
         }
         Instruction::Store { address, value } => {
             store_to_expr(address, value, dfg, current_context, &instruction_id)
         }
-        Instruction::EnableSideEffectsIf { condition: _ } => todo!(), //TODO(totel) Support for mutability
+        Instruction::EnableSideEffectsIf { condition: _ } => todo!(), // Handled at an earlier level.
         Instruction::ArrayGet { array, index } => array_get_to_expr(
             array,
             Index::SsaValue(index.clone()),
@@ -1556,14 +1580,14 @@ pub(crate) fn instruction_to_expr(
         Instruction::ArraySet { array, index, value: new_value, mutable: _ } => {
             array_set_to_expr(array, index, new_value, &instruction_id, mode, current_context, dfg)
         }
-        Instruction::IncrementRc { value: _ } => unreachable!(), // Only in Brillig
-        Instruction::DecrementRc { value: _ } => unreachable!(), // Only in Brillig
+        Instruction::IncrementRc { value: _ } => unreachable!(), // Optimized away. They are not being optimized only in Brillig.
+        Instruction::DecrementRc { value: _ } => unreachable!(), // Optimized away. They are not being optimized only in Brillig.
         Instruction::IfElse {
             then_condition: _,
             then_value: _,
             else_condition: _,
             else_value: _,
-        } => todo!(),
+        } => todo!(), // This SSA instruction doesn't occur or it is always optimized away.
         Instruction::QuantStart { .. } => {
             unreachable!("We skip those instructions but we mark their presence in the structure current context")
         }
@@ -1649,7 +1673,7 @@ pub(crate) fn is_instruction_ind_dec_rc(
 }
 
 /// Returns a SSA block as an expression and
-/// the type of the SSA block's terminating instruction
+/// the type of the SSA block's terminating instruction.
 pub(crate) fn basic_block_to_exprx(
     basic_block_id: Id<BasicBlock>,
     dfg: &DataFlowGraph,
