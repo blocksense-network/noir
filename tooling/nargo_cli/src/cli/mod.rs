@@ -26,6 +26,7 @@ mod expand_cmd;
 mod export_cmd;
 mod fmt_cmd;
 mod fuzz_cmd;
+mod fv_cmd;
 mod generate_completion_script_cmd;
 mod info_cmd;
 mod init_cmd;
@@ -113,6 +114,7 @@ enum NargoCommand {
     Dap(dap_cmd::DapCommand),
     Expand(expand_cmd::ExpandCommand),
     GenerateCompletionScript(generate_completion_script_cmd::GenerateCompletionScriptCommand),
+    FormalVerify(fv_cmd::FormalVerifyCommand),
 }
 
 /// Commands that can execute on the workspace level, or be limited to a selected package.
@@ -156,6 +158,7 @@ pub(crate) fn start_cli() -> eyre::Result<()> {
         NargoCommand::Fmt(args) => with_workspace(args, config, fmt_cmd::run),
         NargoCommand::Expand(args) => with_workspace(args, config, expand_cmd::run),
         NargoCommand::GenerateCompletionScript(args) => generate_completion_script_cmd::run(args),
+        NargoCommand::FormalVerify(args) => with_workspace(args, config, fv_cmd::run),
     }?;
 
     Ok(())
