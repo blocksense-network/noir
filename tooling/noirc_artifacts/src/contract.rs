@@ -108,6 +108,7 @@ impl ContractFunctionArtifact {
             warnings: Vec::new(),
             names: self.names,
             brillig_names: self.brillig_names,
+            verus_vir: None,
         }
     }
 }

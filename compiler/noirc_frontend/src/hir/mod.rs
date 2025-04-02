@@ -52,6 +52,8 @@ pub struct Context<'file_manager, 'parsed_files> {
     pub parsed_files: Cow<'parsed_files, ParsedFiles>,
 
     pub package_build_path: PathBuf,
+
+    pub perform_formal_verification: bool,
 }
 
 #[derive(Debug)]
@@ -73,6 +75,7 @@ impl Context<'_, '_> {
             debug_instrumenter: DebugInstrumenter::default(),
             parsed_files: Cow::Owned(parsed_files),
             package_build_path: PathBuf::default(),
+            perform_formal_verification: false,
         }
     }
 
@@ -90,6 +93,7 @@ impl Context<'_, '_> {
             debug_instrumenter: DebugInstrumenter::default(),
             parsed_files: Cow::Borrowed(parsed_files),
             package_build_path: PathBuf::default(),
+            perform_formal_verification: false,
         }
     }
 
