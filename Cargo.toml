@@ -137,6 +137,9 @@ codespan = { version = "0.11.1", features = ["serialization"] }
 codespan-lsp = "0.11.1"
 codespan-reporting = "0.11.1"
 
+# Formal verification
+vir = {git = "https://github.com/Aristotelis2002/verus-lib"}
+
 # Benchmarking
 criterion = "0.5.1"
 # Note that using the "frame-pointer" feature breaks framegraphs on linux
