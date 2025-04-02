@@ -111,7 +111,8 @@ pub enum BorrowedToken<'input> {
     DollarSign,
     /// =
     Assign,
-
+    /// &&
+    LogicalAnd,
     #[allow(clippy::upper_case_acronyms)]
     EOF,
 
@@ -239,7 +240,8 @@ pub enum Token {
     Assign,
     /// $
     DollarSign,
-
+    /// &&
+    LogicalAnd,
     #[allow(clippy::upper_case_acronyms)]
     EOF,
 
@@ -317,6 +319,7 @@ pub fn token_to_borrowed_token(token: &Token) -> BorrowedToken<'_> {
         Token::Assign => BorrowedToken::Assign,
         Token::Bang => BorrowedToken::Bang,
         Token::DollarSign => BorrowedToken::DollarSign,
+        Token::LogicalAnd => BorrowedToken::LogicalAnd,
         Token::EOF => BorrowedToken::EOF,
         Token::Invalid(c) => BorrowedToken::Invalid(*c),
         Token::Whitespace(s) => BorrowedToken::Whitespace(s),
@@ -553,6 +556,7 @@ impl fmt::Display for Token {
             Token::Assign => write!(f, "="),
             Token::Bang => write!(f, "!"),
             Token::DollarSign => write!(f, "$"),
+            Token::LogicalAnd => write!(f, "&&"),
             Token::EOF => write!(f, "end of input"),
             Token::Invalid(c) => write!(f, "{c}"),
             Token::Whitespace(ref s) => write!(f, "{s}"),
