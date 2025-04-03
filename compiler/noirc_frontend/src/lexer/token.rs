@@ -10,6 +10,8 @@ use crate::{
     },
 };
 
+use super::fv_attributes::FormalVerificationAttribute;
+
 /// Represents a token in noir's grammar - a word, number,
 /// or symbol that can be used in noir's syntax. This is the
 /// smallest unit of grammar. A parser may (will) decide to parse
@@ -1058,6 +1060,8 @@ pub enum SecondaryAttributeKind {
 
     /// Allow chosen warnings to happen so they are silenced.
     Allow(String),
+
+    FvAttribute(FormalVerificationAttribute),
 }
 
 impl SecondaryAttributeKind {
@@ -1087,6 +1091,7 @@ impl SecondaryAttributeKind {
             SecondaryAttributeKind::Varargs => "varargs".to_string(),
             SecondaryAttributeKind::UseCallersScope => "use_callers_scope".to_string(),
             SecondaryAttributeKind::Allow(k) => format!("allow({k})"),
+            SecondaryAttributeKind::FvAttribute(fv_attribute) => fv_attribute.to_string(),
         }
     }
 }
