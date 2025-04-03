@@ -111,6 +111,8 @@ pub enum ParserErrorReason {
     TraitBoundsNotAllowedHere,
     #[error("Missing type for associated constant")]
     MissingTypeForAssociatedConstant,
+    #[error("Invalid FV annotation syntax")]
+    InvalidFvAnnotation,
 }
 
 /// Represents a parsing error, or a parsing error in the making.
