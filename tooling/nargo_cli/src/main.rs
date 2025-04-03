@@ -30,7 +30,7 @@ fn main() {
     panic_hook.install();
 
     if let Err(report) = cli::start_cli() {
-        eprintln!("Error: {report}");
+        eprintln!("{report:#}");
         std::process::exit(1);
     }
 }
