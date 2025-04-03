@@ -2,6 +2,9 @@ use noirc_errors::Location;
 
 use crate::ast::{Expression, ExpressionKind, Ident, Literal, Path};
 use crate::lexer::errors::LexerErrorKind;
+use crate::lexer::fv_attributes::{
+    EnsuresAttribute, FormalVerificationAttribute, RequiresAttribute,
+};
 use crate::parser::ParserErrorReason;
 use crate::parser::labels::ParsingRuleLabel;
 use crate::token::{Attribute, FunctionAttribute, FuzzingScope, MetaAttribute, TestScope, Token};
@@ -150,6 +153,10 @@ impl Parser<'_> {
                     // The fuzz attribute is a secondary attribute that has `a = b` in its syntax
                     // (`only_fail_with = "..."``) so we parse it differently.
                     self.parse_fuzz_attribute(start_location)
+                } else if is_ident_fv_keyword(ident) {
+                    // FV attributes can have an expression body so we need
+                    // to parse it differently.
+                    self.parse_fv_attribute(ident, start_location)
                 } else {
                     // Every other attribute has the form `name(arg1, arg2, .., argN)`
                     self.parse_ident_attribute_other_than_test_and_fuzz(ident, start_location)
@@ -435,6 +442,101 @@ impl Parser<'_> {
             self.bump();
         }
     }
+
+    fn parse_fv_attribute(&mut self, ident: &Ident, start_location: Location) -> Attribute {
+        match ident.as_str() {
+            "requires" => {
+                let requires_wrapper = |expr: Expression, location: Location| {
+                    FormalVerificationAttribute::Requires(RequiresAttribute {
+                        body: expr,
+                        location,
+                    })
+                };
+
+                self.parse_fv_attribute_with_body(start_location, requires_wrapper)
+            }
+            "ensures" => {
+                let ensures_wrapper = |expr: Expression, location: Location| {
+                    FormalVerificationAttribute::Ensures(EnsuresAttribute { body: expr, location })
+                };
+
+                self.parse_fv_attribute_with_body(start_location, ensures_wrapper)
+            }
+            "ghost" => {
+                self.skip_until_right_bracket();
+                Attribute::Secondary(SecondaryAttribute::FvAttribute(
+                    FormalVerificationAttribute::Ghost,
+                ))
+            }
+            _ => unreachable!("FV attribute keyword expected. Encountered {}", ident.as_str()),
+        }
+    }
+
+    fn parse_fv_attribute_with_body<F>(&mut self, start_location: Location, wrapper: F) -> Attribute
+    where
+        F: Fn(Expression, Location) -> FormalVerificationAttribute,
+    {
+        if let Some(attr) = self.parse_fv_attribute_inner(start_location, &wrapper) {
+            Attribute::Secondary(SecondaryAttribute::FvAttribute(attr))
+        } else {
+            let location = self.location_since(start_location);
+            self.push_error(ParserErrorReason::InvalidFvAnnotation, location);
+            Attribute::Secondary(SecondaryAttribute::FvAttribute(wrapper(
+                Expression { kind: ExpressionKind::Error, location },
+                location,
+            )))
+        }
+    }
+
+    fn parse_fv_attribute_inner<F>(
+        &mut self,
+        start_location: Location,
+        attribute_wrapper: F,
+    ) -> Option<FormalVerificationAttribute>
+    where
+        F: Fn(Expression, Location) -> FormalVerificationAttribute,
+    {
+        if !self.eat_left_paren() {
+            self.expected_token(Token::LeftParen);
+            self.skip_until_right_bracket();
+            return None;
+        }
+
+        let option_body_expr = self.parse_expression();
+        let body_expr = match option_body_expr {
+            Some(expr) if self.errors.is_empty() => expr,
+            _ => {
+                // Handle error case
+                if let None = option_body_expr {
+                    self.expected_label(ParsingRuleLabel::Expression);
+                }
+
+                if !self.eat_right_paren() {
+                    self.expected_token(Token::RightParen);
+                    self.skip_until_right_bracket();
+                }
+                self.skip_until_right_bracket();
+                return None;
+            }
+        };
+
+        if !self.eat_right_paren() {
+            self.expected_token(Token::RightParen);
+            self.skip_until_right_bracket();
+            return None;
+        }
+
+        if !self.eat_right_bracket() {
+            self.expected_token(Token::RightBracket);
+            return None;
+        }
+        Some(attribute_wrapper(body_expr, self.location_since(start_location)))
+    }
+}
+
+fn is_ident_fv_keyword(ident: &Ident) -> bool {
+    let ident_as_str = ident.as_str();
+    ident_as_str == "requires" || ident_as_str == "ensures" || ident_as_str == "ghost"
 }
 
 #[cfg(test)]

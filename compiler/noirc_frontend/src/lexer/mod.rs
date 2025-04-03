@@ -7,3 +7,4 @@ pub mod token;
 pub use lexer::{Lexer, SpannedTokenResult};
 
 pub mod errors;
+pub mod fv_attributes;
