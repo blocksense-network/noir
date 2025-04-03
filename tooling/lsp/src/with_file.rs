@@ -589,7 +589,8 @@ fn secondary_attribute_with_file(
         | SecondaryAttribute::Abi(_)
         | SecondaryAttribute::Varargs
         | SecondaryAttribute::UseCallersScope
-        | SecondaryAttribute::Allow(_) => secondary_attribute,
+        | SecondaryAttribute::Allow(_) 
+        | SecondaryAttribute::FvAttribute(_) => secondary_attribute,
     }
 }
 
