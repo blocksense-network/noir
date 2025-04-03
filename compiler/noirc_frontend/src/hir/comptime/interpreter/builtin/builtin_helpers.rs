@@ -614,6 +614,7 @@ fn secondary_attribute_name(
         SecondaryAttributeKind::Varargs => Some("varargs".to_string()),
         SecondaryAttributeKind::UseCallersScope => Some("use_callers_scope".to_string()),
         SecondaryAttributeKind::Allow(_) => Some("allow".to_string()),
+        SecondaryAttributeKind::FvAttribute(fv_attribute) => Some(fv_attribute.name()),
     }
 }
 
