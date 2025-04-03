@@ -109,6 +109,8 @@ pub enum ParserErrorReason {
     LogicalAnd,
     #[error("Trait bounds are not allowed here")]
     TraitBoundsNotAllowedHere,
+    #[error("Invalid FV annotation syntax")]
+    InvalidFvAnnotation
 }
 
 /// Represents a parsing error, or a parsing error in the making.
