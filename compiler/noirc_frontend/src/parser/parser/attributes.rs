@@ -544,7 +544,15 @@ mod tests {
     use noirc_errors::Span;
 
     use crate::{
-        parser::{Parser, parser::tests::expect_no_errors},
+        lexer::fv_attributes::FormalVerificationAttribute,
+        parse_program_with_dummy_file,
+        parser::{
+            Parser, ParserError, ParserErrorReason,
+            parser::tests::{
+                expect_no_errors, get_single_error_reason, get_source_with_error_span,
+                parse_all_failing,
+            },
+        },
         token::{Attribute, FunctionAttribute, SecondaryAttribute, TestScope},
     };
 
@@ -790,5 +798,117 @@ mod tests {
 
         let (attr, _) = attributes.remove(0);
         assert!(matches!(attr, Attribute::Secondary(SecondaryAttribute::Deprecated(None))));
+    }
+
+    #[test]
+    fn parse_ghost_attribute() {
+        let src = "#[ghost]";
+        let mut parser = Parser::for_str_with_dummy_file(src);
+        let (attribute, _) = parser.parse_attribute().unwrap();
+
+        expect_no_errors(&parser.errors);
+        assert!(matches!(
+            attribute,
+            Attribute::Secondary(SecondaryAttribute::FvAttribute(
+                FormalVerificationAttribute::Ghost,
+            ))
+        ));
+    }
+
+    #[test]
+    fn parse_ensures_attribute_valid_expression() {
+        let src = "#[ensures(x > 5)]";
+        let mut parser = Parser::for_str_with_dummy_file(src);
+        let (attribute, _) = parser.parse_attribute().unwrap();
+
+        expect_no_errors(&parser.errors);
+        let Attribute::Secondary(SecondaryAttribute::FvAttribute(
+            FormalVerificationAttribute::Ensures(ens_attribute),
+        )) = attribute
+        else {
+            panic!("Expected FV ensures attribute");
+        };
+
+        assert_eq!(ens_attribute.body.to_string(), "(x > 5)");
+    }
+
+    #[test]
+    fn parse_requires_attribute_valid_expression() {
+        let src = "#[requires(y == 3)]";
+        let mut parser = Parser::for_str_with_dummy_file(src);
+        let (attribute, _) = parser.parse_attribute().unwrap();
+        expect_no_errors(&parser.errors);
+
+        let Attribute::Secondary(SecondaryAttribute::FvAttribute(
+            FormalVerificationAttribute::Requires(req_attribute),
+        )) = attribute
+        else {
+            panic!("Expected FV requires attribute");
+        };
+
+        assert_eq!(req_attribute.body.to_string(), "(y == 3)");
+    }
+
+    #[test]
+    fn parse_error_fv_ensures_invalid_expression() {
+        let src = "
+        #[ensures(x >)]
+        ^^^^^^^^^^^^^^^
+        ";
+        let (src, span) = get_source_with_error_span(src);
+        let (_, errors) = parse_program_with_dummy_file(&src);
+        assert_eq!(errors.len(), 2);
+
+        let errors_with_reason: Vec<ParserError> =
+            errors.into_iter().filter(|error| error.reason().is_some()).collect();
+        let reason = get_single_error_reason(&errors_with_reason, span);
+
+        assert!(matches!(reason, ParserErrorReason::InvalidFvAnnotation));
+    }
+
+    #[test]
+    fn parse_error_fv_ensures_empty_expression() {
+        let src = "
+        #[ensures()]
+        ^^^^^^^^^^^^
+        ";
+        let (src, span) = get_source_with_error_span(src);
+        let (_, errors) = parse_program_with_dummy_file(&src);
+        assert_eq!(errors.len(), 2);
+
+        let errors_with_reason: Vec<ParserError> =
+            errors.into_iter().filter(|error| error.reason().is_some()).collect();
+        let reason = get_single_error_reason(&errors_with_reason, span);
+
+        assert!(matches!(reason, ParserErrorReason::InvalidFvAnnotation));
+    }
+
+    #[test]
+    fn parse_error_fv_requires_missing_paren() {
+        let src = "
+        #[requires x == 4)]
+        ^^^^^^^^^^^^^^^^^^^
+        ";
+        let (src, span) = get_source_with_error_span(src);
+        let (_, errors) = parse_program_with_dummy_file(&src);
+
+        let errors_with_reason: Vec<ParserError> =
+            errors.into_iter().filter(|error| error.reason().is_some()).collect();
+        let reason = get_single_error_reason(&errors_with_reason, span);
+
+        assert!(matches!(reason, ParserErrorReason::InvalidFvAnnotation));
+    }
+    #[test]
+    fn parse_error_fv_wrong_attribute_defs() {
+        parse_all_failing(vec![
+            "#[requires(x > 2)",
+            "#[ensures(result > 5]",
+            "#[ensures result > 5)]",
+            "#[ensures result > 5]",
+            "#[requires]",
+            "#[ensures]",
+            "#[ensures()]",
+            "#[ensures(result > 4)x]",
+        ]);
     }
 }
