@@ -96,6 +96,9 @@ impl Formatter<'_> {
             SecondaryAttribute::Meta(meta_attribute) => {
                 self.format_meta_attribute(meta_attribute);
             }
+            SecondaryAttribute::FvAttribute(_) => {
+                todo!() //TODO(totel) Implement formatting for FV attributes.
+            }
         }
 
         self.write_line();
