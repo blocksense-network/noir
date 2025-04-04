@@ -4,6 +4,8 @@ use noirc_errors::Span;
 
 use crate::parser::{ParserError, ParserErrorReason};
 
+use super::parse_program_with_dummy_file;
+
 pub(super) fn get_source_with_error_span(src: &str) -> (String, Span) {
     let mut lines: Vec<&str> = src.trim_end().lines().collect();
     let squiggles_line = lines.pop().expect("Expected at least two lines in src (the last one should have squiggles for the error location)");
@@ -52,4 +54,16 @@ pub(super) fn expect_no_errors(errors: &[ParserError]) {
         println!("{}", error);
     }
     panic!("Expected no errors, found {} errors (printed above)", errors.len());
+}
+
+pub(super) fn parse_all_failing(programs: Vec<&str>) {
+    programs.into_iter().for_each(|program| {
+        let (parse_module, errors) = parse_program_with_dummy_file(program);
+        if errors.len() == 0 {
+            panic!(
+                "Expected this input to fail:\n{}\nYet it successfully parsed as:\n{}",
+                program, parse_module
+            )
+        }
+    });
 }
