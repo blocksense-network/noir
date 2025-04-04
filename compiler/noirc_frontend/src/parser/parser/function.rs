@@ -330,6 +330,7 @@ mod tests {
             ExpressionKind, IntegerBitSize, ItemVisibility, NoirFunction, StatementKind,
             UnresolvedTypeData,
         },
+        lexer::fv_attributes::FormalVerificationAttribute,
         parse_program_with_dummy_file,
         parser::{
             ItemKind, ParserErrorReason,
@@ -339,6 +340,7 @@ mod tests {
             },
         },
         shared::{Signedness, Visibility},
+        token::SecondaryAttribute,
     };
 
     fn parse_function_no_error(src: &str) -> NoirFunction {
@@ -626,5 +628,60 @@ mod tests {
 
         let reason = errors[0].reason().unwrap();
         assert_eq!(reason, &ParserErrorReason::DocCommentCannotBeAppliedToFunctionParameters);
+    }
+
+    #[test]
+    fn parse_fv_attribute_with_function() {
+        let src = r#"#[requires(x > 2)]
+                    fn foo(x: i32) {}"#;
+        let noir_function = parse_function_no_error(src);
+        let function_secondary_attrs = &noir_function.attributes().secondary;
+
+        assert_eq!(function_secondary_attrs.len(), 1);
+        let SecondaryAttribute::FvAttribute(FormalVerificationAttribute::Requires(req_attribute)) =
+            function_secondary_attrs.last().unwrap()
+        else {
+            panic!("Expected FV requires attribute");
+        };
+        assert_eq!(req_attribute.body.to_string(), "(x > 2)");
+    }
+
+    #[test]
+    fn parse_multiple_fv_attributes_with_function() {
+        let src = r#"#[requires(x > 2)]
+                    #[ensures(result < 8)]
+                    fn foo(x: i32) {}"#;
+        let noir_function = parse_function_no_error(src);
+        let function_secondary_attrs = &noir_function.attributes().secondary;
+
+        assert_eq!(function_secondary_attrs.len(), 2);
+
+        let SecondaryAttribute::FvAttribute(FormalVerificationAttribute::Requires(req_attribute)) =
+            function_secondary_attrs.first().unwrap()
+        else {
+            panic!("Expected first attribute to be requires");
+        };
+        assert_eq!(req_attribute.body.to_string(), "(x > 2)");
+
+        let SecondaryAttribute::FvAttribute(FormalVerificationAttribute::Ensures(req_attribute)) =
+            function_secondary_attrs.last().unwrap()
+        else {
+            panic!("Expected second attribute to be ensures");
+        };
+        assert_eq!(req_attribute.body.to_string(), "(result < 8)");
+    }
+
+    #[test]
+    fn pares_fv_attributes_cooperate() {
+        let src = r#"#[requires(x > 2)]
+                    #[deprecated]
+                    #[ensures(result < 8)]
+                    #[requires(x < 5)]
+                    fn foo(x: i32) {}"#;
+        let noir_function = parse_function_no_error(src);
+        let function_secondary_attrs = &noir_function.attributes().secondary;
+
+        assert_eq!(function_secondary_attrs.len(), 4);
+        assert!(matches!(function_secondary_attrs[1], SecondaryAttribute::Deprecated(None)));
     }
 }
