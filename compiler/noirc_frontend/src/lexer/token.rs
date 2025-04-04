@@ -1160,8 +1160,10 @@ pub enum Keyword {
     Dep,
     Else,
     Enum,
+    Exists,
     Fn,
     For,
+    Forall,
     Global,
     If,
     Impl,
@@ -1226,6 +1228,8 @@ impl fmt::Display for Keyword {
             Keyword::Use => write!(f, "use"),
             Keyword::Where => write!(f, "where"),
             Keyword::While => write!(f, "while"),
+            Keyword::Exists => write!(f, "exists"),
+            Keyword::Forall => write!(f, "forall"),
         }
     }
 }
@@ -1247,8 +1251,10 @@ impl Keyword {
             "dep" => Keyword::Dep,
             "else" => Keyword::Else,
             "enum" => Keyword::Enum,
+            "exists" => Keyword::Exists,
             "fn" => Keyword::Fn,
             "for" => Keyword::For,
+            "forall" => Keyword::Forall,
             "global" => Keyword::Global,
             "if" => Keyword::If,
             "impl" => Keyword::Impl,
