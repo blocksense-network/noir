@@ -210,8 +210,10 @@ pub(super) fn keyword_builtin_function(keyword: &Keyword) -> Option<BuiltInFunct
         | Keyword::Dep
         | Keyword::Else
         | Keyword::Enum
+        | Keyword::Exists
         | Keyword::Fn
         | Keyword::For
+        | Keyword::Forall
         | Keyword::Global
         | Keyword::If
         | Keyword::Impl
