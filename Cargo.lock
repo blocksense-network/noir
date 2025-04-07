@@ -3684,6 +3684,7 @@ dependencies = [
  "plonky2",
  "plonky2_u32",
  "proptest",
+ "proptest-derive",
  "rayon",
  "serde",
  "serde_json",
