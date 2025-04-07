@@ -909,6 +909,6 @@ mod tests {
             "#[ensures]",
             "#[ensures()]",
             "#[ensures(result > 4)x]",
-        ]);
+        ], |parser| parser.parse_attribute());
     }
 }
