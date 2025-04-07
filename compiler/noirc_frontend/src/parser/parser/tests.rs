@@ -4,7 +4,7 @@ use noirc_errors::Span;
 
 use crate::parser::{ParserError, ParserErrorReason};
 
-use super::parse_program_with_dummy_file;
+use super::Parser;
 
 pub(super) fn get_source_with_error_span(src: &str) -> (String, Span) {
     let mut lines: Vec<&str> = src.trim_end().lines().collect();
@@ -56,13 +56,19 @@ pub(super) fn expect_no_errors(errors: &[ParserError]) {
     panic!("Expected no errors, found {} errors (printed above)", errors.len());
 }
 
-pub(super) fn parse_all_failing(programs: Vec<&str>) {
+pub(super) fn parse_all_failing<F, R>(programs: Vec<&str>, mut parsing_function: F)
+where
+    F: FnMut(&mut Parser) -> R,
+    R: std::fmt::Debug,
+{
     programs.into_iter().for_each(|program| {
-        let (parse_module, errors) = parse_program_with_dummy_file(program);
-        if errors.len() == 0 {
+        let mut parser = Parser::for_str_with_dummy_file(program);
+        let parsed_module = parsing_function(&mut parser);
+
+        if parser.errors.len() == 0 {
             panic!(
-                "Expected this input to fail:\n{}\nYet it successfully parsed as:\n{}",
-                program, parse_module
+                "Expected this input to fail:\n{}\nYet it successfully parsed as:\n{:#?}",
+                program, parsed_module
             )
         }
     });
