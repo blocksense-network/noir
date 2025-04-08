@@ -115,7 +115,7 @@ impl Parser<'_> {
     ///     | IdentifierPattern
     ///
     /// IdentifierPattern = identifier
-    fn parse_pattern_no_mut(&mut self) -> Option<Pattern> {
+    pub(crate) fn parse_pattern_no_mut(&mut self) -> Option<Pattern> {
         let start_location = self.current_token_location;
 
         if let Some(pattern) = self.parse_interned_pattern() {
