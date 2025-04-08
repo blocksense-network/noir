@@ -197,5 +197,8 @@ pub(super) fn evaluate_infix(
         BinaryOpKind::Modulo => match_integer! {
             (lhs_value as lhs "%" rhs_value as rhs) => lhs.checked_rem(rhs)
         },
+        BinaryOpKind::Implication => match_bitwise! {
+            (lhs_value as lhs "==>" rhs_value as rhs) => !lhs | rhs
+        },
     }
 }

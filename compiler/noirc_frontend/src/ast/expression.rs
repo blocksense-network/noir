@@ -323,6 +323,7 @@ pub enum BinaryOpKind {
     ShiftRight,
     ShiftLeft,
     Modulo,
+    Implication,
 }
 
 impl BinaryOpKind {
@@ -371,6 +372,7 @@ impl BinaryOpKind {
             BinaryOpKind::ShiftRight => ">>",
             BinaryOpKind::ShiftLeft => "<<",
             BinaryOpKind::Modulo => "%",
+            BinaryOpKind::Implication => "==>",
         }
     }
 
@@ -392,6 +394,7 @@ impl BinaryOpKind {
             BinaryOpKind::ShiftLeft => Token::ShiftLeft,
             BinaryOpKind::ShiftRight => Token::ShiftRight,
             BinaryOpKind::Modulo => Token::Percent,
+            BinaryOpKind::Implication => Token::Implication,
         }
     }
 }
@@ -824,6 +827,7 @@ impl Display for BinaryOpKind {
             BinaryOpKind::ShiftLeft => write!(f, "<<"),
             BinaryOpKind::ShiftRight => write!(f, ">>"),
             BinaryOpKind::Modulo => write!(f, "%"),
+            BinaryOpKind::Implication => write!(f, "==>"),
         }
     }
 }
