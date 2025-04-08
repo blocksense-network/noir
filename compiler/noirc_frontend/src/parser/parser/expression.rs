@@ -63,7 +63,7 @@ impl Parser<'_> {
     }
 
     fn parse_expression_impl(&mut self, allow_constructors: bool) -> Option<Expression> {
-        self.parse_equal_or_not_equal(allow_constructors)
+        self.parse_implication(allow_constructors)
     }
 
     /// Term
@@ -1041,15 +1041,13 @@ mod tests {
 
     use crate::{
         ast::{
-            ArrayLiteral, BinaryOpKind, ConstrainKind, Expression, ExpressionKind, Literal,
-            StatementKind, UnaryOp, UnresolvedTypeData,
+            ArrayLiteral, BinaryOpKind, ConstrainKind, Expression, ExpressionKind, Literal, StatementKind, UnaryOp, UnresolvedTypeData
         },
         parser::{
-            Parser, ParserErrorReason,
             parser::tests::{
                 expect_no_errors, get_single_error, get_single_error_reason,
                 get_source_with_error_span,
-            },
+            }, Parser, ParserErrorReason
         },
         signed_field::SignedField,
         token::Token,
@@ -2216,5 +2214,16 @@ mod tests {
 
         let reason = get_single_error_reason(&parser.errors, span);
         assert!(matches!(reason, ParserErrorReason::ConstrainDeprecated));
+    }
+
+    #[test]
+    fn parses_implication() {
+        let src = "x > 4 ==> y < 2";
+        let expr = parse_expression_no_errors(src);
+        let ExpressionKind::Infix(infix_expression) = expr.kind else {
+            panic!("Expected infix expression");
+        };
+        let operator = infix_expression.operator;
+        assert!(matches!(operator.contents, BinaryOpKind::Implication));
     }
 }
