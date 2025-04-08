@@ -253,7 +253,12 @@ impl<'a> Lexer<'a> {
                 let start = self.position;
                 if self.peek_char_is('=') {
                     self.next_char();
-                    Ok(Token::Equal.into_span(start, start + 1))
+                    if self.peek_char_is('>') {
+                        self.next_char();
+                        Ok(Token::Implication.into_span(start, start + 2))
+                    } else {
+                        Ok(Token::Equal.into_span(start, start + 1))
+                    }
                 } else if self.peek_char_is('>') {
                     self.next_char();
                     Ok(Token::FatArrow.into_span(start, start + 1))
@@ -1631,7 +1636,7 @@ mod tests {
     }
 
     #[test]
-    fn quantifier_forall(){
+    fn quantifier_forall() {
         let input = r#"forall(|i| i < 5 & arr[i] == x)"#;
 
         let expected = vec![
@@ -1661,7 +1666,7 @@ mod tests {
     }
 
     #[test]
-    fn quantifier_exists(){
+    fn quantifier_exists() {
         let input = r#"exists(|i| i < 5 & arr[i] == x)"#;
 
         let expected = vec![
@@ -1682,6 +1687,27 @@ mod tests {
             Token::Ident("x".to_string()),
         ];
 
+        let mut lexer = Lexer::new_with_dummy_file(input);
+
+        for token in expected.into_iter() {
+            let got = lexer.next_token().unwrap();
+            assert_eq!(got, token);
+        }
+    }
+
+    #[test]
+    fn implication_operator() {
+        let input = "x < 3 ==> y > 5";
+
+        let expected = vec![
+            Token::Ident("x".to_string()),
+            Token::Less,
+            Token::Int(3_i128.into()),
+            Token::Implication,
+            Token::Ident("y".to_string()),
+            Token::Greater,
+            Token::Int(5_i128.into()),
+        ];
         let mut lexer = Lexer::new_with_dummy_file(input);
 
         for token in expected.into_iter() {
