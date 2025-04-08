@@ -102,6 +102,7 @@ impl Elaborator<'_> {
                 return self.elaborate_as_trait_path(path);
             }
             ExpressionKind::TypePath(path) => return self.elaborate_type_path(path),
+            ExpressionKind::Quantifier(_) => todo!(), // TODO(totel)
         };
         let id = self.interner.push_expr(hir_expr);
         self.interner.push_expr_location(id, expr.location);
