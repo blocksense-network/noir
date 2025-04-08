@@ -554,7 +554,8 @@ impl UnresolvedTypeExpression {
                     | BinaryOpKind::Or
                     | BinaryOpKind::Xor
                     | BinaryOpKind::ShiftRight
-                    | BinaryOpKind::ShiftLeft => {
+                    | BinaryOpKind::ShiftLeft
+                    | BinaryOpKind::Implication => {
                         unreachable!("impossible via `operator_allowed` check")
                     }
                 };

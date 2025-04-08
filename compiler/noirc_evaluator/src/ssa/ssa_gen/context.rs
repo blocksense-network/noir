@@ -1137,6 +1137,8 @@ fn convert_operator(op: BinaryOpKind) -> BinaryOp {
         BinaryOpKind::Xor => BinaryOp::Xor,
         BinaryOpKind::ShiftLeft => BinaryOp::Shl,
         BinaryOpKind::ShiftRight => BinaryOp::Shr,
+        //TODO(totel) Make sure all Implication operations are optimized away.
+        BinaryOpKind::Implication => unreachable!(),
     }
 }
 
