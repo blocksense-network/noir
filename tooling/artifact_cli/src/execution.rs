@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use acir::{FieldElement, native_types::WitnessStack};
 use acvm::BlackBoxFunctionSolver;
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
-use nargo::{foreign_calls::{DefaultForeignCallBuilder, ForeignCallExecutor}, NargoError, PrintOutput};
+use nargo::{foreign_calls::{DefaultForeignCallBuilder, ForeignCallExecutor}, NargoError};
 use noirc_abi::{input_parser::InputValue, InputMap};
 use noirc_artifacts::debug::DebugArtifact;
 use noirc_driver::CompiledProgram;
@@ -162,7 +162,7 @@ pub fn execute_program(
         initial_witness,
         &Bn254BlackBoxSolver(pedantic_solving),
         &mut DefaultForeignCallBuilder {
-            output: PrintOutput::Stdout,
+            output: std::io::stdout(),
             enable_mocks: false,
             resolver_url: foreign_call_resolver_url.map(|s| s.to_string()),
             root_path,
