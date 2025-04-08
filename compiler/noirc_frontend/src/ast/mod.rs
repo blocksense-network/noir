@@ -13,6 +13,7 @@ mod structure;
 mod traits;
 mod type_alias;
 mod visitor;
+mod quantifier;
 
 use noirc_errors::Location;
 pub use visitor::AttributeTarget;
@@ -32,6 +33,7 @@ pub use statement::*;
 pub use structure::*;
 pub use traits::*;
 pub use type_alias::*;
+pub use quantifier::*;
 
 use crate::QuotedType;
 use crate::token::IntegerTypeSuffix;

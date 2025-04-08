@@ -11,8 +11,9 @@ use crate::{
         CastExpression, ConstrainExpression, ConstructorExpression, Expression, ExpressionKind,
         ForBounds, ForLoopStatement, ForRange, GenericTypeArgs, IfExpression, IndexExpression,
         InfixExpression, LValue, Lambda, LetStatement, Literal, MatchExpression,
-        MemberAccessExpression, MethodCallExpression, Pattern, PrefixExpression, Statement,
-        StatementKind, UnresolvedType, UnresolvedTypeData, UnsafeExpression, WhileStatement,
+        MemberAccessExpression, MethodCallExpression, Pattern, PrefixExpression,
+        QuantifierExpression, Statement, StatementKind, UnresolvedType, UnresolvedTypeData,
+        UnsafeExpression, WhileStatement,
     },
     hir_def::traits::TraitConstraint,
     node_interner::{InternedStatementKind, NodeInterner},
@@ -720,6 +721,13 @@ fn remove_interned_in_expression_kind(
         }
         ExpressionKind::Error => expr,
         ExpressionKind::InternedStatement(id) => remove_interned_in_statement_expr(interner, id),
+        ExpressionKind::Quantifier(quantifier_expression) => {
+            ExpressionKind::Quantifier(Box::new(QuantifierExpression {
+                quantifier_type: quantifier_expression.quantifier_type,
+                indexes: quantifier_expression.indexes,
+                body: remove_interned_in_expression(interner, quantifier_expression.body),
+            }))
+        }
     }
 }
 
