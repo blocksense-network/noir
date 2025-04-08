@@ -3,12 +3,9 @@ use noirc_errors::Location;
 
 use crate::{
     ast::{
-        ArrayLiteral, BlockExpression, CallExpression, CastExpression, ConstrainExpression,
-        ConstrainKind, ConstructorExpression, Expression, ExpressionKind, Ident, IfExpression,
-        IndexExpression, Literal, MatchExpression, MemberAccessExpression, MethodCallExpression,
-        Statement, TypePath, UnaryOp, UnresolvedType, UnresolvedTypeData, UnsafeExpression,
+        ArrayLiteral, BlockExpression, CallExpression, CastExpression, ConstrainExpression, ConstrainKind, ConstructorExpression, Expression, ExpressionKind, Ident, IfExpression, IndexExpression, Literal, MatchExpression, MemberAccessExpression, MethodCallExpression, Statement, TypePath, UnaryOp, UnresolvedType, UnresolvedTypeData, UnsafeExpression
     },
-    parser::{ParserErrorReason, labels::ParsingRuleLabel, parser::parse_many::separated_by_comma},
+    parser::{labels::ParsingRuleLabel, parser::parse_many::separated_by_comma, ParserErrorReason},
     token::{Keyword, Token, TokenKind},
 };
 
@@ -300,6 +297,7 @@ impl Parser<'_> {
     ///     | ResolvedExpression
     ///     | InternedExpression
     ///     | InternedStatementExpression
+    ///     | QuantifierExpression
     fn parse_atom(&mut self, allow_constructors: bool) -> Option<Expression> {
         let start_location = self.current_token_location;
         let kind = self.parse_atom_kind(allow_constructors)?;
@@ -364,6 +362,10 @@ impl Parser<'_> {
         }
 
         if let Some(kind) = self.parse_nameless_type_path_or_as_trait_path_type_expression() {
+            return Some(kind);
+        }
+
+        if let Some(kind) = self.parse_quantifier_expr() {
             return Some(kind);
         }
 

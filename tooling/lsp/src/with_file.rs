@@ -11,8 +11,8 @@ use noirc_frontend::{
         LValue, Lambda, LetStatement, Literal, MatchExpression, MemberAccessExpression,
         MethodCallExpression, ModuleDeclaration, NoirEnumeration, NoirFunction, NoirStruct,
         NoirTrait, NoirTraitImpl, NoirTypeAlias, Param, Path, PathSegment, Pattern,
-        PrefixExpression, Statement, StatementKind, StructField, TraitBound, TraitImplItem,
-        TraitImplItemKind, TraitItem, TypeImpl, TypePath, UnresolvedGeneric,
+        PrefixExpression, QuantifierExpression, Statement, StatementKind, StructField, TraitBound,
+        TraitImplItem, TraitImplItemKind, TraitItem, TypeImpl, TypePath, UnresolvedGeneric,
         UnresolvedTraitConstraint, UnresolvedType, UnresolvedTypeData, UnresolvedTypeExpression,
         UnsafeExpression, UseTree, UseTreeKind, WhileStatement,
     },
@@ -589,7 +589,7 @@ fn secondary_attribute_with_file(
         | SecondaryAttribute::Abi(_)
         | SecondaryAttribute::Varargs
         | SecondaryAttribute::UseCallersScope
-        | SecondaryAttribute::Allow(_) 
+        | SecondaryAttribute::Allow(_)
         | SecondaryAttribute::FvAttribute(_) => secondary_attribute,
     }
 }
@@ -684,6 +684,9 @@ fn expression_kind_with_file(kind: ExpressionKind, file: FileId) -> ExpressionKi
         ExpressionKind::TypePath(type_path) => {
             ExpressionKind::TypePath(type_path_with_file(type_path, file))
         }
+        ExpressionKind::Quantifier(quantifier_expression) => {
+            ExpressionKind::Quantifier(Box::new(quantifier_with_file(*quantifier_expression, file)))
+        }
         ExpressionKind::Resolved(..)
         | ExpressionKind::Interned(..)
         | ExpressionKind::InternedStatement(..)
@@ -723,6 +726,17 @@ fn fmt_str_fragment_with_file(fragment: FmtStrFragment, file: FileId) -> FmtStrF
             FmtStrFragment::Interpolation(string, location_with_file(location, file))
         }
         FmtStrFragment::String(_) => fragment,
+    }
+}
+
+fn quantifier_with_file(
+    quantifier_expression: QuantifierExpression,
+    file: FileId,
+) -> QuantifierExpression {
+    QuantifierExpression {
+        quantifier_type: quantifier_expression.quantifier_type,
+        indexes: quantifier_expression.indexes,
+        body: expression_with_file(quantifier_expression.body, file),
     }
 }
 
