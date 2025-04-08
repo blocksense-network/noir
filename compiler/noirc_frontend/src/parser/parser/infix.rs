@@ -9,6 +9,18 @@ use crate::{
 use super::Parser;
 
 impl<'a> Parser<'a> {
+    /// ImplicationExpression
+    ///     = EqualOrNotEqualExpression ( '==>' EqualOrNotEqualExpression )*
+    pub(super) fn parse_implication(&mut self, allow_constructors: bool) -> Option<Expression> {
+        self.parse_infix(allow_constructors, Parser::parse_equal_or_not_equal, |parser| {
+            if parser.eat(Token::Implication) {
+                Some(BinaryOpKind::Implication)
+            } else {
+                None
+            }
+        })
+    }
+
     /// EqualOrNotEqualExpression
     ///     = OrExpression ( ( '==' | '!=' ) OrExpression )*
     pub(super) fn parse_equal_or_not_equal(
