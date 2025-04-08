@@ -110,6 +110,7 @@ impl ChunkFormatter<'_, '_> {
             ExpressionKind::TypePath(type_path) => {
                 group.group(self.format_type_path(type_path));
             }
+            ExpressionKind::Quantifier(_) => todo!(), //TODO(totel)
             ExpressionKind::Resolved(..)
             | ExpressionKind::Interned(..)
             | ExpressionKind::InternedStatement(..)

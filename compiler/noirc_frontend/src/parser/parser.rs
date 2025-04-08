@@ -30,6 +30,7 @@ mod module;
 mod parse_many;
 mod path;
 mod pattern;
+mod quantifier;
 mod statement;
 mod statement_or_expression_or_lvalue;
 mod structs;
