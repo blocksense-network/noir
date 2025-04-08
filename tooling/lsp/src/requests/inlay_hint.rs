@@ -595,6 +595,7 @@ fn get_expression_name(expression: &Expression) -> Option<String> {
         | ExpressionKind::Literal(..)
         | ExpressionKind::Unsafe(..)
         | ExpressionKind::Match(_)
+        | ExpressionKind::Quantifier(_)
         | ExpressionKind::Error => None,
     }
 }
