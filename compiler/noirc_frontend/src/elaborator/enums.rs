@@ -514,6 +514,7 @@ impl Elaborator<'_> {
             | ExpressionKind::AsTraitPath(_)
             | ExpressionKind::TypePath(_)
             | ExpressionKind::Resolved(_)
+            | ExpressionKind::Quantifier(_)
             | ExpressionKind::Error => syntax_error(self),
         }
     }
