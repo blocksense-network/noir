@@ -247,7 +247,8 @@ impl<'interner> TokenPrettyPrinter<'interner> {
             | Token::Equal
             | Token::NotEqual
             | Token::FatArrow
-            | Token::Arrow => write!(f, " {token} "),
+            | Token::Arrow
+            | Token::Implication => write!(f, " {token} "),
             Token::Assign => {
                 if last_was_op {
                     write!(f, "{token} ")
