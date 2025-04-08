@@ -31,6 +31,20 @@ macro_rules! parse_infix {
 }
 
 impl Parser<'_> {
+    /// ImplicationExpression
+    ///     = EqualOrNotEqualExpression ( '==>' EqualOrNotEqualExpression )*
+    pub(super) fn parse_implication(&mut self, allow_constructors: bool) -> Option<Expression> {
+        parse_infix!(
+                self, Parser::parse_equal_or_not_equal,
+                if self.eat(Token::Implication) {
+                    BinaryOpKind::Implication
+                } else {
+                    break;
+                },
+            allow_constructors
+        )
+    }
+
     /// EqualOrNotEqualExpression
     ///     = OrExpression ( ( '==' | '!=' ) OrExpression )*
     #[inline(always)]
