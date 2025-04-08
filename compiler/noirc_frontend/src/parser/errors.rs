@@ -113,6 +113,10 @@ pub enum ParserErrorReason {
     MissingTypeForAssociatedConstant,
     #[error("Invalid FV annotation syntax")]
     InvalidFvAnnotation,
+    #[error("Expected at least one identifier in quantifier index scope")]
+    ExpectedIdentifierInIndexScope,
+    #[error("Unexpected pattern in quantifier index scope")]
+    InvalidPatternInIndexScope,
 }
 
 /// Represents a parsing error, or a parsing error in the making.
