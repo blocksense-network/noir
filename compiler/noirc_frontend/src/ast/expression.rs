@@ -16,7 +16,7 @@ use acvm::FieldElement;
 use iter_extended::vecmap;
 use noirc_errors::{Located, Location, Span};
 
-use super::{AsTraitPath, TraitBound, TypePath, UnsafeExpression};
+use super::{AsTraitPath, QuantifierExpression, TraitBound, TypePath, UnsafeExpression};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ExpressionKind {
@@ -43,6 +43,7 @@ pub enum ExpressionKind {
     Unsafe(UnsafeExpression),
     AsTraitPath(AsTraitPath),
     TypePath(TypePath),
+    Quantifier(Box<QuantifierExpression>),
 
     // This variant is only emitted when inlining the result of comptime
     // code. It is used to translate function values back into the AST while
@@ -295,6 +296,7 @@ impl Expression {
             | ExpressionKind::Resolved(..)
             | ExpressionKind::Interned(..)
             | ExpressionKind::InternedStatement(..)
+            | ExpressionKind::Quantifier(..)
             | ExpressionKind::Error => self.location,
         }
     }
@@ -682,6 +684,7 @@ impl Display for ExpressionKind {
             AsTraitPath(path) => write!(f, "{path}"),
             TypePath(path) => write!(f, "{path}"),
             InternedStatement(_) => write!(f, "?InternedStatement"),
+            Quantifier(quantifier_expression) => write!(f, "{quantifier_expression}"),
         }
     }
 }
