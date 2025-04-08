@@ -25,10 +25,10 @@ use crate::{
 };
 
 use super::{
-    ForBounds, FunctionReturnType, GenericTypeArgs, ItemVisibility, MatchExpression,
-    NoirEnumeration, Pattern, TraitBound, TraitImplItemKind, TypePath, UnresolvedGeneric,
-    UnresolvedGenerics, UnresolvedTraitConstraint, UnresolvedType, UnresolvedTypeData,
-    UnresolvedTypeExpression, UnsafeExpression,
+    ForBounds, FunctionReturnType, GenericTypeArgs, ItemVisibility,
+    MatchExpression, NoirEnumeration, Pattern, QuantifierExpression, TraitBound,
+    TraitImplItemKind, TypePath, UnresolvedGeneric, UnresolvedGenerics, UnresolvedTraitConstraint, UnresolvedType,
+    UnresolvedTypeData, UnresolvedTypeExpression, UnsafeExpression,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -543,6 +543,10 @@ pub trait Visitor {
     ) -> bool {
         true
     }
+
+    fn visit_quantifier_expression(&mut self, _: &QuantifierExpression, _: Span) -> bool {
+        true
+    }
 }
 
 impl ParsedModule {
@@ -981,6 +985,9 @@ impl Expression {
             ExpressionKind::Interned(id) => visitor.visit_interned_expression(*id),
             ExpressionKind::InternedStatement(id) => visitor.visit_interned_statement(*id),
             ExpressionKind::Error => visitor.visit_error_expression(),
+            ExpressionKind::Quantifier(quantifier_expression) => {
+                quantifier_expression.accept(span, visitor)
+            }
         }
     }
 }
