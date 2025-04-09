@@ -1022,8 +1022,9 @@ fn convert_operator(op: BinaryOpKind) -> BinaryOp {
         BinaryOpKind::Xor => BinaryOp::Xor,
         BinaryOpKind::ShiftLeft => BinaryOp::Shl,
         BinaryOpKind::ShiftRight => BinaryOp::Shr,
-        //TODO(totel) Make sure all Implication operations are optimized away.
-        BinaryOpKind::Implication => unreachable!(),
+        BinaryOpKind::Implication => unreachable!(
+            "All implication operations `p ==> q` must have been converted to `!p | q`"
+        ),
     }
 }
 
