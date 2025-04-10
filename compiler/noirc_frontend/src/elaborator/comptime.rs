@@ -94,6 +94,7 @@ impl<'context> Elaborator<'context> {
             self.interpreter_call_stack.clone(),
             self.options,
             self.elaborate_reasons.clone(),
+            self.perform_formal_verification,
         );
 
         elaborator.push_function_context();
