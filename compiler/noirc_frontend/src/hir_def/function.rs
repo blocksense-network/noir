@@ -168,6 +168,9 @@ pub struct FuncMeta {
     /// If this function is from an impl (trait or regular impl), this
     /// is the object type of the impl. Otherwise this is None.
     pub self_type: Option<Type>,
+
+    /// Formal verification attributes attached to this function.
+    pub formal_verification_attributes: Vec<ResolvedFvAttribute>,
 }
 
 #[derive(Debug, Clone)]
@@ -175,6 +178,13 @@ pub enum FunctionBody {
     Unresolved(FunctionKind, BlockExpression, Location),
     Resolving,
     Resolved,
+}
+
+#[derive(Debug, Clone)]
+pub enum ResolvedFvAttribute {
+    Ensures(ExprId),
+    Requires(ExprId),
+    Ghost,
 }
 
 impl FuncMeta {
