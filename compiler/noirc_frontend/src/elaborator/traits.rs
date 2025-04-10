@@ -241,7 +241,7 @@ impl Elaborator<'_> {
         // Here we elaborate functions without a body, mainly to check the arguments and return types.
         // Later on we'll elaborate functions with a body by fully type-checking them.
         if !has_body {
-            self.elaborate_function(func_id);
+            self.elaborate_function(func_id, Some(function.attributes()));
         }
 
         let _ = self.scopes.end_function();
