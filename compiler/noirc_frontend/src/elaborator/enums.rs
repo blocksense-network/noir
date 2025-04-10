@@ -261,6 +261,7 @@ impl Elaborator<'_> {
             source_module: type_id.local_module_id(),
             source_file: variant.name.location().file,
             self_type: None,
+            formal_verification_attributes: Vec::new(),
         };
 
         self.interner.push_fn_meta(meta, id);
