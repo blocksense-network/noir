@@ -215,6 +215,10 @@ pub struct Elaborator<'context> {
 
     /// Indicates if we have to elaborate or ignore formal verification attributes.
     perform_formal_verification: bool,
+
+    /// True if we're elaborating the body of a formal verification annotation.
+    /// This is needed because we want to allow certain expressions only in fv specification code.
+    in_specification_context: bool,
 }
 
 #[derive(Copy, Clone)]
@@ -312,6 +316,7 @@ impl<'context> Elaborator<'context> {
             options,
             elaborate_reasons,
             perform_formal_verification,
+            in_specification_context: false,
         }
     }
 
