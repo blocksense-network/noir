@@ -200,6 +200,8 @@ pub enum ResolverError {
         "The type parameter `{ident}` is not constrained by the impl trait, self type, or predicates"
     )]
     UnconstrainedTypeParameter { ident: Ident },
+    #[error("Quantifiers `forall` and `exists` cannot be used in exec code")]
+    QuantifierInExecCode { location: Location },
 }
 
 impl ResolverError {
@@ -268,7 +270,8 @@ impl ResolverError {
             | ResolverError::NoPredicatesAttributeOnUnconstrained { location, .. }
             | ResolverError::FoldAttributeOnUnconstrained { location, .. }
             | ResolverError::OracleMarkedAsConstrained { location, .. }
-            | ResolverError::LowLevelFunctionOutsideOfStdlib { location } => *location,
+            | ResolverError::LowLevelFunctionOutsideOfStdlib { location }
+            | ResolverError::QuantifierInExecCode { location } => *location,
             ResolverError::UnusedVariable { ident }
             | ResolverError::UnusedItem { ident, .. }
             | ResolverError::DuplicateField { field: ident }
@@ -827,6 +830,13 @@ impl<'a> From<&'a ResolverError> for Diagnostic {
                     ident.location(),
                 )
             }
+            ResolverError::QuantifierInExecCode { location } => {
+                Diagnostic::simple_error(
+                    "Quantifiers cannot be used in exec code".to_string(),
+                    "They can only be used `ensures` and `requires` annotations".to_string(),
+                    *location,
+                )
+            },
         }
     }
 }
