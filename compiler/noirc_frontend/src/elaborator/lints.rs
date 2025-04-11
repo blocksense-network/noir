@@ -316,7 +316,7 @@ fn can_return_without_recursing(interner: &NodeInterner, func_id: FuncId, expr_i
         HirExpression::Match(e) => can_return_without_recursing_match(interner, func_id, &e),
         HirExpression::Tuple(e) => e.iter().cloned().all(check),
         HirExpression::Unsafe(b) => check_block(b),
-        // Rust doesn't check the lambda body (it might not be called).
+        HirExpression::Quantifier(q) => check(q.body),
         HirExpression::Lambda(_)
         | HirExpression::Literal(_)
         | HirExpression::Constructor(_)
