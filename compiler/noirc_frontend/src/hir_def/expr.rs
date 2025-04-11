@@ -3,7 +3,7 @@ use iter_extended::vecmap;
 use noirc_errors::Location;
 
 use crate::Shared;
-use crate::ast::{BinaryOp, BinaryOpKind, Ident, UnaryOp};
+use crate::ast::{BinaryOp, BinaryOpKind, Ident, QuantifierType, UnaryOp};
 use crate::hir::type_check::generics::TraitGenerics;
 use crate::node_interner::{
     DefinitionId, DefinitionKind, ExprId, FuncId, NodeInterner, StmtId, TraitId, TraitItemId,
@@ -43,6 +43,7 @@ pub enum HirExpression {
     Quote(Tokens),
     Unquote(Tokens),
     Unsafe(HirBlockExpression),
+    Quantifier(HirQuantifierExpression),
     Error,
 }
 
@@ -504,4 +505,11 @@ impl std::fmt::Display for Constructor {
             Constructor::Range(start, end) => write!(f, "{start} .. {end}"),
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct HirQuantifierExpression {
+    pub quantifier_type: QuantifierType,
+    pub indexes: Vec<HirPattern>,
+    pub body: ExprId,
 }

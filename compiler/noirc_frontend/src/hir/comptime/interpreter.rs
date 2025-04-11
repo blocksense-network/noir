@@ -563,6 +563,10 @@ impl<'local, 'interner> Interpreter<'local, 'interner> {
                 let location = self.elaborator.interner.expr_location(&id);
                 Err(InterpreterError::UnquoteFoundDuringEvaluation { location })
             }
+            HirExpression::Quantifier(quantifier) => {
+                let location = self.elaborator.interner.expr_location(&id);
+                Err(InterpreterError::QuantifierFoundDuringEvaluation { location })
+            }
             HirExpression::Error => {
                 let location = self.elaborator.interner.expr_location(&id);
                 Err(InterpreterError::ErrorNodeEncountered { location })

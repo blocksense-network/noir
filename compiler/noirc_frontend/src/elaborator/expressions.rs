@@ -4,39 +4,33 @@ use noirc_errors::{Located, Location};
 use rustc_hash::FxHashSet as HashSet;
 
 use crate::{
-    DataType, Kind, QuotedType, Shared, Type, TypeVariable,
     ast::{
         ArrayLiteral, AsTraitPath, BinaryOpKind, BlockExpression, CallExpression, CastExpression,
         ConstrainExpression, ConstrainKind, ConstructorExpression, Expression, ExpressionKind,
-        Ident, IfExpression, IndexExpression, InfixExpression, IntegerBitSize, ItemVisibility,
-        Lambda, Literal, MatchExpression, MemberAccessExpression, MethodCallExpression,
-        PrefixExpression, StatementKind, TraitBound, UnaryOp, UnresolvedTraitConstraint,
-        UnresolvedTypeData, UnresolvedTypeExpression, UnsafeExpression,
-    },
-    hir::{
+        Ident, IfExpression, IndexExpression, InfixExpression, IntegerBitSize, ItemVisibility, Lambda, Literal,
+        MatchExpression, MemberAccessExpression, MethodCallExpression, PrefixExpression, QuantifierExpression,
+        StatementKind, TraitBound, UnaryOp, UnresolvedTraitConstraint, UnresolvedTypeData,
+        UnresolvedTypeExpression, UnsafeExpression,
+    }, hir::{
         comptime::{self, InterpreterError},
         def_collector::dc_crate::CompilationError,
         resolution::{
             errors::ResolverError, import::PathResolutionError, visibility::method_call_is_visible,
         },
-        type_check::{Source, TypeCheckError, generics::TraitGenerics},
-    },
-    hir_def::{
+        type_check::{generics::TraitGenerics, Source, TypeCheckError},
+    }, hir_def::{
         expr::{
             HirArrayLiteral, HirBinaryOp, HirBlockExpression, HirCallExpression, HirCastExpression,
             HirConstrainExpression, HirConstructorExpression, HirExpression, HirIdent,
             HirIfExpression, HirIndexExpression, HirInfixExpression, HirLambda, HirLiteral,
-            HirMatch, HirMemberAccess, HirMethodCallExpression, HirPrefixExpression, ImplKind,
-            TraitItem,
+            HirMatch, HirMemberAccess, HirMethodCallExpression, HirPrefixExpression,
+            HirQuantifierExpression, ImplKind, TraitItem,
         },
         stmt::{HirLetStatement, HirPattern, HirStatement},
         traits::{ResolvedTraitBound, TraitConstraint},
-    },
-    node_interner::{
+    }, node_interner::{
         DefinitionId, DefinitionKind, ExprId, FuncId, InternedStatementKind, StmtId, TraitItemId,
-    },
-    shared::Signedness,
-    token::{FmtStrFragment, IntegerTypeSuffix, Tokens},
+    }, shared::Signedness, token::{FmtStrFragment, IntegerTypeSuffix, Tokens}, DataType, Kind, QuotedType, Shared, Type, TypeVariable
 };
 
 use super::{
@@ -106,7 +100,9 @@ impl Elaborator<'_> {
                 return self.elaborate_as_trait_path(*path);
             }
             ExpressionKind::TypePath(path) => return self.elaborate_type_path(*path),
-            ExpressionKind::Quantifier(_) => todo!(), // TODO(totel)
+            ExpressionKind::Quantifier(quantifier_expression) => {
+                self.elaborate_quantifier(*quantifier_expression, expr.location)
+            }
         };
         let id = self.interner.push_expr(hir_expr);
         self.interner.push_expr_location(id, expr.location);
@@ -1500,5 +1496,55 @@ impl Elaborator<'_> {
         let typ = self.type_check_variable(ident, id, None);
         self.interner.push_expr_type(id, typ.clone());
         (id, typ)
+    }
+
+    pub(super) fn elaborate_quantifier(
+        &mut self,
+        quantifier_expression: QuantifierExpression,
+        location: Location,
+    ) -> (HirExpression, Type) {
+        if !self.in_specification_context {
+            self.push_err(ResolverError::QuantifierInExecCode { location });
+            return (HirExpression::Error, Type::Bool);
+        }
+
+        self.push_scope();
+        let QuantifierExpression { quantifier_type, indexes, body } = quantifier_expression;
+        let indexes_as_pattern: Vec<HirPattern> = indexes
+            .into_iter()
+            .map(|ident| {
+                HirPattern::Identifier({
+                    let hir_ident = self.add_variable_decl(
+                        ident,
+                        false,
+                        true,
+                        true,
+                        DefinitionKind::Local(None),
+                    );
+
+                    let type_var_id = self.interner.next_type_variable_id();
+                    let type_variable = Type::type_variable(type_var_id);
+                    self.interner.push_definition_type(hir_ident.id, type_variable);
+                    hir_ident
+                })
+            })
+            .collect();
+
+        let (body_expr_id, body_expr_type) = self.elaborate_expression(body);
+
+        self.unify(&body_expr_type, &Type::Bool, || TypeCheckError::TypeMismatch {
+            expected_typ: Type::Bool.to_string(),
+            expr_typ: body_expr_type.to_string(),
+            expr_location: location,
+        });
+
+        let hir_quantifier = HirExpression::Quantifier(HirQuantifierExpression {
+            quantifier_type,
+            indexes: indexes_as_pattern,
+            body: body_expr_id,
+        });
+
+        self.pop_scope();
+        (hir_quantifier, Type::Bool)
     }
 }

@@ -7,12 +7,13 @@ use crate::ast::{
     ArrayLiteral, AssignStatement, BlockExpression, CallExpression, CastExpression, ConstrainKind,
     ConstructorExpression, ExpressionKind, ForLoopStatement, ForRange, GenericTypeArgs, Ident,
     IfExpression, IndexExpression, InfixExpression, LValue, Lambda, Literal, MatchExpression,
-    MemberAccessExpression, Path, PathSegment, Pattern, PrefixExpression, UnresolvedType,
-    UnresolvedTypeData, UnresolvedTypeExpression, UnsafeExpression, WhileStatement,
+    MemberAccessExpression, Path, PathSegment, Pattern, PrefixExpression, QuantifierExpression,
+    UnresolvedType, UnresolvedTypeData, UnresolvedTypeExpression, UnsafeExpression, WhileStatement,
 };
 use crate::ast::{ConstrainExpression, Expression, Statement, StatementKind};
 use crate::hir_def::expr::{
-    Constructor, HirArrayLiteral, HirBlockExpression, HirExpression, HirIdent, HirLiteral, HirMatch,
+    Constructor, HirArrayLiteral, HirBlockExpression, HirExpression, HirIdent, HirLiteral,
+    HirMatch, HirQuantifierExpression,
 };
 use crate::hir_def::stmt::{HirLValue, HirPattern, HirStatement};
 use crate::hir_def::types::{Type, TypeBinding};
@@ -209,6 +210,19 @@ impl HirExpression {
                 let arguments = vecmap(&constructor.arguments, |arg| arg.to_display_ast(interner));
                 let call = CallExpression { func, arguments, is_macro_call: false };
                 ExpressionKind::Call(Box::new(call))
+            }
+            HirExpression::Quantifier(hir_quantifier_expression) => {
+                let HirQuantifierExpression { quantifier_type, indexes, body } =
+                    hir_quantifier_expression;
+                let idents: Vec<Ident> = indexes
+                    .iter()
+                    .map(|ident| ident.to_display_ast(interner).name_ident().to_owned())
+                    .collect();
+                ExpressionKind::Quantifier(Box::new(QuantifierExpression {
+                    quantifier_type: quantifier_type.clone(),
+                    indexes: idents,
+                    body: body.to_display_ast(interner),
+                }))
             }
         };
 
