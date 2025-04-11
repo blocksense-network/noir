@@ -25,7 +25,7 @@ use noirc_frontend::monomorphization::{
     errors::MonomorphizationError, monomorphize, monomorphize_debug,
 };
 use noirc_frontend::node_interner::{FuncId, GlobalId, TypeId};
-use noirc_frontend::token::SecondaryAttribute;
+use noirc_frontend::token::SecondaryAttributeKind;
 use std::collections::HashMap;
 use std::path::Path;
 use tracing::info;
@@ -528,7 +528,7 @@ fn read_contract(context: &Context, module_id: ModuleId, name: String) -> Contra
 
     context.def_interner.get_all_globals().iter().for_each(|global_info| {
         context.def_interner.global_attributes(&global_info.id).iter().for_each(|attr| {
-            if let SecondaryAttribute::Abi(tag) = attr {
+            if let SecondaryAttributeKind::Abi(tag) = &attr.kind {
                 if let Some(tagged) = outputs.globals.get_mut(tag) {
                     tagged.push(global_info.id);
                 } else {
@@ -541,7 +541,7 @@ fn read_contract(context: &Context, module_id: ModuleId, name: String) -> Contra
     module.type_definitions().for_each(|id| {
         if let ModuleDefId::TypeId(struct_id) = id {
             context.def_interner.type_attributes(&struct_id).iter().for_each(|attr| {
-                if let SecondaryAttribute::Abi(tag) = attr {
+                if let SecondaryAttributeKind::Abi(tag) = &attr.kind {
                     if let Some(tagged) = outputs.structs.get_mut(tag) {
                         tagged.push(struct_id);
                     } else {
@@ -607,9 +607,9 @@ fn compile_contract_inner(
             .attributes
             .secondary
             .iter()
-            .filter_map(|attr| match attr {
-                SecondaryAttribute::Tag(attribute) => Some(attribute.contents.clone()),
-                SecondaryAttribute::Meta(attribute) => Some(attribute.to_string()),
+            .filter_map(|attr| match &attr.kind {
+                SecondaryAttributeKind::Tag(contents) => Some(contents.clone()),
+                SecondaryAttributeKind::Meta(attribute) => Some(attribute.to_string()),
                 _ => None,
             })
             .collect();
