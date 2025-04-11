@@ -502,7 +502,8 @@ impl<'a> From<&'a TypeCheckError> for Diagnostic {
                     BinaryOpKind::GreaterEqual |
                     BinaryOpKind::And |
                     BinaryOpKind::Or |
-                    BinaryOpKind::Xor => panic!("Unexpected op in InvalidBoolInfixOp error: {op}"),
+                    BinaryOpKind::Xor |
+                    BinaryOpKind::Implication => panic!("Unexpected op in InvalidBoolInfixOp error: {op}"),
                 };
                 Diagnostic::simple_error(primary.to_string(), String::new(), *location)
             }

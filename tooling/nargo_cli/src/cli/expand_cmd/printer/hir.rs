@@ -240,6 +240,21 @@ impl ItemPrinter<'_, '_> {
                 self.push_str("unsafe ");
                 self.show_hir_block_expression(hir_block_expression);
             }
+            HirExpression::Quantifier(quantifier_expr) => {
+                self.push_str(&quantifier_expr.quantifier_type.to_string());
+                self.push('(');
+                self.push('|');
+                let mut iter = quantifier_expr.indexes.into_iter().peekable();
+                while let Some(index) = iter.next() {
+                    self.show_hir_pattern(index);
+                    if iter.peek().is_some() {
+                        self.push(',');
+                    }
+                }
+                self.push('|');
+                self.show_hir_expression_id_maybe_inside_parens(quantifier_expr.body);
+                self.push(')');
+            }
             HirExpression::Error => unreachable!("error nodes should not happen"),
             HirExpression::Unquote(_) => unreachable!("unquote should not happen"),
         }
@@ -861,6 +876,7 @@ impl ItemPrinter<'_, '_> {
             }
             HirExpression::Lambda(hir_lambda) => self.expression_id_has_unsafe(hir_lambda.body),
             HirExpression::Quote(..) | HirExpression::Unquote(..) => false,
+            HirExpression::Quantifier(..) => false,
             HirExpression::Unsafe(..) => true,
             HirExpression::Error => false,
         }
@@ -904,6 +920,7 @@ fn hir_expression_needs_parentheses(hir_expr: &HirExpression) -> bool {
         | HirExpression::Quote(..)
         | HirExpression::Unquote(..)
         | HirExpression::Unsafe(..)
+        | HirExpression::Quantifier(..)
         | HirExpression::Error => false,
     }
 }

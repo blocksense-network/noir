@@ -178,6 +178,8 @@ pub enum ResolverError {
     UnconstrainedTypeParameter { ident: Ident },
     #[error("Unreachable statement")]
     UnreachableStatement { location: Location, break_or_continue_location: Location },
+    #[error("Quantifiers `forall` and `exists` cannot be used in exec code")]
+    QuantifierInExecCode { location: Location },
 }
 
 impl ResolverError {
@@ -237,7 +239,8 @@ impl ResolverError {
             | ResolverError::FoldAttributeOnUnconstrained { location, .. }
             | ResolverError::OracleMarkedAsConstrained { location, .. }
             | ResolverError::LowLevelFunctionOutsideOfStdlib { location }
-            | ResolverError::UnreachableStatement { location, .. } => *location,
+            | ResolverError::UnreachableStatement { location, .. }
+            | ResolverError::QuantifierInExecCode { location } => *location,
             ResolverError::UnusedVariable { ident }
             | ResolverError::UnusedItem { ident, .. }
             | ResolverError::DuplicateField { field: ident }
@@ -748,6 +751,13 @@ impl<'a> From<&'a ResolverError> for Diagnostic {
                 diagnostic.add_secondary("Any code following this expression is unreachable".to_string(), *break_or_continue_location);
                 diagnostic
             }
+            ResolverError::QuantifierInExecCode { location } => {
+                Diagnostic::simple_error(
+                    "Quantifiers cannot be used in exec code".to_string(),
+                    "They can only be used `ensures` and `requires` annotations".to_string(),
+                    *location,
+                )
+            },
         }
     }
 }
