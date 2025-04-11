@@ -1393,7 +1393,8 @@ impl Elaborator<'_> {
                 | BinaryOpKind::GreaterEqual
                 | BinaryOpKind::And
                 | BinaryOpKind::Or
-                | BinaryOpKind::Xor => Ok((Bool, false)),
+                | BinaryOpKind::Xor
+                | BinaryOpKind::Implication => Ok((Bool, false)),
             },
 
             (lhs, rhs) => {

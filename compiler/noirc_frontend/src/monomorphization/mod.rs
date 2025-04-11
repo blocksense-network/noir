@@ -641,6 +641,7 @@ impl<'interner> Monomorphizer<'interner> {
             HirExpression::EnumConstructor(constructor) => {
                 self.enum_constructor(constructor, expr)?
             }
+            HirExpression::Quantifier(_) => todo!(), //TODO(totel)
         };
 
         Ok(expr)
