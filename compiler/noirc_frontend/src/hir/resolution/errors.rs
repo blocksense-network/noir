@@ -180,6 +180,8 @@ pub enum ResolverError {
     UnreachableStatement { location: Location, break_or_continue_location: Location },
     #[error("Associated item constraints are not allowed here")]
     AssociatedItemConstraintsNotAllowedInGenerics { location: Location },
+    #[error("Quantifiers `forall` and `exists` cannot be used in exec code")]
+    QuantifierInExecCode { location: Location },
 }
 
 impl ResolverError {
@@ -240,9 +242,8 @@ impl ResolverError {
             | ResolverError::OracleMarkedAsConstrained { location, .. }
             | ResolverError::LowLevelFunctionOutsideOfStdlib { location }
             | ResolverError::UnreachableStatement { location, .. }
-            | ResolverError::AssociatedItemConstraintsNotAllowedInGenerics { location } => {
-                *location
-            }
+            | ResolverError::AssociatedItemConstraintsNotAllowedInGenerics { location }
+            | ResolverError::QuantifierInExecCode { location } => *location,
             ResolverError::UnusedVariable { ident }
             | ResolverError::UnusedItem { ident, .. }
             | ResolverError::DuplicateField { field: ident }
@@ -759,7 +760,14 @@ impl<'a> From<&'a ResolverError> for Diagnostic {
                     "Consider removing this associated item binding".to_string(),
                     *location,
                 )
-            }
+            },
+            ResolverError::QuantifierInExecCode { location } => {
+                Diagnostic::simple_error(
+                    "Quantifiers cannot be used in exec code".to_string(),
+                    "They can only be used `ensures` and `requires` annotations".to_string(),
+                    *location,
+                )
+            },
         }
     }
 }

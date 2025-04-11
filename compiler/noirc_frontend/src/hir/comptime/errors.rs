@@ -157,6 +157,9 @@ pub enum InterpreterError {
     UnquoteFoundDuringEvaluation {
         location: Location,
     },
+    QuantifierFoundDuringEvaluation {
+        location: Location,
+    },
     DebugEvaluateComptime {
         diagnostic: CustomDiagnostic,
         location: Location,
@@ -316,6 +319,7 @@ impl InterpreterError {
             | InterpreterError::NonEnumInConstructor { location, .. }
             | InterpreterError::CannotInlineMacro { location, .. }
             | InterpreterError::UnquoteFoundDuringEvaluation { location, .. }
+            | InterpreterError::QuantifierFoundDuringEvaluation { location, .. }
             | InterpreterError::UnsupportedTopLevelItemUnquote { location, .. }
             | InterpreterError::ComptimeDependencyCycle { location, .. }
             | InterpreterError::Unimplemented { location, .. }
@@ -557,6 +561,11 @@ impl<'a> From<&'a InterpreterError> for CustomDiagnostic {
             InterpreterError::UnquoteFoundDuringEvaluation { location } => {
                 let msg = "Unquote found during comptime evaluation".into();
                 let secondary = "This is a bug".into();
+                CustomDiagnostic::simple_error(msg, secondary, *location)
+            }
+            InterpreterError::QuantifierFoundDuringEvaluation { location } => {
+                let msg = "Quantifier found during comptime evaluation".into();
+                let secondary = "Quantifiers are allowed only in specification code".into();
                 CustomDiagnostic::simple_error(msg, secondary, *location)
             }
             InterpreterError::DebugEvaluateComptime { diagnostic, .. } => diagnostic.clone(),
