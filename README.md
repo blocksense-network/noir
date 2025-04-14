@@ -23,7 +23,7 @@ information regarding the added functionality, please refer to our [User Guide](
 
 ## Noir Debugging
 
-The Blocksense Noir compiler is fuly integrated in the [CodeTracer](https://github.com/metacraft-labs/codetracer)
+The Blocksense Noir compiler is fully integrated in the [CodeTracer](https://github.com/metacraft-labs/codetracer)
 debugging environment. After installing CodeTracer, you can launch any Noir program with
 `ct run <program-folder>` to benefit from the powerful debugging experience.
 
