@@ -1085,6 +1085,19 @@ impl Builder {
                 assert!(destinations.len() == 1);
                 self.set(destinations[0], p2value);
             }
+            // x != y
+            Instruction::ConstrainNotEqual(lhs, rhs, _) => {
+                todo!()
+                // let a = self.get_target(lhs)?;
+                // let b = self.get_target(rhs)?;
+                // self.asm_writer.connect(a, b);
+                // let target = self.asm_writer.not(target);
+
+            },
+            Instruction::IfElse { then_condition, then_value, else_condition, else_value } => {
+                todo!()
+            }
+            Instruction::Noop => todo!(),
 
             _ => {
                 let feature_name = format!(
