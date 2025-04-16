@@ -249,6 +249,8 @@ pub enum TypeCheckError {
     /// This error is used for types like integers which have too many variants to enumerate
     #[error("Missing cases: `{typ}` is non-empty")]
     MissingManyCases { typ: String, location: Location },
+    #[error("The implication operator can be used only with boolean types")]
+    ImplicationTypeMismatch { location: Location },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -340,7 +342,8 @@ impl TypeCheckError {
             | TypeCheckError::UnreachableCase { location }
             | TypeCheckError::MissingCases { location, .. }
             | TypeCheckError::MissingManyCases { location, .. }
-            | TypeCheckError::NestedUnsafeBlock { location } => *location,
+            | TypeCheckError::NestedUnsafeBlock { location }
+            | TypeCheckError::ImplicationTypeMismatch { location } => *location,
 
             TypeCheckError::DuplicateNamedTypeArg { name: ident, .. }
             | TypeCheckError::NoSuchNamedTypeArg { name: ident, .. } => ident.location(),
@@ -520,7 +523,8 @@ impl<'a> From<&'a TypeCheckError> for Diagnostic {
             | TypeCheckError::NonConstantEvaluated { location, .. }
             | TypeCheckError::NonConstantSliceLength { location }
             | TypeCheckError::StringIndexAssign { location }
-            | TypeCheckError::InvalidShiftSize { location } => {
+            | TypeCheckError::InvalidShiftSize { location }
+            | TypeCheckError::ImplicationTypeMismatch { location } => {
                 Diagnostic::simple_error(error.to_string(), String::new(), *location)
             }
             TypeCheckError::MutableCaptureWithoutRef { name, location } => Diagnostic::simple_error(
