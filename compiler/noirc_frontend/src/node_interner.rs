@@ -1989,6 +1989,10 @@ impl NodeInterner {
     /// `self.infix_operator_traits` is expected to be filled before name resolution,
     /// during definition collection.
     pub fn get_operator_trait_method(&self, operator: BinaryOpKind) -> TraitItemId {
+        // Return a dummy id for the implication's trait method.
+        if let BinaryOpKind::Implication = operator {
+            return TraitItemId { trait_id: TraitId(ModuleId::dummy_id()), item_id: DefinitionId(0) };
+        }
         let trait_id = self.infix_operator_traits[&operator];
         let the_trait = self.get_trait(trait_id);
         let func_id = *the_trait.method_ids.values().next().unwrap();
@@ -2126,6 +2130,7 @@ impl NodeInterner {
             BinaryOpKind::Xor,
             BinaryOpKind::ShiftLeft,
             BinaryOpKind::ShiftRight,
+            BinaryOpKind::Implication,
         ];
 
         // It's fine to use the same trait for all operators, at least in tests
