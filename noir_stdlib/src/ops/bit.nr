@@ -371,3 +371,13 @@ impl Shr for i64 {
         self >> other
     }
 }
+
+pub trait Implication {
+    fn implies(self, other: Self) -> Self;
+}
+
+impl Implication for bool {
+    fn implies(self, other: bool) -> bool {
+        self ==> other
+    }
+}
