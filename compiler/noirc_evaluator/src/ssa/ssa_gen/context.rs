@@ -1153,9 +1153,7 @@ fn convert_operator(op: BinaryOpKind) -> BinaryOp {
         BinaryOpKind::Xor => BinaryOp::Xor,
         BinaryOpKind::ShiftLeft => BinaryOp::Shl,
         BinaryOpKind::ShiftRight => BinaryOp::Shr,
-        BinaryOpKind::Implication => unreachable!(
-            "All implication operations `p ==> q` must have been converted to `!p | q`"
-        ),
+        BinaryOpKind::Implication => BinaryOp::Or, // `p ==> q` is being converted to `!p | q`
     }
 }
 

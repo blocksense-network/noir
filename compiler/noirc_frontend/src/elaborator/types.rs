@@ -1327,6 +1327,10 @@ impl Elaborator<'_> {
             return self.comparator_operand_type_rules(lhs_type, rhs_type, op, location);
         }
 
+        if op.kind.is_implication() {
+            return self.implication_type_rules(lhs_type, rhs_type, op, location);
+        }
+
         use Type::*;
         match (lhs_type, rhs_type) {
             // An error type on either side will always return an error
@@ -2342,6 +2346,40 @@ impl Elaborator<'_> {
 
     pub(crate) fn fully_qualified_trait_path(&self, trait_: &Trait) -> String {
         fully_qualified_module_path(self.def_maps, self.crate_graph, &trait_.crate_id, trait_.id.0)
+    }
+
+    fn implication_type_rules(
+        &mut self,
+        lhs_type: &Type,
+        rhs_type: &Type,
+        op: &HirBinaryOp,
+        location: Location,
+    ) -> Result<(Type, bool), TypeCheckError> {
+        use Type::*;
+
+        match (lhs_type, rhs_type) {
+            // Avoid reporting errors multiple times
+            (Error, _) | (_, Error) => Ok((Bool, false)),
+            (Alias(alias, args), other) | (other, Alias(alias, args)) => {
+                let alias = alias.borrow().get_type(args);
+                self.implication_type_rules(&alias, other, op, location)
+            }
+
+            // Matches on TypeVariable must be first to follow any type
+            // bindings.
+            (TypeVariable(var), other) | (other, TypeVariable(var)) => {
+                if let TypeBinding::Bound(binding) = &*var.borrow() {
+                    return self.implication_type_rules(other, binding, op, location);
+                }
+
+                let use_impl = self.bind_type_variables_for_infix(lhs_type, op, rhs_type, location);
+                Ok((Bool, use_impl))
+            }
+            // The only allowed types for the implication operator
+            (Bool, Bool) => Ok((Bool, false)),
+
+            (_, _) => Err(TypeCheckError::ImplicationTypeMismatch { location }),
+        }
     }
 }
 
