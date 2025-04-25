@@ -401,7 +401,18 @@ impl FunctionContext<'_> {
     }
 
     fn codegen_binary(&mut self, binary: &ast::Binary) -> Result<Values, RuntimeError> {
-        let lhs = self.codegen_non_tuple_expression(&binary.lhs)?;
+        let lhs = if let noirc_frontend::ast::BinaryOpKind::Implication = binary.operator {
+            // Convert all `p ==> q` implications to `!p | q`
+            let not_lhs = Expression::Unary(ast::Unary {
+                operator: UnaryOp::Not,
+                rhs: binary.lhs.clone(),
+                result_type: ast::Type::Bool, // Implications can have only Bool lhs
+                location: binary.location,
+            });
+            self.codegen_non_tuple_expression(&not_lhs)?
+        } else {
+            self.codegen_non_tuple_expression(&binary.lhs)?
+        };
         let rhs = self.codegen_non_tuple_expression(&binary.rhs)?;
         Ok(self.insert_binary(lhs, binary.operator, rhs, binary.location))
     }

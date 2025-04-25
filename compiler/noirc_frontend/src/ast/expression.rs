@@ -332,6 +332,10 @@ impl BinaryOpKind {
         matches!(self, BinaryOpKind::ShiftLeft | BinaryOpKind::ShiftRight)
     }
 
+    pub fn is_implication(self) -> bool {
+        matches!(self, BinaryOpKind::Implication)
+    }
+
     pub fn is_valid_for_field_type(self) -> bool {
         matches!(
             self,
