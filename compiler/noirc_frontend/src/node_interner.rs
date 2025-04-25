@@ -1958,6 +1958,10 @@ impl NodeInterner {
     /// `self.infix_operator_traits` is expected to be filled before name resolution,
     /// during definition collection.
     pub fn get_operator_trait_method(&self, operator: BinaryOpKind) -> TraitMethodId {
+        // Return a dummy id for the implication's trait method.
+        if let BinaryOpKind::Implication = operator {
+            return TraitMethodId { trait_id: TraitId(ModuleId::dummy_id()), method_index: 0 };
+        }
         let trait_id = self.infix_operator_traits[&operator];
 
         // Assume that the operator's method to be overloaded is the first method of the trait.
@@ -2061,6 +2065,7 @@ impl NodeInterner {
         self.infix_operator_traits.insert(BinaryOpKind::Xor, dummy_trait);
         self.infix_operator_traits.insert(BinaryOpKind::ShiftLeft, dummy_trait);
         self.infix_operator_traits.insert(BinaryOpKind::ShiftRight, dummy_trait);
+        self.infix_operator_traits.insert(BinaryOpKind::Implication, dummy_trait);
         self.prefix_operator_traits.insert(UnaryOp::Minus, dummy_trait);
         self.prefix_operator_traits.insert(UnaryOp::Not, dummy_trait);
     }
