@@ -252,6 +252,8 @@ pub enum TypeCheckError {
     MissingManyCases { typ: String, location: Location },
     #[error("Expected a tuple with {} elements, found one with {} elements", tuple_types.len(), actual_count)]
     TupleMismatch { tuple_types: Vec<Type>, actual_count: usize, location: Location },
+    #[error("The implication operator can be used only with boolean types")]
+    ImplicationTypeMismatch { location: Location },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -344,7 +346,8 @@ impl TypeCheckError {
             | TypeCheckError::MissingCases { location, .. }
             | TypeCheckError::MissingManyCases { location, .. }
             | TypeCheckError::NestedUnsafeBlock { location }
-            | TypeCheckError::TupleMismatch { location, .. } => *location,
+            | TypeCheckError::TupleMismatch { location, .. }
+            | TypeCheckError::ImplicationTypeMismatch { location } => *location,
 
             TypeCheckError::DuplicateNamedTypeArg { name: ident, .. }
             | TypeCheckError::NoSuchNamedTypeArg { name: ident, .. } => ident.location(),
@@ -524,7 +527,8 @@ impl<'a> From<&'a TypeCheckError> for Diagnostic {
             | TypeCheckError::NonConstantEvaluated { location, .. }
             | TypeCheckError::NonConstantSliceLength { location }
             | TypeCheckError::StringIndexAssign { location }
-            | TypeCheckError::InvalidShiftSize { location } => {
+            | TypeCheckError::InvalidShiftSize { location }
+            | TypeCheckError::ImplicationTypeMismatch { location } => {
                 Diagnostic::simple_error(error.to_string(), String::new(), *location)
             }
             TypeCheckError::MutableCaptureWithoutRef { name, location } => Diagnostic::simple_error(
