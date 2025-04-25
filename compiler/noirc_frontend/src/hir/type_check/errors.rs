@@ -245,6 +245,8 @@ pub enum TypeCheckError {
     },
     #[error("Type annotation needed on array literal")]
     TypeAnnotationNeededOnArrayLiteral { is_array: bool, location: Location },
+    #[error("The implication operator can be used only with boolean types")]
+    ImplicationTypeMismatch { location: Location },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -334,7 +336,8 @@ impl TypeCheckError {
             | TypeCheckError::NestedUnsafeBlock { location }
             | TypeCheckError::TupleMismatch { location, .. }
             | TypeCheckError::TypeAnnotationNeededOnItem { location, .. }
-            | TypeCheckError::TypeAnnotationNeededOnArrayLiteral { location, .. } => *location,
+            | TypeCheckError::TypeAnnotationNeededOnArrayLiteral { location, .. }
+            | TypeCheckError::ImplicationTypeMismatch { location } => *location,
 
             TypeCheckError::DuplicateNamedTypeArg { name: ident, .. }
             | TypeCheckError::NoSuchNamedTypeArg { name: ident, .. } => ident.location(),
@@ -508,7 +511,8 @@ impl<'a> From<&'a TypeCheckError> for Diagnostic {
             | TypeCheckError::UnconstrainedSliceReturnToConstrained { location }
             | TypeCheckError::NonConstantEvaluated { location, .. }
             | TypeCheckError::StringIndexAssign { location }
-            | TypeCheckError::InvalidShiftSize { location } => {
+            | TypeCheckError::InvalidShiftSize { location }
+            | TypeCheckError::ImplicationTypeMismatch { location } => {
                 Diagnostic::simple_error(error.to_string(), String::new(), *location)
             }
             TypeCheckError::InvalidBoolInfixOp { op, location } => {
