@@ -1947,10 +1947,6 @@ impl NodeInterner {
     /// `self.infix_operator_traits` is expected to be filled before name resolution,
     /// during definition collection.
     pub fn get_operator_trait_method(&self, operator: BinaryOpKind) -> TraitMethodId {
-        // Return a dummy id for the implication's trait method.
-        if let BinaryOpKind::Implication = operator {
-            return TraitMethodId { trait_id: TraitId(ModuleId::dummy_id()), method_index: 0 };
-        }
         let trait_id = self.infix_operator_traits[&operator];
 
         // Assume that the operator's method to be overloaded is the first method of the trait.
@@ -1986,6 +1982,7 @@ impl NodeInterner {
             "BitXor" => BinaryOpKind::Xor,
             "Shl" => BinaryOpKind::ShiftLeft,
             "Shr" => BinaryOpKind::ShiftRight,
+            "Implication" => BinaryOpKind::Implication,
             _ => return,
         };
 
