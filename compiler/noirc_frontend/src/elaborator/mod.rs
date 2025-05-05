@@ -2462,11 +2462,11 @@ impl<'context> Elaborator<'context> {
                     let (expr_id, typ) = self.elaborate_expression(ensures_attribute.body.clone());
                     // Type checking happens here:
                     self.unify_with_coercions(&typ, &Type::Bool, expr_id, expr_location, || {
-                        TypeCheckError::TypeMismatch {
+                        CompilationError::TypeError(TypeCheckError::TypeMismatch {
                             expected_typ: Type::Bool.to_string(),
                             expr_typ: typ.to_string(),
                             expr_location,
-                        }
+                        })
                     });
                     // Saving the attributes in the function metadata:
                     self.interner
@@ -2479,11 +2479,11 @@ impl<'context> Elaborator<'context> {
                     let expr_location = requires_attribute.location;
                     let (expr_id, typ) = self.elaborate_expression(requires_attribute.body.clone());
                     self.unify_with_coercions(&typ, &Type::Bool, expr_id, expr_location, || {
-                        TypeCheckError::TypeMismatch {
+                        CompilationError::TypeError(TypeCheckError::TypeMismatch {
                             expected_typ: Type::Bool.to_string(),
                             expr_typ: typ.to_string(),
                             expr_location,
-                        }
+                        })
                     });
                     self.interner
                         .function_meta_mut(&func_id)
