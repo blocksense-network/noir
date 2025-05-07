@@ -12,6 +12,7 @@ use crate::NamedGeneric;
 use crate::ast::{FunctionKind, IntegerBitSize, ItemVisibility, UnaryOp};
 use crate::hir::comptime::InterpreterError;
 use crate::hir::type_check::{NoMatchingImplFoundError, TypeCheckError};
+use crate::hir_def::function::ResolvedFvAttribute;
 use crate::node_interner::{ExprId, GlobalValue, ImplSearchErrorKind};
 use crate::shared::{Signedness, Visibility};
 use crate::signed_field::SignedField;
@@ -28,7 +29,7 @@ use crate::{
     node_interner::{self, DefinitionKind, NodeInterner, StmtId, TraitImplKind, TraitMethodId},
 };
 use acvm::{FieldElement, acir::AcirField};
-use ast::{GlobalId, IdentId, While};
+use ast::{GlobalId, IdentId, MonomorphizedFvAttribute, While};
 use fxhash::{FxHashMap as HashMap, FxHashSet as HashSet};
 use iter_extended::{btree_map, try_vecmap, vecmap};
 use noirc_errors::Location;
@@ -399,6 +400,8 @@ impl<'interner> Monomorphizer<'interner> {
 
         let parameters = self.parameters(&meta.parameters)?;
         let body = self.expr(body_expr_id)?;
+        let formal_verification_attributes =
+            self.fv_attributes(&meta.formal_verification_attributes)?;
         let function = ast::Function {
             id,
             name,
@@ -409,6 +412,7 @@ impl<'interner> Monomorphizer<'interner> {
             unconstrained,
             inline_type,
             func_sig,
+            formal_verification_attributes,
         };
 
         self.push_function(id, function);
@@ -1966,6 +1970,7 @@ impl<'interner> Monomorphizer<'interner> {
             unconstrained: self.in_unconstrained_function,
             inline_type: InlineType::default(),
             func_sig: FunctionSignature::default(),
+            formal_verification_attributes: Vec::default(),
         };
         self.push_function(id, function);
 
@@ -2104,6 +2109,7 @@ impl<'interner> Monomorphizer<'interner> {
             unconstrained: self.in_unconstrained_function,
             inline_type: InlineType::default(),
             func_sig: FunctionSignature::default(),
+            formal_verification_attributes: Vec::default(),
         };
         self.push_function(id, function);
 
@@ -2300,6 +2306,7 @@ impl<'interner> Monomorphizer<'interner> {
             unconstrained,
             inline_type: InlineType::default(),
             func_sig: FunctionSignature::default(),
+            formal_verification_attributes: Vec::default(),
         };
         self.push_function(id, function);
 
@@ -2401,6 +2408,24 @@ impl<'interner> Monomorphizer<'interner> {
     fn is_unconstrained(&self, func_id: node_interner::FuncId) -> bool {
         self.in_unconstrained_function
             || self.interner.function_modifiers(&func_id).is_unconstrained
+    }
+
+    fn fv_attributes(
+        &mut self,
+        fv_attributes: &Vec<ResolvedFvAttribute>,
+    ) -> Result<Vec<MonomorphizedFvAttribute>, MonomorphizationError> {
+        fv_attributes
+            .iter()
+            .map(|fv_attribute| match *fv_attribute {
+                ResolvedFvAttribute::Ensures(expr_id) => {
+                    self.expr(expr_id).map(MonomorphizedFvAttribute::Ensures)
+                }
+                ResolvedFvAttribute::Requires(expr_id) => {
+                    self.expr(expr_id).map(MonomorphizedFvAttribute::Requires)
+                }
+                ResolvedFvAttribute::Ghost => Ok(MonomorphizedFvAttribute::Ghost),
+            })
+            .collect()
     }
 }
 
