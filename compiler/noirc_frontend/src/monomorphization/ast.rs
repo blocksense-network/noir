@@ -314,6 +314,13 @@ impl std::fmt::Display for InlineType {
 }
 
 #[derive(Debug, Clone, Hash)]
+pub enum MonomorphizedFvAttribute {
+    Ensures(Expression),
+    Requires(Expression),
+    Ghost,
+}
+
+#[derive(Debug, Clone, Hash)]
 pub struct Function {
     pub id: FuncId,
     pub name: String,
@@ -325,6 +332,7 @@ pub struct Function {
     pub unconstrained: bool,
     pub inline_type: InlineType,
     pub func_sig: FunctionSignature,
+    pub formal_verification_attributes: Vec<MonomorphizedFvAttribute>,
 }
 
 /// Compared to hir_def::types::Type, this monomorphized Type has:
