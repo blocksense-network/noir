@@ -642,7 +642,9 @@ impl<'interner> Monomorphizer<'interner> {
             HirExpression::EnumConstructor(constructor) => {
                 self.enum_constructor(constructor, expr)?
             }
-            HirExpression::Quantifier(_) => todo!(), //TODO(totel)
+            HirExpression::Quantifier(hir_quantifier_expression) => {
+                self.quantifier(hir_quantifier_expression)?
+            },
         };
 
         Ok(expr)
@@ -2426,6 +2428,41 @@ impl<'interner> Monomorphizer<'interner> {
                 ResolvedFvAttribute::Ghost => Ok(MonomorphizedFvAttribute::Ghost),
             })
             .collect()
+    }
+
+    fn quantifier_ident(&mut self, ident: &HirIdent) -> Result<ast::Ident, MonomorphizationError> {
+        let definition = self.interner.definition(ident.id);
+        let name = definition.name.clone();
+        let mutable = definition.mutable;
+        let new_id = self.next_local_id();
+        self.define_local(ident.id, new_id);
+
+        let ident_id = self.next_ident_id();
+        let definition: ast::Definition = Definition::Local(new_id);
+
+        let typ = Self::convert_type(&self.interner.definition_type(ident.id), ident.location)?;
+        Ok(ast::Ident { location: Some(ident.location), mutable, definition, name, typ, id: ident_id })
+    }
+
+    fn quantifier(
+        &mut self,
+        quantifier_expr: HirQuantifierExpression,
+    ) -> Result<ast::Expression, MonomorphizationError> {
+        let HirQuantifierExpression { quantifier_type, indexes, body } = quantifier_expr;
+        let mut monomorphed_indexes: Vec<ast::Ident> = Vec::new();
+        for ident in indexes {
+            let ident_location = ident.location();
+            if let HirPattern::Identifier(ident_inner) = ident {
+                let monomorphized_ident = self.quantifier_ident(&ident_inner)?;
+                monomorphed_indexes.push(monomorphized_ident);
+            } else {
+                return Err(MonomorphizationError::InternalError {
+                    message: "Quantifier index is not ident",
+                    location: ident_location,
+                });
+            }
+        }
+        Ok(ast::Expression::Quant(quantifier_type, monomorphed_indexes, Box::new(self.expr(body)?)))
     }
 }
 
