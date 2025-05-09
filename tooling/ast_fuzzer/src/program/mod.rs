@@ -359,6 +359,7 @@ impl Context {
             unconstrained: decl.unconstrained,
             inline_type: decl.inline_type,
             func_sig: decl.signature(),
+            formal_verification_attributes: Vec::new(),
         };
         self.functions.insert(id, func);
         Ok(())
