@@ -303,6 +303,7 @@ impl LastUseContext {
             Expression::Drop(_) => unreachable!("last_uses is called before drops are inserted"),
             Expression::Break => (),
             Expression::Continue => (),
+            Expression::Quant(..) => unreachable!("Quantifiers are only allowed in FV annotations"),
         }
     }
 
