@@ -7,7 +7,7 @@ use noirc_errors::{
 };
 
 use crate::{
-    ast::{BinaryOpKind, IntegerBitSize, UnaryOp},
+    ast::{BinaryOpKind, IntegerBitSize, QuantifierType, UnaryOp},
     hir_def::expr::Constructor,
     shared::Signedness,
     signed_field::SignedField,
@@ -54,6 +54,7 @@ pub enum Expression {
     Drop(Box<Expression>),
     Break,
     Continue,
+    Quant(QuantifierType, Vec<Ident>, Box<Expression>),
 }
 
 impl Expression {
@@ -137,7 +138,8 @@ impl Expression {
             | Expression::Semi(_)
             | Expression::Drop(_)
             | Expression::Break
-            | Expression::Continue => None,
+            | Expression::Continue
+            | Expression::Quant(..) => None,
         }
     }
 
@@ -199,7 +201,8 @@ impl Expression {
             | Expression::Clone(_)
             | Expression::Drop(_)
             | Expression::Break
-            | Expression::Continue => false,
+            | Expression::Continue
+            | Expression::Quant(..) => false,
         }
     }
 }

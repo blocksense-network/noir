@@ -183,6 +183,9 @@ impl FunctionContext<'_> {
             Expression::Continue => self.codegen_continue(),
             Expression::Clone(expr) => self.codegen_clone(expr),
             Expression::Drop(expr) => self.codegen_drop(expr),
+            Expression::Quant(..) => {
+                unreachable!("Quantifiers can be only used inside of FV annotations")
+            }
         }
     }
 
