@@ -123,6 +123,7 @@ impl Context {
             Expression::Drop(_) => (),
             Expression::Break => (),
             Expression::Continue => (),
+            Expression::Quant(..) => unreachable!("Quantifiers are only allowed in FV annotations"),
         }
     }
 

@@ -7,7 +7,7 @@ use crate::token::Token;
 
 use super::{Expression, Ident, Visitor};
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 
 pub enum QuantifierType {
     Forall,

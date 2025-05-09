@@ -1,6 +1,6 @@
 //! This module implements printing of the monomorphized AST, for debugging purposes.
 
-use crate::{ast::UnaryOp, monomorphization::ast::Ident, shared::Visibility};
+use crate::{ast::{QuantifierType, UnaryOp}, monomorphization::ast::Ident, shared::Visibility};
 
 use super::ast::{
     Definition, Expression, FuncId, Function, GlobalId, LValue, LocalId, Program, Type, While,
@@ -189,6 +189,9 @@ impl AstPrinter {
                     write!(f, ".drop()")?;
                 }
                 Ok(())
+            }
+            Expression::Quant(quantifier_type, indexes, expression) => {
+                self.print_quantifier(quantifier_type, indexes, &expression, f)
             }
         }
     }
@@ -475,6 +478,25 @@ impl AstPrinter {
                 self.print_lvalue(reference, f)
             }
         }
+    }
+
+    fn print_quantifier(
+        &mut self,
+        quantifier_type: &QuantifierType,
+        indexes: &Vec<crate::monomorphization::ast::Ident>,
+        expr: &Expression,
+        f: &mut Formatter,
+    ) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", quantifier_type)?;
+        write!(f, "(")?;
+        write!(
+            f,
+            "|{}|",
+            indexes.iter().map(|ident| ident.name.as_str()).collect::<Vec<&str>>().join(", ")
+        )?;
+        self.print_expr(expr, f)?;
+        write!(f, ")")?;
+        todo!()
     }
 }
 
