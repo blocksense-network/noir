@@ -131,6 +131,7 @@ where
         }
         Expression::Break => {}
         Expression::Continue => {}
+        Expression::Quant(..) => {}
     }
 
     e(expr, token);
@@ -291,6 +292,7 @@ where
         }
         Expression::Break => {}
         Expression::Continue => {}
+        Expression::Quant(..) => {}
     }
 
     e(expr, token);
