@@ -127,7 +127,7 @@ chumsky = { git = "https://github.com/jfecher/chumsky", rev = "ad9d312", default
 ] }
 
 # Formal verification
-vir = {git = "https://github.com/Aristotelis2002/verus-lib"}
+vir = {git = "https://github.com/Aristotelis2002/verus-lib", rev = "4c9858f316f6ba6016dc7ba1f1b758879cfc6897"}
 
 # Benchmarking
 criterion = "0.5.0"
