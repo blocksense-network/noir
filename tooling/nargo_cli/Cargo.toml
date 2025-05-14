@@ -58,6 +58,7 @@ clap-markdown = { git = "https://github.com/noir-lang/clap-markdown", rev = "450
 proptest.workspace = true
 runtime_tracing.workspace = true
 vir.workspace = true
+bincode = "1.0.0"
 
 notify = "6.1.1"
 notify-debouncer-full = "0.3.1"

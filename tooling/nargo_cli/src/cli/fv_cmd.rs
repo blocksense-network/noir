@@ -92,18 +92,30 @@ pub(crate) fn z3_verify(
     workspace_file_manager: &FileManager,
     deny_warnings: bool,
 ) -> Result<(), CliError> {
-    let serialized_vir_krate = serde_json::to_string(&vir_krate).expect("Failed to serialize");
+    let serialized_vir_krate = bincode::serialize(&vir_krate).unwrap();// serde_json::to_string(&vir_krate).expect("Failed to serialize");
 
     // Run the Venir binary which is used for verifying the vir_krate input.
-    let mut child = Command::new("venir")
+    let mut child = Command::new("sh")
+        .arg("-c")
+        .arg("nix-shell --command 'cargo run'")
+        .current_dir("/home/aristotelis/code/repos/clone_fast/venir")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .expect("Failed to start the Venir binary. Please run the command nix develop");
 
+    
+    // let mut child = Command::new("venir")
+    //     .stdin(Stdio::piped())
+    //     .stdout(Stdio::piped())
+    //     .stderr(Stdio::piped())
+    //     .spawn()
+    //     .expect("Failed to start the Venir binary. Please run the command nix develop");
+    eprintln!("Write {} bytes", serialized_vir_krate.len());
     if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(serialized_vir_krate.as_bytes()).expect("Failed to write to Venir stdin");
+        stdin.write_all(&serialized_vir_krate).expect("Failed to write to Venir stdin");
+        stdin.flush().unwrap();
     }
 
     let output = child.wait_with_output().expect("Failed to read Venir stdout");
