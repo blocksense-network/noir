@@ -38,6 +38,10 @@ pub(crate) struct FormalVerifyCommand {
     // This is necessary for compile functions
     #[clap(flatten)]
     compile_options: CompileOptions,
+
+    // Flags which will be propagated to the Venir binary
+    #[clap(last = true)]
+    venir_flags: Vec<String>,
 }
 
 pub(crate) fn run(args: FormalVerifyCommand, config: NargoConfig) -> Result<(), CliError> {
@@ -79,7 +83,7 @@ pub(crate) fn run(args: FormalVerifyCommand, config: NargoConfig) -> Result<(), 
 
         let noir_program_to_vir = compiled_program.unwrap().0.verus_vir.unwrap();
 
-        z3_verify(noir_program_to_vir, &workspace_file_manager, args.compile_options.deny_warnings)?
+        z3_verify(noir_program_to_vir, &workspace_file_manager, args.compile_options.deny_warnings, &args.venir_flags)?
     }
 
     Ok(())
@@ -91,11 +95,13 @@ pub(crate) fn z3_verify(
     vir_krate: Krate,
     workspace_file_manager: &FileManager,
     deny_warnings: bool,
+    venir_args: &Vec<String>,
 ) -> Result<(), CliError> {
     let serialized_vir_krate = serde_json::to_string(&vir_krate).expect("Failed to serialize");
 
     // Run the Venir binary which is used for verifying the vir_krate input.
     let mut child = Command::new("venir")
+        .args(venir_args.iter())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
