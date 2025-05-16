@@ -186,7 +186,7 @@ dependencies = [
 [[package]]
 name = "air"
 version = "0.1.0"
-source = "git+https://github.com/Aristotelis2002/verus-lib#4c9858f316f6ba6016dc7ba1f1b758879cfc6897"
+source = "git+https://github.com/Aristotelis2002/verus-lib?branch=synced_main#c70463ee9f1073f760dc23c289e6718f4614d8fd"
 dependencies = [
  "getopts",
  "indexmap 1.9.3",
@@ -6577,7 +6577,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "vir"
 version = "0.1.0"
-source = "git+https://github.com/Aristotelis2002/verus-lib#4c9858f316f6ba6016dc7ba1f1b758879cfc6897"
+source = "git+https://github.com/Aristotelis2002/verus-lib?branch=synced_main#c70463ee9f1073f760dc23c289e6718f4614d8fd"
 dependencies = [
  "air",
  "im",
@@ -6593,7 +6593,7 @@ dependencies = [
 [[package]]
 name = "vir-macros"
 version = "0.1.0"
-source = "git+https://github.com/Aristotelis2002/verus-lib#4c9858f316f6ba6016dc7ba1f1b758879cfc6897"
+source = "git+https://github.com/Aristotelis2002/verus-lib?branch=synced_main#c70463ee9f1073f760dc23c289e6718f4614d8fd"
 dependencies = [
  "proc-macro2",
  "syn 1.0.109",
