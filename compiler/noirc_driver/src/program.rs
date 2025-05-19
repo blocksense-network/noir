@@ -4,7 +4,7 @@ use acvm::{FieldElement, acir::circuit::Program};
 use fm::FileId;
 
 use noirc_errors::debug_info::DebugInfo;
-use noirc_evaluator::errors::SsaReport;
+use noirc_evaluator::{errors::SsaReport, vir::vir_gen::BuildingKrateError};
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
 use vir::ast::Krate;
@@ -34,7 +34,7 @@ pub struct CompiledProgram {
     /// Names of the unconstrained functions in the program.
     pub brillig_names: Vec<String>,
     /// Verus verifier intermediate representation
-    pub verus_vir: Option<Krate>,
+    pub verus_vir: Option<Result<Krate, BuildingKrateError>>,
 }
 
 // Implement the Hash manually because Krate doesn't implement the Hash trait
