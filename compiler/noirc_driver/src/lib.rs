@@ -761,7 +761,7 @@ pub fn compile_no_check(
             warnings: vec![],
             names: vec![],
             brillig_names: vec![],
-            verus_vir: create_verus_vir(program).ok(),
+            verus_vir: Some(create_verus_vir(program)),
         });
     }
 
