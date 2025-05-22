@@ -27,10 +27,6 @@ fn is_ghost_function(function: &Function) -> bool {
         .any(|x| matches!(x, MonomorphizedFvAttribute::Ghost))
 }
 
-fn get_function_opaqueness(is_ghost: bool) -> Opaqueness {
-    todo!()
-}
-
 fn get_function_mode(is_ghost: bool) -> Mode {
     if is_ghost { Mode::Spec } else { Mode::Exec }
 }
@@ -92,7 +88,9 @@ pub fn build_funx(
         body_visibility: BodyVisibility::Visibility(Visibility {
             restricted_to: None, // We currently support only fully visible ghost functions
         }),
-        opaqueness: get_function_opaqueness(is_ghost),
+        opaqueness: Opaqueness::Revealed {
+            visibility: Visibility { restricted_to: None }, // We currently don't support opaqueness control
+        },
         owning_module: Some(current_module.x.path.clone()), // The module in which this function is located.
         mode: get_function_mode(is_ghost),
         typ_params: Arc::new(Vec::new()), // There are no generics in Monomorphized AST
