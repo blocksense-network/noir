@@ -1,9 +1,11 @@
 use super::expr_to_vir::expr::func_body_to_vir_expr;
+use super::expr_to_vir::params::ast_param_to_vir_param;
 use super::{
     BuildingKrateError,
     attribute::{func_ensures_to_vir_expr, func_requires_to_vir_expr},
 };
-use noirc_frontend::monomorphization::ast::Function;
+use noirc_errors::Location;
+use noirc_frontend::monomorphization::ast::{Function, MonomorphizedFvAttribute};
 use std::sync::Arc;
 use vir::ast::{
     BodyVisibility, Fun, FunctionAttrs, FunctionKind, FunctionX, ItemKind, Mode, Module,
@@ -15,7 +17,10 @@ fn function_into_funx_name(function: &Function) -> Fun {
 }
 
 fn is_ghost_function(function: &Function) -> bool {
-    todo!()
+    function
+        .formal_verification_attributes
+        .iter()
+        .any(|x| matches!(x, MonomorphizedFvAttribute::Ghost))
 }
 
 fn get_function_opaqueness(is_ghost: bool) -> Opaqueness {
@@ -23,11 +28,20 @@ fn get_function_opaqueness(is_ghost: bool) -> Opaqueness {
 }
 
 fn get_function_mode(is_ghost: bool) -> Mode {
-    todo!()
+    if is_ghost { Mode::Spec } else { Mode::Exec }
 }
 
-fn get_function_params(function: &Function) -> Result<Params, BuildingKrateError> {
-    todo!()
+fn get_function_params(function: &Function, mode: Mode) -> Result<Params, BuildingKrateError> {
+    let locations: Vec<Location> =
+        function.func_sig.0.iter().map(|param| param.0.location()).collect();
+    let params_as_vir: Vec<Param> = function
+        .parameters
+        .iter()
+        .zip(locations.into_iter())
+        .map(|(param, location)| ast_param_to_vir_param(param, location, mode, &function.name))
+        .collect();
+
+    Ok(Arc::new(params_as_vir))
 }
 
 fn get_function_return_param(function: &Function) -> Result<Param, BuildingKrateError> {
@@ -48,7 +62,9 @@ pub fn build_funx(
     current_module: &Module,
 ) -> Result<FunctionX, BuildingKrateError> {
     let is_ghost = is_ghost_function(function);
-    let function_params = get_function_params(function)?;
+    let mode = get_function_mode(is_ghost);
+
+    let function_params = get_function_params(function, mode)?;
     let function_return_param = get_function_return_param(function)?;
 
     let funx = FunctionX {
@@ -75,9 +91,9 @@ pub fn build_funx(
         decrease: Arc::new(vec![]), // Annotation for recursive functions. We currently don't support it
         decrease_when: None, // Annotation for recursive functions. We currently don't support it
         decrease_by: None,   // Annotation for recursive functions. We currently don't support it
-        fndef_axioms: None, // We currently don't support this feature
-        mask_spec: None, // We currently don't support this feature
-        unwind_spec: None, // To be able to use functions from Verus std we need None on unwinding
+        fndef_axioms: None,  // We currently don't support this feature
+        mask_spec: None,     // We currently don't support this feature
+        unwind_spec: None,   // To be able to use functions from Verus std we need None on unwinding
         item_kind: ItemKind::Function,
         attrs: build_default_funx_attrs(function.parameters.is_empty()),
         body: Some(func_body_to_vir_expr(function)),
