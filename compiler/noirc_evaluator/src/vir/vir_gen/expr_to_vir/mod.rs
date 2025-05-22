@@ -6,7 +6,7 @@ pub mod expr;
 pub mod params;
 pub mod types;
 
-fn id_into_var_ident(id: u32) -> VarIdent {
+pub fn id_into_var_ident(id: u32) -> VarIdent {
     VarIdent(
         Arc::new(id.to_string()),
         vir::ast::VarIdentDisambiguate::RustcId(
