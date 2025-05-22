@@ -43,7 +43,7 @@ fn build_default_funx_attrs(zero_args: bool) -> FunctionAttrs {
 }
 
 // Converts the given Monomorphized AST function into a VIR function.
-pub(crate) fn build_funx(
+pub fn build_funx(
     function: &Function,
     current_module: &Module,
 ) -> Result<FunctionX, BuildingKrateError> {

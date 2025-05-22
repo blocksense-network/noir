@@ -1,6 +1,6 @@
-mod attribute;
-mod expr_to_vir;
-mod function;
+pub mod attribute;
+pub mod expr_to_vir;
+pub mod function;
 
 use function::build_funx;
 use noirc_errors::Location;
