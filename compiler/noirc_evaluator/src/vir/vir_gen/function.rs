@@ -92,7 +92,7 @@ pub fn build_funx(
             visibility: Visibility { restricted_to: None }, // We currently don't support opaqueness control
         },
         owning_module: Some(current_module.x.path.clone()), // The module in which this function is located.
-        mode: get_function_mode(is_ghost),
+        mode,
         typ_params: Arc::new(Vec::new()), // There are no generics in Monomorphized AST
         typ_bounds: Arc::new(Vec::new()), // There are no generics in Monomorphized AST
         params: function_params,
