@@ -1,3 +1,6 @@
+use crate::vir::vir_gen::build_span_no_id;
+use crate::vir::vir_gen::expr_to_vir::types::ast_type_to_vir_type;
+
 use super::expr_to_vir::expr::func_body_to_vir_expr;
 use super::expr_to_vir::params::ast_param_to_vir_param;
 use super::{
@@ -9,8 +12,9 @@ use noirc_frontend::monomorphization::ast::{Function, MonomorphizedFvAttribute};
 use std::sync::Arc;
 use vir::ast::{
     BodyVisibility, Fun, FunctionAttrs, FunctionKind, FunctionX, ItemKind, Mode, Module,
-    Opaqueness, Param, Params, Visibility,
+    Opaqueness, Param, ParamX, Params, VarIdent, VarIdentDisambiguate, Visibility,
 };
+use vir::def::Spanned;
 
 fn function_into_funx_name(function: &Function) -> Fun {
     todo!()
@@ -44,8 +48,19 @@ fn get_function_params(function: &Function, mode: Mode) -> Result<Params, Buildi
     Ok(Arc::new(params_as_vir))
 }
 
-fn get_function_return_param(function: &Function) -> Result<Param, BuildingKrateError> {
-    todo!()
+fn get_function_return_param(function: &Function, mode: Mode) -> Result<Param, BuildingKrateError> {
+    let paramx = ParamX {
+        name: VarIdent(Arc::new("result".to_string()), VarIdentDisambiguate::NoBodyParam),
+        typ: ast_type_to_vir_type(&function.return_type),
+        mode: mode,
+        is_mut: false,
+        unwrapped_info: None,
+    };
+
+    Ok(Spanned::new(
+        build_span_no_id(format!("Result value of function {}", function.name), None),
+        paramx,
+    ))
 }
 
 fn is_function_return_void(func: &Function) -> bool {
@@ -65,7 +80,7 @@ pub fn build_funx(
     let mode = get_function_mode(is_ghost);
 
     let function_params = get_function_params(function, mode)?;
-    let function_return_param = get_function_return_param(function)?;
+    let function_return_param = get_function_return_param(function, mode)?;
 
     let funx = FunctionX {
         name: function_into_funx_name(function),
