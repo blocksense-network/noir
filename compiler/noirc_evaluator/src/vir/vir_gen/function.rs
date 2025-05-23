@@ -8,16 +8,22 @@ use super::{
     attribute::{func_ensures_to_vir_expr, func_requires_to_vir_expr},
 };
 use noirc_errors::Location;
-use noirc_frontend::monomorphization::ast::{Function, MonomorphizedFvAttribute};
+use noirc_frontend::monomorphization::ast::{Function, MonomorphizedFvAttribute, Type};
 use std::sync::Arc;
 use vir::ast::{
-    BodyVisibility, Fun, FunctionAttrs, FunctionKind, FunctionX, ItemKind, Mode, Module,
-    Opaqueness, Param, ParamX, Params, VarIdent, VarIdentDisambiguate, Visibility,
+    BodyVisibility, Fun, FunX, FunctionAttrs, FunctionAttrsX, FunctionKind, FunctionX, ItemKind,
+    Mode, Module, Opaqueness, Param, ParamX, Params, PathX, VarIdent, VarIdentDisambiguate,
+    Visibility,
 };
 use vir::def::Spanned;
 
 fn function_into_funx_name(function: &Function) -> Fun {
-    todo!()
+    Arc::new(FunX {
+        path: Arc::new(PathX {
+            krate: None,
+            segments: Arc::new(vec![Arc::new(function.id.to_string())]),
+        }),
+    })
 }
 
 fn is_ghost_function(function: &Function) -> bool {
@@ -59,12 +65,43 @@ fn get_function_return_param(function: &Function, mode: Mode) -> Result<Param, B
     ))
 }
 
-fn is_function_return_void(func: &Function) -> bool {
-    todo!()
+fn is_function_return_void(function: &Function) -> bool {
+    matches!(function.return_type, Type::Unit)
 }
 
-fn build_default_funx_attrs(zero_args: bool) -> FunctionAttrs {
-    todo!()
+/// Returns default instance of FunctionAttrs.
+/// By default we mean the same way a default instance would be
+/// constructed in Verus during the phase Rust HIR -> VIR.
+fn build_default_funx_attrs(zero_args: bool, is_constrained: bool) -> FunctionAttrs {
+    Arc::new(FunctionAttrsX {
+        uses_ghost_blocks: true,
+        inline: false,
+        hidden: Arc::new(vec![]), // Default in Verus
+        broadcast_forall: false,
+        broadcast_forall_only: false,
+        no_auto_trigger: false,
+        custom_req_err: None,
+        autospec: None,
+        bit_vector: false,
+        atomic: false, //TODO(totel) Maybe ghost functions have to be defined as atomic
+        integer_ring: false,
+        is_decrease_by: false,
+        check_recommends: false,
+        nonlinear: true, // This flag was set specifically by us to support arithmetic multiplication.
+        spinoff_prover: false,
+        memoize: false,
+        rlimit: None,
+        print_zero_args: zero_args, // Has no default value
+        print_as_method: false,
+        prophecy_dependent: false,
+        size_of_broadcast_proof: false,
+        is_type_invariant_fn: false,
+        auto_ext_equal: vir::ast::AutoExtEqual::default(),
+        is_external_body: false, // Currently we don't support external_fn_specification
+        is_unsafe: false,
+        exec_assume_termination: is_constrained, // Constrained functions are practically total
+        exec_allows_no_decreases_clause: false,
+    })
 }
 
 // Converts the given Monomorphized AST function into a VIR function.
@@ -108,7 +145,7 @@ pub fn build_funx(
         mask_spec: None,     // We currently don't support this feature
         unwind_spec: None,   // To be able to use functions from Verus std we need None on unwinding
         item_kind: ItemKind::Function,
-        attrs: build_default_funx_attrs(function.parameters.is_empty()),
+        attrs: build_default_funx_attrs(function.parameters.is_empty(), !function.unconstrained),
         body: Some(func_body_to_vir_expr(function)),
         extra_dependencies: Vec::new(),
     };
