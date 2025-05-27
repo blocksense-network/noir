@@ -1,6 +1,178 @@
-use noirc_frontend::monomorphization::ast::Function;
-use vir::ast::Expr;
+use std::sync::Arc;
 
-pub fn func_body_to_vir_expr(func: &Function) -> Expr {
+use crate::vir::vir_gen::{build_span, build_span_no_id, expr_to_vir::types::get_bit_not_bitwidth};
+use noirc_frontend::{
+    ast::UnaryOp,
+    monomorphization::ast::{Expression, Function, Ident, Literal, Type, Unary},
+    signed_field::SignedField,
+};
+use num_bigint::{BigInt, BigUint};
+use vir::ast::UnaryOp as VirUnaryOp;
+use vir::{
+    ast::{
+        Constant, Dt, Expr, ExprX, Mode, PatternX, SpannedTyped, Stmt, StmtX, TypX, VarIdent,
+        VarIdentDisambiguate,
+    },
+    def::Spanned,
+};
+
+use super::types::{ast_type_to_vir_type, make_unit_vir_type};
+
+pub fn func_body_to_vir_expr(function: &Function, mode: Mode) -> Expr {
+    let vir_expr = ast_expr_to_vir_expr(&function.body, mode);
+
     todo!()
+}
+
+pub fn ast_expr_to_vir_expr(expr: &Expression, mode: Mode) -> Expr {
+    match expr {
+        Expression::Ident(ident) => ast_ident_to_vir_expr(ident),
+        Expression::Literal(literal) => ast_literal_to_vir_expr(literal),
+        Expression::Block(expressions) => ast_block_to_vir_expr(expressions, mode),
+        Expression::Unary(unary) => ast_unary_to_vir_expr(unary, mode),
+        Expression::Binary(binary) => todo!(),
+        Expression::Index(index) => todo!(),
+        Expression::Cast(cast) => todo!(),
+        Expression::For(_) => todo!(),
+        Expression::Loop(expression) => todo!(),
+        Expression::While(_) => todo!(),
+        Expression::If(_) => todo!(),
+        Expression::Match(_) => todo!(),
+        Expression::Tuple(expressions) => todo!(),
+        Expression::ExtractTupleField(expression, _) => todo!(),
+        Expression::Call(call) => todo!(),
+        Expression::Let(let_expr) => todo!(),
+        Expression::Constrain(expression, location, _) => todo!(),
+        Expression::Assign(assign) => todo!(),
+        Expression::Semi(expression) => todo!(),
+        Expression::Clone(expression) => todo!(),
+        Expression::Drop(expression) => todo!(),
+        Expression::Break => todo!(),
+        Expression::Continue => todo!(),
+        Expression::Quant(quantifier_type, idents, expression) => todo!(),
+    };
+
+    todo!()
+}
+
+fn ast_ident_to_vir_expr(ident: &Ident) -> Expr {
+    let exprx = ExprX::Var(VarIdent(
+        Arc::new(ident.id.0.to_string()),
+        VarIdentDisambiguate::RustcId(
+            ident.id.0.try_into().expect("Failed to convert var ast id usize"),
+        ),
+    ));
+
+    SpannedTyped::new(
+        &build_span(ident.id.0, format!("Var {}", ident.name), ident.location),
+        &ast_type_to_vir_type(&ident.typ),
+        exprx,
+    )
+}
+
+fn ast_literal_to_vir_expr(literal: &Literal) -> Expr {
+    let expr = match literal {
+        Literal::Array(array_literal) => todo!(),
+        Literal::Slice(array_literal) => todo!(),
+        Literal::Integer(signed_field, ast_type, location) => {
+            let exprx = numeric_const_to_vir_exprx(signed_field);
+            SpannedTyped::new(
+                &build_span_no_id(format!("Integer literal"), Some(*location)),
+                &ast_type_to_vir_type(ast_type),
+                exprx,
+            )
+        }
+        Literal::Bool(bool_value) => {
+            let exprx = ExprX::Const(Constant::Bool(*bool_value));
+            SpannedTyped::new(
+                &build_span_no_id(format!("Boolean literal"), None),
+                &ast_type_to_vir_type(&Type::Bool),
+                exprx,
+            )
+        }
+        Literal::Unit => {
+            let exprx =
+                ExprX::Ctor(Dt::Tuple(0), Arc::new(String::new()), Arc::new(Vec::new()), None);
+            SpannedTyped::new(
+                &build_span_no_id(format!("Unit literal"), None),
+                &ast_type_to_vir_type(&Type::Unit),
+                exprx,
+            )
+        }
+        Literal::Str(_) => todo!(),
+        Literal::FmtStr(fmt_str_fragments, _, expression) => todo!(),
+    };
+
+    expr
+}
+
+fn numeric_const_to_vir_exprx(signed_field: &SignedField) -> ExprX {
+    let const_big_uint: BigUint = signed_field.absolute_value().into_repr().into();
+    let big_int_sign =
+        if signed_field.is_negative() { num_bigint::Sign::Minus } else { num_bigint::Sign::Plus };
+    let const_big_int: BigInt = BigInt::from_biguint(big_int_sign, const_big_uint.clone());
+
+    ExprX::Const(Constant::Int(const_big_int))
+}
+
+fn ast_block_to_vir_expr(block: &Vec<Expression>, mode: Mode) -> Expr {
+    let stmts: Vec<Stmt> = block.iter().map(|expr| ast_expr_to_stmt(expr, mode)).collect();
+    // Get the type of the expression block by matching the last statement
+    let block_type = match stmts.last().map(|stmt| &stmt.as_ref().x) {
+        None | Some(StmtX::Decl { .. }) => make_unit_vir_type(),
+        Some(StmtX::Expr(expr)) => expr.typ.clone(),
+    };
+    let exprx = ExprX::Block(Arc::new(stmts), None);
+
+    SpannedTyped::new(&build_span_no_id(format!("Block of statements"), None), &block_type, exprx)
+}
+
+fn ast_expr_to_stmt(expr: &Expression, mode: Mode) -> Stmt {
+    if let Expression::Let(let_expr) = expr {
+        let patternx = PatternX::Var {
+            name: build_var_ident(let_expr.name.clone(), let_expr.id.0),
+            mutable: let_expr.mutable,
+        };
+        let init_expr = ast_expr_to_vir_expr(&let_expr.expression, mode);
+        let pattern = SpannedTyped::new(&init_expr.span, &init_expr.typ, patternx);
+        let stmtx =
+            StmtX::Decl { pattern: pattern, mode: Some(mode), init: Some(init_expr), els: None };
+
+        Spanned::new(build_span(let_expr.id.0, format!("Let expression"), None), stmtx)
+    } else {
+        let expr_as_vir = ast_expr_to_vir_expr(expr, mode);
+        let stmtx = StmtX::Expr(expr_as_vir.clone());
+
+        Spanned::new(expr_as_vir.span.clone(), stmtx)
+    }
+}
+
+fn ast_unary_to_vir_expr(unary_expr: &Unary, mode: Mode) -> Expr {
+    let exprx = match (unary_expr.operator, &unary_expr.result_type) {
+        (UnaryOp::Minus, _) => todo!(),
+        (UnaryOp::Not, Type::Bool) => {
+            ExprX::Unary(VirUnaryOp::Not, ast_expr_to_vir_expr(&unary_expr.rhs, mode))
+        }
+        (UnaryOp::Not, ast_type) => ExprX::Unary(
+            VirUnaryOp::BitNot(get_bit_not_bitwidth(ast_type)),
+            ast_expr_to_vir_expr(&unary_expr.rhs, mode),
+        ),
+        (UnaryOp::Reference { mutable }, ast_type) => todo!(),
+        (UnaryOp::Dereference { implicitly_added }, ast_type) => todo!(),
+    };
+
+    SpannedTyped::new(
+        &build_span_no_id(format!("Unary operation"), Some(unary_expr.location)),
+        &ast_type_to_vir_type(&unary_expr.result_type),
+        exprx,
+    )
+}
+
+fn build_var_ident(name: String, id: u32) -> VarIdent {
+    VarIdent(
+        Arc::new(name.clone()),
+        VarIdentDisambiguate::RustcId(
+            id.try_into().expect(&format!("Failed to convert id for var {}", name)),
+        ),
+    )
 }
