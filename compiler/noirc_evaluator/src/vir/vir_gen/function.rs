@@ -146,7 +146,7 @@ pub fn build_funx(
         unwind_spec: None,   // To be able to use functions from Verus std we need None on unwinding
         item_kind: ItemKind::Function,
         attrs: build_default_funx_attrs(function.parameters.is_empty(), !function.unconstrained),
-        body: Some(func_body_to_vir_expr(function)),
+        body: Some(func_body_to_vir_expr(function, mode)),
         extra_dependencies: Vec::new(),
     };
 
