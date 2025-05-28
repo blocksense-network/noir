@@ -2,12 +2,15 @@ use std::sync::Arc;
 
 use crate::vir::vir_gen::{build_span, build_span_no_id, expr_to_vir::types::get_bit_not_bitwidth};
 use noirc_frontend::{
-    ast::UnaryOp,
-    monomorphization::ast::{Expression, Function, Ident, Literal, Type, Unary},
+    ast::{BinaryOpKind, UnaryOp},
+    monomorphization::ast::{Binary, Expression, Function, Ident, Literal, Type, Unary},
     signed_field::SignedField,
 };
 use num_bigint::{BigInt, BigUint};
-use vir::ast::UnaryOp as VirUnaryOp;
+use vir::{
+    ast::{ArithOp, BinaryOp, BitwiseOp, InequalityOp, Typ, UnaryOp as VirUnaryOp},
+    ast_util::{bitwidth_from_type, is_integer_type_signed},
+};
 use vir::{
     ast::{
         Constant, Dt, Expr, ExprX, Mode, PatternX, SpannedTyped, Stmt, StmtX, TypX, VarIdent,
@@ -30,7 +33,7 @@ pub fn ast_expr_to_vir_expr(expr: &Expression, mode: Mode) -> Expr {
         Expression::Literal(literal) => ast_literal_to_vir_expr(literal),
         Expression::Block(expressions) => ast_block_to_vir_expr(expressions, mode),
         Expression::Unary(unary) => ast_unary_to_vir_expr(unary, mode),
-        Expression::Binary(binary) => todo!(),
+        Expression::Binary(binary) => ast_binary_to_vir_expr(binary, mode),
         Expression::Index(index) => todo!(),
         Expression::Cast(cast) => todo!(),
         Expression::For(_) => todo!(),
@@ -166,6 +169,59 @@ fn ast_unary_to_vir_expr(unary_expr: &Unary, mode: Mode) -> Expr {
         &ast_type_to_vir_type(&unary_expr.result_type),
         exprx,
     )
+}
+
+fn ast_binary_to_vir_expr(binary_expr: &Binary, mode: Mode) -> Expr {
+    let lhs_expr = ast_expr_to_vir_expr(&binary_expr.lhs, mode);
+    let rhs_expr = ast_expr_to_vir_expr(&binary_expr.rhs, mode);
+    let binary_op = binary_op_to_vir_binary_op(&binary_expr.operator, mode, &lhs_expr.typ);
+    let exprx = ExprX::Binary(binary_op, lhs_expr.clone(), rhs_expr);
+
+    SpannedTyped::new(
+        &build_span_no_id(
+            format!("{} {} {}", binary_expr.lhs, binary_expr.operator, binary_expr.rhs),
+            Some(binary_expr.location),
+        ),
+        &lhs_expr.typ,
+        exprx,
+    )
+}
+
+fn binary_op_to_vir_binary_op(
+    ast_binary_op: &BinaryOpKind,
+    mode: Mode,
+    lhs_type: &Typ,
+) -> BinaryOp {
+    match ast_binary_op {
+        BinaryOpKind::Add => BinaryOp::Arith(ArithOp::Add, mode),
+        BinaryOpKind::Subtract => BinaryOp::Arith(ArithOp::Sub, mode),
+        BinaryOpKind::Multiply => BinaryOp::Arith(ArithOp::Mul, mode),
+        BinaryOpKind::Divide => BinaryOp::Arith(ArithOp::EuclideanDiv, mode),
+        BinaryOpKind::Equal => BinaryOp::Eq(mode),
+        BinaryOpKind::NotEqual => BinaryOp::Ne,
+        BinaryOpKind::Less => BinaryOp::Inequality(InequalityOp::Lt),
+        BinaryOpKind::LessEqual => BinaryOp::Inequality(InequalityOp::Le),
+        BinaryOpKind::Greater => BinaryOp::Inequality(InequalityOp::Gt),
+        BinaryOpKind::GreaterEqual => BinaryOp::Inequality(InequalityOp::Ge),
+        BinaryOpKind::And => BinaryOp::And,
+        BinaryOpKind::Or => BinaryOp::Or,
+        BinaryOpKind::Xor => BinaryOp::Xor,
+        BinaryOpKind::ShiftRight => BinaryOp::Bitwise(
+            BitwiseOp::Shr(
+                bitwidth_from_type(lhs_type).expect("Bitwise operation with non int type"),
+            ),
+            mode,
+        ),
+        BinaryOpKind::ShiftLeft => BinaryOp::Bitwise(
+            BitwiseOp::Shl(
+                bitwidth_from_type(lhs_type).expect("Bitwise operation with non int type"),
+                is_integer_type_signed(lhs_type),
+            ),
+            mode,
+        ),
+        BinaryOpKind::Modulo => BinaryOp::Arith(ArithOp::EuclideanMod, mode),
+        BinaryOpKind::Implication => BinaryOp::Implies,
+    }
 }
 
 fn build_var_ident(name: String, id: u32) -> VarIdent {
