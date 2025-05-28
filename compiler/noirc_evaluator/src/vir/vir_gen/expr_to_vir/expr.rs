@@ -24,7 +24,7 @@ use super::types::{ast_type_to_vir_type, make_unit_vir_type};
 pub fn func_body_to_vir_expr(function: &Function, mode: Mode) -> Expr {
     let vir_expr = ast_expr_to_vir_expr(&function.body, mode);
 
-    todo!()
+    vir_expr
 }
 
 pub fn ast_expr_to_vir_expr(expr: &Expression, mode: Mode) -> Expr {
