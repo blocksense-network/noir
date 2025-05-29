@@ -6,7 +6,7 @@ use function::build_funx;
 use noirc_errors::Location;
 use noirc_frontend::monomorphization::ast::Program;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{fmt::Display, sync::Arc};
 use vir::{
     ast::{Krate, KrateX, ModuleX, PathX},
     def::Spanned,
@@ -37,6 +37,14 @@ fn build_span(id: u32, debug_string: String, span: Option<Location>) -> Span {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BuildingKrateError {
     Error(String),
+}
+
+impl Display for BuildingKrateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BuildingKrateError::Error(msg) => write!(f, "{}", msg),
+        }
+    }
 }
 
 pub fn build_krate(program: Program) -> Result<Krate, BuildingKrateError> {
