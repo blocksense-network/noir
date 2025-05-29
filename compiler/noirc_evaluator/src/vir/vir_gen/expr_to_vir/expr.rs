@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use crate::vir::vir_gen::{build_span, build_span_no_id, expr_to_vir::types::get_bit_not_bitwidth};
+use crate::vir::vir_gen::{
+    build_span, build_span_no_id,
+    expr_to_vir::types::{ast_type_to_vir_type, get_bit_not_bitwidth, make_unit_vir_type},
+};
 use noirc_frontend::{
     ast::{BinaryOpKind, UnaryOp},
     monomorphization::ast::{Binary, Expression, Function, Ident, Literal, Type, Unary},
@@ -19,11 +22,12 @@ use vir::{
     def::Spanned,
 };
 
-use super::types::{ast_type_to_vir_type, make_unit_vir_type};
-
 pub fn func_body_to_vir_expr(function: &Function, mode: Mode) -> Expr {
     let vir_expr = ast_expr_to_vir_expr(&function.body, mode);
-
+    // TODO(totel):
+    // We are unsure if we have to implement a special logic for converting a function body to a VIR expr.
+    // There is a chance that we will have to map expressions into VIR expr block of statements 
+    // instead of directly converting them to VIR expressions.
     vir_expr
 }
 
@@ -62,7 +66,7 @@ fn ast_ident_to_vir_expr(ident: &Ident) -> Expr {
     let exprx = ExprX::Var(VarIdent(
         Arc::new(ident.id.0.to_string()),
         VarIdentDisambiguate::RustcId(
-            ident.id.0.try_into().expect("Failed to convert var ast id usize"),
+            ident.id.0.try_into().expect("Failed to convert var ast id to usize"),
         ),
     ));
 
@@ -122,8 +126,8 @@ fn ast_block_to_vir_expr(block: &Vec<Expression>, mode: Mode) -> Expr {
     let stmts: Vec<Stmt> = block.iter().map(|expr| ast_expr_to_stmt(expr, mode)).collect();
     // Get the type of the expression block by matching the last statement
     let block_type = match stmts.last().map(|stmt| &stmt.as_ref().x) {
-        None | Some(StmtX::Decl { .. }) => make_unit_vir_type(),
         Some(StmtX::Expr(expr)) => expr.typ.clone(),
+        None | Some(StmtX::Decl { .. }) => make_unit_vir_type(),
     };
     let exprx = ExprX::Block(Arc::new(stmts), None);
 

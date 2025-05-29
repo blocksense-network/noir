@@ -43,7 +43,7 @@ fn get_function_params(function: &Function, mode: Mode) -> Result<Params, Buildi
     let params_as_vir: Vec<Param> = function
         .parameters
         .iter()
-        .zip(locations.into_iter())
+        .zip(locations)
         .map(|(param, location)| ast_param_to_vir_param(param, location, mode, &function.name))
         .collect();
 
