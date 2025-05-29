@@ -19,7 +19,7 @@ pub fn ast_param_to_vir_param(
     parameter: &AstParam,
     location: Location,
     mode: Mode,
-    function_name: &String,
+    function_name: &str,
 ) -> Param {
     let paramx = ParamX {
         name: id_into_var_ident(parameter.0.0),
