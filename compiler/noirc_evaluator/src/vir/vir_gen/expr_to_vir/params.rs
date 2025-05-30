@@ -28,9 +28,9 @@ pub fn ast_param_to_vir_param(
         is_mut: parameter.1,
         unwrapped_info: None, // Special unwrapping pattern which we don't support
     };
+
     Spanned::new(
         build_span_no_id(format!("Parameters of the function {}", function_name), Some(location)),
         paramx,
-    );
-    todo!()
+    )
 }
