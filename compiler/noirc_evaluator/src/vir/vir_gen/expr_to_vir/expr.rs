@@ -57,9 +57,7 @@ pub fn ast_expr_to_vir_expr(expr: &Expression, mode: Mode) -> Expr {
         Expression::Break => todo!(),
         Expression::Continue => todo!(),
         Expression::Quant(quantifier_type, idents, expression) => todo!(),
-    };
-
-    todo!()
+    }
 }
 
 fn ast_ident_to_vir_expr(ident: &Ident) -> Expr {
