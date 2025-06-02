@@ -133,17 +133,22 @@ fn z3_verify(
 
     let mut smt_outputs: Vec<SmtOutput> = Vec::new();
     let lines: Vec<String> = stderr_output.lines().map(String::from).collect();
+    let mut failed_deserialization_lines: Vec<&str> = Vec::new();
     for line in &lines {
-        let smt_output = serde_json::from_str::<SmtOutput>(&line).map_err(|e| {
-            CliError::Generic(format!(
-                "Failed to deserialize the Venir output: {} with the following error\n{}",
-                line,
-                e.to_string()
-            ))
-        })?;
-
-        smt_outputs.push(smt_output);
+        if let Ok(smt_output) = serde_json::from_str::<SmtOutput>(&line) {
+            smt_outputs.push(smt_output);
+        } else {
+            failed_deserialization_lines.push(line);
+        }
     }
+    if !failed_deserialization_lines.is_empty() {
+        println!(
+            "Failed to deserialize the following lines:\n{}",
+            failed_deserialization_lines.join("\n")
+        );
+        return Err(CliError::Generic(format!("Failed to deserialize all lines outputted by Venir")));
+    }
+
     smt_outputs.reverse();
 
     let mut verification_diagnostics: Vec<CustomDiagnostic> = smt_outputs
