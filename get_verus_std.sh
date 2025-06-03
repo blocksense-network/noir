@@ -11,10 +11,9 @@ function cleanup()
 
 trap cleanup EXIT
 
-export TMPDIR=/var/tmp
 # Save the original directory
 ORIGINAL_DIR="$(pwd)"
-TMP_DIR=$(mktemp -d -p /var/tmp)
+TMP_DIR=$(mktemp -d)
 echo "Cloning Verus-lib into: $TMP_DIR"
 git clone https://github.com/Aristotelis2002/verus-lib.git -b synced_main "$TMP_DIR/Verus-lib"
 
