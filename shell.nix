@@ -29,16 +29,12 @@ mkShell {
       venir
       self'.legacyPackages.rustToolchain
       verus-std
+      pkgs.wrangler
       # pkgs.rustfilt
     ]
     ++ lib.optionals stdenv.isDarwin [
       pkgs.libiconv
       frameworks.CoreServices
-    ]
-    ++ lib.optionals (!stdenv.isDarwin) [
-      # `wrangler` is the Cloudflare CLI for deploying the build Noir docs
-      # web-site. The package is currently marked as broken on macOS.
-      pkgs.wrangler
     ];
   shellHook = ''
     export VERUS_Z3_PATH=$(which z3)
