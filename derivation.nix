@@ -1,4 +1,3 @@
-# stanm: The single purpose of this script is to bootstrap rustup.
 {
   pkgs,
   self',
@@ -41,9 +40,6 @@ customRustPlatform.buildRustPackage rec {
       "air-0.1.0" = "sha256-TeoMUYA4vrBJ7Pn4CuJ3bK9RF/0P/RKgSSBwICpKQnc=";
     };
   };
-
-  #cargoHash = "sha256-ER9SPWnoSmDln/8nTMeojSYvK4HxQzFCR6C6nSxFpOM=";
-  cargoHash = "";
 
   preFixup = ''
     patchelf --set-rpath "${venir-toolchain}/lib" "$out/bin/${binaryName}"
