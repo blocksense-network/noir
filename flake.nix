@@ -63,7 +63,7 @@
               venir-toolchain
               verus-lib
               ;
-            pkgsForZ3 = inputs.nixpkgs-for-z3.legacyPackages.x86_64-linux;
+            pkgsForZ3 = inputs'.nixpkgs-for-z3.legacyPackages;
           };
         };
     };
