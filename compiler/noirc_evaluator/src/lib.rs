@@ -6,6 +6,7 @@ pub mod errors;
 pub mod acir;
 pub mod brillig;
 pub mod ssa;
+pub mod vir;
 
 pub use ssa::create_program;
 pub use ssa::ir::instruction::ErrorType;

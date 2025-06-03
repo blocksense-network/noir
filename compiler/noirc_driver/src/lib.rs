@@ -15,6 +15,7 @@ use noirc_evaluator::errors::RuntimeError;
 use noirc_evaluator::ssa::{
     SsaEvaluatorOptions, SsaLogging, SsaProgramArtifact, create_program_with_minimal_passes,
 };
+use noirc_evaluator::vir::create_verus_vir;
 use noirc_frontend::debug::build_debug_crate_file;
 use noirc_frontend::elaborator::{FrontendOptions, UnstableFeature};
 use noirc_frontend::hir::Context;
@@ -749,6 +750,21 @@ pub fn compile_no_check(
     // Hash the AST program, which is going to be used to fingerprint the compilation artifact.
     let hash = fxhash::hash64(&program);
 
+    if context.perform_formal_verification {
+        return Ok(CompiledProgram {
+            hash,
+            program: acvm::acir::circuit::Program::default(),
+            debug: vec![],
+            abi: noirc_abi::Abi::default(),
+            file_map: std::collections::BTreeMap::default(),
+            noir_version: NOIR_ARTIFACT_VERSION_STRING.to_string(),
+            warnings: vec![],
+            names: vec![],
+            brillig_names: vec![],
+            verus_vir: create_verus_vir(program).ok(),
+        });
+    }
+
     if let Some(cached_program) = cached_program {
         if !force_compile && cached_program.hash == hash {
             info!("Program matches existing artifact, returning early");
@@ -808,6 +824,7 @@ pub fn compile_no_check(
         warnings,
         names,
         brillig_names,
+        verus_vir: None,
     })
 }
 

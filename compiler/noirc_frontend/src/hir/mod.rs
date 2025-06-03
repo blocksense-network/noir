@@ -56,6 +56,8 @@ pub struct Context<'file_manager, 'parsed_files> {
 
     /// Writer for comptime prints.
     pub interpreter_output: Option<Rc<RefCell<dyn std::io::Write>>>,
+    
+    pub perform_formal_verification: bool,
 }
 
 #[derive(Debug)]
@@ -78,6 +80,7 @@ impl Context<'_, '_> {
             parsed_files: Cow::Owned(parsed_files),
             package_build_path: PathBuf::default(),
             interpreter_output: Some(Rc::new(RefCell::new(std::io::stdout()))),
+            perform_formal_verification: false,
         }
     }
 
@@ -96,6 +99,7 @@ impl Context<'_, '_> {
             parsed_files: Cow::Borrowed(parsed_files),
             package_build_path: PathBuf::default(),
             interpreter_output: Some(Rc::new(RefCell::new(std::io::stdout()))),
+            perform_formal_verification: false,
         }
     }
 
