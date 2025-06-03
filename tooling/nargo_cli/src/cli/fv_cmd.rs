@@ -58,24 +58,19 @@ pub(crate) fn run(args: FormalVerifyCommand, workspace: Workspace) -> Result<(),
             noirc_driver::compile_main(&mut context, crate_id, &args.compile_options, None);
 
         // We want to formally verify only compilable programs
-        report_errors(
-            compiled_program.clone(),
+        let compiled_program = report_errors(
+            compiled_program,
             &workspace_file_manager,
             args.compile_options.deny_warnings,
             true, // We don't want to report compile related warnings
         )?;
 
-        compiled_program
-            .ok()
-            .map(|(compiled_program, _)| {
-                z3_verify(
-                    compiled_program,
-                    &workspace_file_manager,
-                    args.compile_options.deny_warnings,
-                    &args.venir_flags,
-                )
-            })
-            .transpose()?;
+        z3_verify(
+            compiled_program,
+            &workspace_file_manager,
+            args.compile_options.deny_warnings,
+            &args.venir_flags,
+        )?;
     }
 
     Ok(())
@@ -132,41 +127,35 @@ fn z3_verify(
     let has_crashed = !output.status.success();
 
     let mut smt_outputs: Vec<SmtOutput> = Vec::new();
-    let lines: Vec<String> = stderr_output.lines().map(String::from).collect();
     let mut failed_deserialization_lines: Vec<&str> = Vec::new();
-    for line in &lines {
-        if let Ok(smt_output) = serde_json::from_str::<SmtOutput>(&line) {
-            smt_outputs.push(smt_output);
-        } else {
-            failed_deserialization_lines.push(line);
+
+    for line in stderr_output.lines() {
+        match serde_json::from_str::<SmtOutput>(line) {
+            Ok(smt_output) => smt_outputs.push(smt_output),
+            Err(_) => failed_deserialization_lines.push(line),
         }
     }
+
     if !failed_deserialization_lines.is_empty() {
         println!(
             "Failed to deserialize the following lines:\n{}",
             failed_deserialization_lines.join("\n")
         );
-        return Err(CliError::Generic(format!("Failed to deserialize all lines outputted by Venir")));
+        return Err(CliError::Generic(format!(
+            "Failed to deserialize all lines outputted by Venir"
+        )));
     }
-
+    // Verus reports Notes in reverse order.
     smt_outputs.reverse();
 
     let mut verification_diagnostics: Vec<CustomDiagnostic> = smt_outputs
         .into_iter()
         .map(|smt_output| smt_output_to_diagnostic(smt_output, &workspace_file_manager))
-        .collect::<Result<_, _>>()?;
+        .collect();
 
     // Sort errors by span.
-    verification_diagnostics.sort_by(|a, b| {
-        match (a.secondaries.first(), b.secondaries.first()) {
-            (None, None) => std::cmp::Ordering::Equal, // Errors with no span are put at the start.
-            (None, Some(_)) => std::cmp::Ordering::Less,
-            (Some(_), None) => std::cmp::Ordering::Greater,
-            (Some(a_custom_label), Some(b_custom_label)) => {
-                a_custom_label.location.span.start().cmp(&b_custom_label.location.span.start())
-            }
-        }
-    });
+    verification_diagnostics
+        .sort_by_key(|diag| diag.secondaries.first().map(|label| label.location.span.start()));
 
     // Report errors from the verification process.
     let reported_errors: ReportedErrors = noirc_errors::reporter::report_all(
@@ -176,19 +165,19 @@ fn z3_verify(
         false,
     );
 
-    if reported_errors.error_count == 0 {
-        println!("Verification successful!");
-        Ok(())
-    } else {
-        if has_crashed {
-            Err(CliError::Generic(format!("Verification crashed!")))
-        } else {
-            Err(CliError::Generic(format!(
-                "Verification failed due to {} previous errors!",
-                reported_errors.error_count
-            )))
-        }
+    if has_crashed {
+        return Err(CliError::Generic(format!("Verification crashed!")));
     }
+
+    if reported_errors.error_count > 0 {
+        return Err(CliError::Generic(format!(
+            "Verification failed due to {} previous errors!",
+            reported_errors.error_count,
+        )));
+    }
+
+    println!("Verification successful!");
+    Ok(())
 }
 
 /// Part of the Venir output standard.
@@ -225,32 +214,33 @@ enum SmtOutput {
 fn smt_output_to_diagnostic(
     smt_output: SmtOutput,
     workspace_file_manager: &FileManager,
-) -> Result<CustomDiagnostic, CliError> {
+) -> CustomDiagnostic {
     let default_file_id = workspace_file_manager
         .as_file_map()
         .all_file_ids()
         .last()
-        .unwrap_or(&FileId::dummy())
-        .clone();
+        .cloned()
+        .unwrap_or(FileId::dummy());
 
     match smt_output {
         SmtOutput::Error(error_block) => {
-            if let Ok((start_byte, final_byte, file_id)) = convert_span(&error_block.error_span) {
-                let diagnostic = CustomDiagnostic::simple_error(
-                    error_block.error_message,
-                    error_block.secondary_message,
-                    Location::new(
-                        Span::inclusive(start_byte, final_byte),
+            let span = convert_span(&error_block.error_span);
+            match span {
+                Some((start_byte, final_byte, file_id)) => {
+                    let file_id =
                         get_file_id_via_usize(workspace_file_manager.as_file_map(), file_id)
-                            .unwrap_or(FileId::dummy()),
-                    ),
-                );
-                Ok(diagnostic)
-            } else {
-                Ok(CustomDiagnostic::from_message(&error_block.error_message, default_file_id))
+                            .unwrap_or(FileId::dummy());
+                    CustomDiagnostic::simple_error(
+                        error_block.error_message,
+                        error_block.secondary_message,
+                        Location::new(Span::inclusive(start_byte, final_byte), file_id),
+                    )
+                }
+                None => CustomDiagnostic::from_message(&error_block.error_message, default_file_id),
             }
         }
-        SmtOutput::Warning(warning_block) => Ok(CustomDiagnostic {
+
+        SmtOutput::Warning(warning_block) => CustomDiagnostic {
             file: default_file_id,
             message: warning_block.warning_message,
             secondaries: Vec::new(),
@@ -259,8 +249,9 @@ fn smt_output_to_diagnostic(
             deprecated: false,
             unnecessary: false,
             call_stack: Default::default(),
-        }),
-        SmtOutput::Note(message) => Ok(CustomDiagnostic {
+        },
+
+        SmtOutput::Note(message) => CustomDiagnostic {
             file: default_file_id,
             message,
             secondaries: Vec::new(),
@@ -269,24 +260,24 @@ fn smt_output_to_diagnostic(
             deprecated: false,
             unnecessary: false,
             call_stack: Default::default(),
-        }),
-        SmtOutput::AirMessage(crash_block) => {
-            let error_span = convert_span(&crash_block.crash_span);
+        },
 
-            match error_span {
-                Ok((start_byte, final_byte, file_id)) => Ok(CustomDiagnostic::simple_error(
-                    String::from("Verification crashed"),
-                    crash_block.crash_message,
-                    Location::new(
-                        Span::inclusive(start_byte, final_byte),
+        SmtOutput::AirMessage(crash_block) => {
+            let span = convert_span(&crash_block.crash_span);
+            match span {
+                Some((start_byte, final_byte, file_id)) => {
+                    let file_id =
                         get_file_id_via_usize(workspace_file_manager.as_file_map(), file_id)
-                            .unwrap_or(default_file_id),
-                    ),
-                )),
-                Err(_) => {
-                    // The error means that we have no span for the crash message
-                    // Therefore we can ignore it
-                    Ok(CustomDiagnostic::from_message(&crash_block.crash_message, default_file_id))
+                            .unwrap_or(default_file_id);
+                    CustomDiagnostic::simple_error(
+                        String::from("Verification crashed"),
+                        crash_block.crash_message,
+                        Location::new(Span::inclusive(start_byte, final_byte), file_id),
+                    )
+                }
+                None => {
+                    // No valid span for crash message; fallback to basic message
+                    CustomDiagnostic::from_message(&crash_block.crash_message, default_file_id)
                 }
             }
         }
@@ -300,24 +291,23 @@ fn get_file_id_via_usize(file_map: &FileMap, file_id_as_usize: usize) -> Option<
     file_map.all_file_ids().find(|file_id| file_id.as_usize() == file_id_as_usize).cloned()
 }
 
-// We have encoded the Noir expression span into a string which is attached to
-// the relevant VIR expression. We know that this is a bad pattern but all other
-// approaches that we tried resulted in failure. Therefore the following function
-// decodes span from string.
-fn convert_span(input: &str) -> Result<(u32, u32, usize), Box<dyn std::error::Error>> {
+fn convert_span(input: &str) -> Option<(u32, u32, usize)> {
     if input.is_empty() {
-        return Err("Span is empty".into());
+        // Input is empty, cannot decode a span
+        return None;
     }
+
     let trimmed = input.trim_matches(|c| c == '(' || c == ')');
     let parts: Vec<&str> = trimmed.split(',').map(str::trim).collect();
 
     if parts.len() != 3 {
-        return Err("Span must have exactly three elements".into());
+        // Span must have exactly three components: start, end, file_id
+        return None;
     }
 
-    let start_byte = parts[0].parse::<u32>()?;
-    let final_byte = parts[1].parse::<u32>()?;
-    let file_id = parts[2].parse::<usize>()?;
+    let start_byte = parts[0].parse::<u32>().ok()?;
+    let final_byte = parts[1].parse::<u32>().ok()?;
+    let file_id = parts[2].parse::<usize>().ok()?;
 
-    Ok((start_byte, final_byte, file_id))
+    Some((start_byte, final_byte, file_id))
 }

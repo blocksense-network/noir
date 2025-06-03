@@ -25,9 +25,7 @@ customRustPlatform.buildRustPackage rec {
   VERUS_IN_VARGO = 1;
   RUSTFLAGS = "--cfg proc_macro_span --cfg verus_keep_ghost --cfg span_locations";
 
-  # This disables the cargo tests.
   # Some transitive dependency tests fail, not sure why. This disables them
-
   # (The formal verification tests however pass, which are the ones we care about)
   doCheck = false;
 
