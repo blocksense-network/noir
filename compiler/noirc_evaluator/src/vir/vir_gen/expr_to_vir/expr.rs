@@ -62,7 +62,7 @@ pub fn ast_expr_to_vir_expr(expr: &Expression, mode: Mode) -> Expr {
 
 fn ast_ident_to_vir_expr(ident: &Ident) -> Expr {
     let exprx = ExprX::Var(VarIdent(
-        Arc::new(ident.id.0.to_string()),
+        Arc::new(ident.name.clone()),
         VarIdentDisambiguate::RustcId(
             ident.id.0.try_into().expect("Failed to convert var ast id to usize"),
         ),
@@ -97,7 +97,7 @@ fn ast_literal_to_vir_expr(literal: &Literal) -> Expr {
         }
         Literal::Unit => {
             let exprx =
-                ExprX::Ctor(Dt::Tuple(0), Arc::new(String::new()), Arc::new(Vec::new()), None);
+                ExprX::Ctor(Dt::Tuple(0), Arc::new(String::from("tuple%0")), Arc::new(Vec::new()), None);
             SpannedTyped::new(
                 &build_span_no_id(format!("Unit literal"), None),
                 &ast_type_to_vir_type(&Type::Unit),
@@ -121,13 +121,25 @@ fn numeric_const_to_vir_exprx(signed_field: &SignedField) -> ExprX {
 }
 
 fn ast_block_to_vir_expr(block: &Vec<Expression>, mode: Mode) -> Expr {
-    let stmts: Vec<Stmt> = block.iter().map(|expr| ast_expr_to_stmt(expr, mode)).collect();
-    // Get the type of the expression block by matching the last statement
-    let block_type = match stmts.last().map(|stmt| &stmt.as_ref().x) {
-        Some(StmtX::Expr(expr)) => expr.typ.clone(),
-        None | Some(StmtX::Decl { .. }) => make_unit_vir_type(),
+    let mut stmts: Vec<Stmt> = block.iter().map(|expr| ast_expr_to_stmt(expr, mode)).collect();
+
+    let (last_expr, block_type) = match stmts.pop() {
+        Some(stmt) => match &stmt.as_ref().x {
+            StmtX::Expr(expr) => {
+                // We want to return the last expression separately 
+                let typ = expr.typ.clone();
+                (Some(expr.clone()), typ)
+            }
+            StmtX::Decl { .. } => {
+                // Put it back if it's a Decl
+                stmts.push(stmt);
+                (None, make_unit_vir_type())
+            }
+        },
+        None => (None, make_unit_vir_type()),
     };
-    let exprx = ExprX::Block(Arc::new(stmts), None);
+
+    let exprx = ExprX::Block(Arc::new(stmts), last_expr);
 
     SpannedTyped::new(&build_span_no_id(format!("Block of statements"), None), &block_type, exprx)
 }
