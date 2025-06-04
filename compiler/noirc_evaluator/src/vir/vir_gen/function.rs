@@ -21,7 +21,7 @@ fn function_into_funx_name(function: &Function) -> Fun {
     Arc::new(FunX {
         path: Arc::new(PathX {
             krate: None,
-            segments: Arc::new(vec![Arc::new(function.id.to_string())]),
+            segments: Arc::new(vec![Arc::new(function.name.clone())]),
         }),
     })
 }
@@ -52,7 +52,7 @@ fn get_function_params(function: &Function, mode: Mode) -> Result<Params, Buildi
 
 fn get_function_return_param(function: &Function, mode: Mode) -> Result<Param, BuildingKrateError> {
     let paramx = ParamX {
-        name: VarIdent(Arc::new("result".to_string()), VarIdentDisambiguate::NoBodyParam),
+        name: VarIdent(Arc::new("%return".to_string()), VarIdentDisambiguate::AirLocal),
         typ: ast_type_to_vir_type(&function.return_type),
         mode: mode,
         is_mut: false,
@@ -134,7 +134,7 @@ pub fn build_funx(
         typ_bounds: Arc::new(Vec::new()), // There are no generics in Monomorphized AST
         params: function_params,
         ret: function_return_param,
-        ens_has_return: is_function_return_void(function),
+        ens_has_return: !is_function_return_void(function),
         require: func_requires_to_vir_expr(function),
         ensure: func_ensures_to_vir_expr(function),
         returns: None, // We don't support the special clause called `return`
