@@ -1,0 +1,6 @@
+[package]
+name = "target_program"
+type = "bin"
+authors = [""]
+
+[dependencies]
