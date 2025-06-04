@@ -10,7 +10,7 @@ use vir::{
 
 use crate::vir::vir_gen::{
     build_span_no_id,
-    expr_to_vir::{id_into_var_ident, types::ast_type_to_vir_type},
+    expr_to_vir::{ast_var_into_var_ident, types::ast_type_to_vir_type},
 };
 
 type AstParam = (LocalId, /*mutable:*/ bool, /*name:*/ String, Type, Visibility);
@@ -22,7 +22,7 @@ pub fn ast_param_to_vir_param(
     function_name: &str,
 ) -> Param {
     let paramx = ParamX {
-        name: id_into_var_ident(parameter.0.0),
+        name: ast_var_into_var_ident(parameter.2.clone(), parameter.0.0),
         typ: ast_type_to_vir_type(&parameter.3),
         mode,
         is_mut: parameter.1,
