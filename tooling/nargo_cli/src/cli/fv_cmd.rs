@@ -27,6 +27,10 @@ pub(crate) struct FormalVerifyCommand {
     #[clap(flatten)]
     compile_options: CompileOptions,
 
+    /// Emit debug information for the intermediate Verus VIR to stdout
+    #[arg(long, hide = true)]
+    pub show_vir: bool,
+
     // Flags which will be propagated to the Venir binary
     #[clap(last = true)]
     venir_flags: Vec<String>,
@@ -64,6 +68,11 @@ pub(crate) fn run(args: FormalVerifyCommand, workspace: Workspace) -> Result<(),
             args.compile_options.deny_warnings,
             true, // We don't want to report compile related warnings
         )?;
+
+        if args.show_vir {
+            println!("Generated VIR:");
+            println!("{:#?}", compiled_program.verus_vir);
+        }
 
         z3_verify(
             compiled_program,
