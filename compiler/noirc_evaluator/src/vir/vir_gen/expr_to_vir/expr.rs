@@ -2,8 +2,12 @@ use std::sync::Arc;
 
 use crate::vir::vir_gen::{
     build_span, build_span_no_id,
-    expr_to_vir::types::{ast_type_to_vir_type, get_bit_not_bitwidth, make_unit_vir_type},
+    expr_to_vir::{
+        expression_location,
+        types::{ast_type_to_vir_type, get_bit_not_bitwidth, make_unit_vir_type},
+    },
 };
+use noirc_errors::Location;
 use noirc_frontend::{
     ast::{BinaryOpKind, UnaryOp},
     monomorphization::ast::{Binary, Expression, Function, Ident, Literal, Type, Unary},
@@ -26,7 +30,7 @@ pub fn func_body_to_vir_expr(function: &Function, mode: Mode) -> Expr {
     let vir_expr = ast_expr_to_vir_expr(&function.body, mode);
     // TODO(totel):
     // We are unsure if we have to implement a special logic for converting a function body to a VIR expr.
-    // There is a chance that we will have to map expressions into VIR expr block of statements 
+    // There is a chance that we will have to map expressions into VIR expr block of statements
     // instead of directly converting them to VIR expressions.
     vir_expr
 }
@@ -35,7 +39,9 @@ pub fn ast_expr_to_vir_expr(expr: &Expression, mode: Mode) -> Expr {
     match expr {
         Expression::Ident(ident) => ast_ident_to_vir_expr(ident),
         Expression::Literal(literal) => ast_literal_to_vir_expr(literal),
-        Expression::Block(expressions) => ast_block_to_vir_expr(expressions, mode),
+        Expression::Block(expressions) => {
+            ast_block_to_vir_expr(expressions, expression_location(expr), mode)
+        }
         Expression::Unary(unary) => ast_unary_to_vir_expr(unary, mode),
         Expression::Binary(binary) => ast_binary_to_vir_expr(binary, mode),
         Expression::Index(index) => todo!(),
@@ -96,8 +102,12 @@ fn ast_literal_to_vir_expr(literal: &Literal) -> Expr {
             )
         }
         Literal::Unit => {
-            let exprx =
-                ExprX::Ctor(Dt::Tuple(0), Arc::new(String::from("tuple%0")), Arc::new(Vec::new()), None);
+            let exprx = ExprX::Ctor(
+                Dt::Tuple(0),
+                Arc::new(String::from("tuple%0")),
+                Arc::new(Vec::new()),
+                None,
+            );
             SpannedTyped::new(
                 &build_span_no_id(format!("Unit literal"), None),
                 &ast_type_to_vir_type(&Type::Unit),
@@ -120,13 +130,13 @@ fn numeric_const_to_vir_exprx(signed_field: &SignedField) -> ExprX {
     ExprX::Const(Constant::Int(const_big_int))
 }
 
-fn ast_block_to_vir_expr(block: &Vec<Expression>, mode: Mode) -> Expr {
+fn ast_block_to_vir_expr(block: &Vec<Expression>, location: Option<Location>, mode: Mode) -> Expr {
     let mut stmts: Vec<Stmt> = block.iter().map(|expr| ast_expr_to_stmt(expr, mode)).collect();
 
     let (last_expr, block_type) = match stmts.pop() {
         Some(stmt) => match &stmt.as_ref().x {
             StmtX::Expr(expr) => {
-                // We want to return the last expression separately 
+                // We want to return the last expression separately
                 let typ = expr.typ.clone();
                 (Some(expr.clone()), typ)
             }
@@ -141,7 +151,11 @@ fn ast_block_to_vir_expr(block: &Vec<Expression>, mode: Mode) -> Expr {
 
     let exprx = ExprX::Block(Arc::new(stmts), last_expr);
 
-    SpannedTyped::new(&build_span_no_id(format!("Block of statements"), None), &block_type, exprx)
+    SpannedTyped::new(
+        &build_span_no_id(format!("Block of statements"), location),
+        &block_type,
+        exprx,
+    )
 }
 
 fn ast_expr_to_stmt(expr: &Expression, mode: Mode) -> Stmt {
@@ -155,7 +169,10 @@ fn ast_expr_to_stmt(expr: &Expression, mode: Mode) -> Stmt {
         let stmtx =
             StmtX::Decl { pattern: pattern, mode: Some(mode), init: Some(init_expr), els: None };
 
-        Spanned::new(build_span(let_expr.id.0, format!("Let expression"), None), stmtx)
+        Spanned::new(
+            build_span(let_expr.id.0, format!("Let expression"), expression_location(expr)),
+            stmtx,
+        )
     } else {
         let expr_as_vir = ast_expr_to_vir_expr(expr, mode);
         let stmtx = StmtX::Expr(expr_as_vir.clone());
