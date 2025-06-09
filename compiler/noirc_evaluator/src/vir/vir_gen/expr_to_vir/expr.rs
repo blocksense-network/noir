@@ -4,15 +4,18 @@ use crate::vir::vir_gen::{
     build_span, build_span_no_id,
     expr_to_vir::{
         expression_location,
-        types::{ast_type_to_vir_type, build_tuple_type, get_bit_not_bitwidth, make_unit_vir_type},
+        types::{
+            ast_type_to_vir_type, build_tuple_type, get_binary_op_type, get_bit_not_bitwidth,
+            make_unit_vir_type,
+        },
     },
 };
 use noirc_errors::Location;
 use noirc_frontend::{
     ast::{BinaryOpKind, QuantifierType, UnaryOp},
     monomorphization::ast::{
-        Assign, Binary, Call, Cast, Expression, Function, Ident, If, LValue, Literal, Match, Type,
-        Unary,
+        Assign, Binary, Call, Cast, Definition, Expression, Function, Ident, If, LValue, Literal,
+        Match, Type, Unary,
     },
     shared::Signedness,
     signed_field::SignedField,
@@ -97,15 +100,17 @@ pub fn ast_expr_to_vir_expr(expr: &Expression, mode: Mode) -> Expr {
 }
 
 fn ast_ident_to_vir_expr(ident: &Ident) -> Expr {
+    let ident_id: u32 =
+        ast_definition_to_id(&ident.definition).expect("Definition doesn't have an id");
     let exprx = ExprX::Var(VarIdent(
         Arc::new(ident.name.clone()),
         VarIdentDisambiguate::RustcId(
-            ident.id.0.try_into().expect("Failed to convert var ast id to usize"),
+            ident_id.try_into().expect("Failed to convert ast id to usize"),
         ),
     ));
 
     SpannedTyped::new(
-        &build_span(ident.id.0, format!("Var {}", ident.name), ident.location),
+        &build_span(ident_id, format!("Var {}", ident.name), ident.location),
         &ast_type_to_vir_type(&ident.typ),
         exprx,
     )
@@ -236,14 +241,16 @@ fn ast_binary_to_vir_expr(binary_expr: &Binary, mode: Mode) -> Expr {
     let lhs_expr = ast_expr_to_vir_expr(&binary_expr.lhs, mode);
     let rhs_expr = ast_expr_to_vir_expr(&binary_expr.rhs, mode);
     let binary_op = binary_op_to_vir_binary_op(&binary_expr.operator, mode, &lhs_expr.typ);
-    let exprx = ExprX::Binary(binary_op, lhs_expr.clone(), rhs_expr);
+    let binary_op_type = get_binary_op_type(lhs_expr.typ.clone(), &binary_expr.operator);
+
+    let exprx = ExprX::Binary(binary_op, lhs_expr, rhs_expr);
 
     SpannedTyped::new(
         &build_span_no_id(
             format!("{} {} {}", binary_expr.lhs, binary_expr.operator, binary_expr.rhs),
             Some(binary_expr.location),
         ),
-        &lhs_expr.typ,
+        &binary_op_type,
         exprx,
     )
 }
@@ -372,7 +379,7 @@ fn ast_call_to_vir_expr(call_expr: &Call, mode: Mode) -> Expr {
 
     SpannedTyped::new(
         &build_span(
-            function_ident.id.0,
+            ast_definition_to_id(&function_ident.definition).expect("Functions must have an id"),
             format!(
                 "Function call {} with arguments {}",
                 function_ident.name,
@@ -458,7 +465,12 @@ fn ast_quant_to_vir_expr(
             Arc::new(VarBinderX {
                 name: VarIdent(
                     Arc::new(index_ident.name.clone()),
-                    VarIdentDisambiguate::RustcId(index_ident.id.0.to_usize().unwrap_or(0)),
+                    VarIdentDisambiguate::RustcId(
+                        ast_definition_to_id(&index_ident.definition)
+                            .expect("Quantifier indexes should have a local id")
+                            .try_into()
+                            .expect("Failed to convert u32 id to usize"),
+                    ),
                 ),
                 a: if let Type::Integer(Signedness::Unsigned, _) = index_ident.typ {
                     Arc::new(TypX::Int(IntRange::Nat))
@@ -555,5 +567,14 @@ fn ast_lvalue_to_vir_expr(lvalue: &LValue, location: Option<Location>, mode: Mod
         LValue::Index { array, index, element_type, location } => todo!(),
         LValue::MemberAccess { object, field_index } => todo!(),
         LValue::Dereference { reference, element_type } => todo!(),
+    }
+}
+
+fn ast_definition_to_id(definition: &Definition) -> Option<u32> {
+    match definition {
+        Definition::Local(local_id) => Some(local_id.0),
+        Definition::Global(global_id) => Some(global_id.0),
+        Definition::Function(func_id) => Some(func_id.0),
+        Definition::Builtin(_) | Definition::LowLevel(_) | Definition::Oracle(_) => None,
     }
 }
