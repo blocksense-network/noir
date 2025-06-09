@@ -39,7 +39,9 @@ pub fn ast_type_to_vir_type(ast_type: &Type) -> Typ {
         Type::String(_) => todo!(),
         Type::FmtString(_, _) => todo!(),
         Type::Unit => make_unit_vir_typx(),
-        Type::Tuple(items) => todo!(),
+        Type::Tuple(item_types) => build_tuple_type(
+            item_types.iter().map(ast_type_to_vir_type).collect(),
+        ),
         Type::Slice(_) => todo!(),
         Type::Reference(_, _) => todo!(),
         Type::Function(items, _, _, _) => todo!(),
@@ -72,4 +74,8 @@ pub(crate) fn get_bit_not_bitwidth(integer_type: &Type) -> Option<IntegerTypeBit
             unreachable!("Can get a bit width only of integer types")
         }
     }
+}
+
+pub fn build_tuple_type(vir_types: Vec<Typ>) -> TypX {
+    TypX::Datatype(Dt::Tuple(vir_types.len()), Arc::new(vir_types), Arc::new(Vec::new()))
 }
