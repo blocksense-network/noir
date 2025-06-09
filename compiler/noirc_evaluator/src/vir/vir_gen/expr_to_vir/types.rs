@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use acvm::{AcirField, FieldElement};
-use noirc_frontend::{ast::IntegerBitSize, monomorphization::ast::Type, shared::Signedness};
+use noirc_frontend::{ast::{BinaryOpKind, IntegerBitSize}, monomorphization::ast::Type, shared::Signedness};
 use num_bigint::BigInt;
 use vir::ast::{Dt, IntRange, IntegerTypeBitwidth, Primitive, Typ, TypX};
 
@@ -73,6 +73,14 @@ pub(crate) fn get_bit_not_bitwidth(integer_type: &Type) -> Option<IntegerTypeBit
             // Therefore we can assume that bit not operation only occurs with integers.
             unreachable!("Can get a bit width only of integer types")
         }
+    }
+}
+
+pub fn get_binary_op_type(lhs_type: Typ, binary_op: &BinaryOpKind) -> Typ {
+    if binary_op.is_comparator() || binary_op.is_equality() || binary_op.is_implication() {
+        Arc::new(TypX::Bool)
+    } else {
+        lhs_type
     }
 }
 

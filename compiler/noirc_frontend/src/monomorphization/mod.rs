@@ -2441,7 +2441,14 @@ impl<'interner> Monomorphizer<'interner> {
         let definition: ast::Definition = Definition::Local(new_id);
 
         let typ = Self::convert_type(&self.interner.definition_type(ident.id), ident.location)?;
-        Ok(ast::Ident { location: Some(ident.location), mutable, definition, name, typ, id: ident_id })
+        Ok(ast::Ident {
+            location: Some(ident.location),
+            mutable,
+            definition,
+            name,
+            typ,
+            id: ident_id,
+        })
     }
 
     fn quantifier(
