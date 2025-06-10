@@ -47,6 +47,14 @@ use self::{
     errors::MonomorphizationError,
 };
 
+/// This is the variable name which we assign to the special variable named "result".
+/// The special variable "result" can be referred only in `ensures` attributes
+/// and its value is the body expression of the function to which the `ensures`
+/// attribute is attached to.
+/// The leading `%` makes it an illegal identifier which ensures that it won't
+/// clash with existing identifiers. 
+pub const FUNC_RETURN_VAR_NAME: &str = "%return";
+
 pub mod ast;
 mod debug;
 pub mod debug_types;
@@ -1110,7 +1118,7 @@ impl<'interner> Monomorphizer<'interner> {
                     let Some(ident) = self.local_ident(&ident, &typ)? else {
                         // Inside ensures attributes we can use a "result" variable as
                         // the function output, though that variable isn't defined in our code.
-                        // We cannot define a normal variable, since the way the monomorphized ast
+                        // We cannot define a normal variable, because of the way the monomorphized ast
                         // is made, we'll copy the entire program.
                         // Instead, we'll pass a "marker" value down to the VIR gen module, so it can be
                         // handled accordingly there.
@@ -1127,7 +1135,7 @@ impl<'interner> Monomorphizer<'interner> {
                                     0: self.interner.definition_count().to_u32().unwrap_or(0),
                                 }),
                                 mutable: false,
-                                name: "%return".to_string(), // Change the name from "result" to "%return"
+                                name: FUNC_RETURN_VAR_NAME.to_string(), // Change the name from "result" to "%return"
                                 typ: Self::convert_type(&typ, self.interner.id_location(expr_id))?,
                                 id: self.next_ident_id(),
                             }));

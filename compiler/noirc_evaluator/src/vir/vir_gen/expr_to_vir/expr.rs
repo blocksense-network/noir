@@ -13,10 +13,10 @@ use crate::vir::vir_gen::{
 use noirc_errors::Location;
 use noirc_frontend::{
     ast::{BinaryOpKind, QuantifierType, UnaryOp},
-    monomorphization::ast::{
+    monomorphization::{ast::{
         Assign, Binary, Call, Cast, Definition, Expression, Function, Ident, If, LValue, Literal,
         Match, Type, Unary,
-    },
+    }, FUNC_RETURN_VAR_NAME},
     shared::Signedness,
     signed_field::SignedField,
 };
@@ -106,7 +106,7 @@ fn ast_ident_to_vir_expr(ident: &Ident) -> Expr {
     // during the Monomorphization of the AST. This is the "result" variable which
     // you can refer from `ensures` attributes. We define it as AirLocal because
     // we want to differentiate it from normal variables.
-    let var_disambiguate = if ident.name == "%return" {
+    let var_disambiguate = if ident.name == FUNC_RETURN_VAR_NAME {
         VarIdentDisambiguate::AirLocal
     } else {
         VarIdentDisambiguate::RustcId(
