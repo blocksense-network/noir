@@ -102,12 +102,19 @@ pub fn ast_expr_to_vir_expr(expr: &Expression, mode: Mode) -> Expr {
 fn ast_ident_to_vir_expr(ident: &Ident) -> Expr {
     let ident_id: u32 =
         ast_definition_to_id(&ident.definition).expect("Definition doesn't have an id");
-    let exprx = ExprX::Var(VarIdent(
-        Arc::new(ident.name.clone()),
+    // Check if we encounter the special variable with name "%return" which we produce
+    // during the Monomorphization of the AST. This is the "result" variable which
+    // you can refer from `ensures` attributes. We define it as AirLocal because
+    // we want to differentiate it from normal variables.
+    let var_disambiguate = if ident.name == "%return" {
+        VarIdentDisambiguate::AirLocal
+    } else {
         VarIdentDisambiguate::RustcId(
             ident_id.try_into().expect("Failed to convert ast id to usize"),
-        ),
-    ));
+        )
+    };
+
+    let exprx = ExprX::Var(VarIdent(Arc::new(ident.name.clone()), var_disambiguate));
 
     SpannedTyped::new(
         &build_span(ident_id, format!("Var {}", ident.name), ident.location),
