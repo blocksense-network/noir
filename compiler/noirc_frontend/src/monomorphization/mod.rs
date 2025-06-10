@@ -34,6 +34,7 @@ use fxhash::{FxHashMap as HashMap, FxHashSet as HashSet};
 use iter_extended::{btree_map, try_vecmap, vecmap};
 use noirc_errors::Location;
 use noirc_printable_type::PrintableType;
+use num_traits::ToPrimitive;
 use std::{
     collections::{BTreeMap, VecDeque},
     unreachable,
@@ -644,7 +645,7 @@ impl<'interner> Monomorphizer<'interner> {
             }
             HirExpression::Quantifier(hir_quantifier_expression) => {
                 self.quantifier(hir_quantifier_expression)?
-            },
+            }
         };
 
         Ok(expr)
@@ -1107,6 +1108,30 @@ impl<'interner> Monomorphizer<'interner> {
                 Some(expr) => expr,
                 None => {
                     let Some(ident) = self.local_ident(&ident, &typ)? else {
+                        // Inside ensures attributes we can use a "result" variable as
+                        // the function output, though that variable isn't defined in our code.
+                        // We cannot define a normal variable, since the way the monomorphized ast
+                        // is made, we'll copy the entire program.
+                        // Instead, we'll pass a "marker" value down to the VIR gen module, so it can be
+                        // handled accordingly there.
+                        //
+                        // If in your function you have defined a variable with name a result variable defined, the local_ident
+                        // function will return the proper value and we won't reach this code. If
+                        // you reference a result variable without defining it, a much earlier
+                        // stage in the front-end will catch it. Meaning, this code will not
+                        // inhibit the usage of a "result" variable inside your program.
+                        if self.interner.definition(ident.id).name == "result" {
+                            return Ok(ast::Expression::Ident(ast::Ident {
+                                location: None,
+                                definition: Definition::Local(LocalId {
+                                    0: self.interner.definition_count().to_u32().unwrap_or(0),
+                                }),
+                                mutable: false,
+                                name: "%return".to_string(), // Change the name from "result" to "%return"
+                                typ: Self::convert_type(&typ, self.interner.id_location(expr_id))?,
+                                id: self.next_ident_id(),
+                            }));
+                        }
                         let location = self.interner.id_location(expr_id);
                         let message = "ICE: Variable not found during monomorphization";
                         return Err(MonomorphizationError::InternalError { location, message });
