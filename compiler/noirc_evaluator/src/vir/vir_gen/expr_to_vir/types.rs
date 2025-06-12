@@ -113,3 +113,7 @@ pub fn is_inner_type_array(ast_type: &Type) -> bool {
 pub fn ast_const_to_vir_type_const(const_number: usize) -> Typ {
     Arc::new(TypX::ConstInt(BigInt::from(const_number)))
 }
+
+pub fn is_type_field(ast_type: &Type) -> bool {
+    matches!(ast_type, Type::Field)
+}

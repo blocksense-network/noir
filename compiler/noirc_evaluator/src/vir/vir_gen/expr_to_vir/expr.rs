@@ -7,10 +7,11 @@ use crate::vir::vir_gen::{
         types::{
             ast_const_to_vir_type_const, ast_type_to_vir_type, build_tuple_type,
             get_binary_op_type, get_bit_not_bitwidth, get_collection_type_len, is_inner_type_array,
-            make_unit_vir_type,
+            is_type_field, make_unit_vir_type,
         },
     },
 };
+use acvm::{AcirField, FieldElement};
 use noirc_errors::Location;
 use noirc_frontend::{
     ast::{BinaryOpKind, QuantifierType, UnaryOp},
@@ -261,14 +262,25 @@ fn ast_binary_to_vir_expr(binary_expr: &Binary, mode: Mode) -> Expr {
 
     let exprx = ExprX::Binary(binary_op, lhs_expr, rhs_expr);
 
-    SpannedTyped::new(
+    let vir_binary_expr = SpannedTyped::new(
         &build_span_no_id(
             format!("{} {} {}", binary_expr.lhs, binary_expr.operator, binary_expr.rhs),
             Some(binary_expr.location),
         ),
         &binary_op_type,
         exprx,
-    )
+    );
+    
+    if is_type_field(
+        binary_expr.lhs.return_type().expect("Lhs of binary expression must have a type").as_ref(),
+    ) && is_type_field(
+        binary_expr.rhs.return_type().expect("Rhs of binary expression must have a type").as_ref(),
+    ) && binary_expr.operator.is_arithmetic()
+    {
+        wrap_with_field_modulo(vir_binary_expr, mode)
+    } else {
+        vir_binary_expr
+    }
 }
 
 fn ast_cast_to_vir_expr(cast_expr: &Cast, mode: Mode) -> Expr {
@@ -816,4 +828,24 @@ fn ast_definition_to_id(definition: &Definition) -> Option<u32> {
         Definition::Function(func_id) => Some(func_id.0),
         Definition::Builtin(_) | Definition::LowLevel(_) | Definition::Oracle(_) => None,
     }
+}
+
+/// For the Noir Field type we have to wrap all arithmetic instructions
+/// with a Euclidean modulo `p` operation where `p` is the modulus of
+/// the Noir Field.
+fn wrap_with_field_modulo(dividend: Expr, mode: Mode) -> Expr {
+    let expr_span = dividend.span.clone();
+    let expr_type = dividend.typ.clone();
+
+    let field_modulus: BigInt =
+        BigInt::from_biguint(num_bigint::Sign::Plus, FieldElement::modulus());
+    let divisor_expr = SpannedTyped::new(
+        &expr_span,
+        &Arc::new(TypX::Int(IntRange::Int)),
+        ExprX::Const(Constant::Int(field_modulus)),
+    );
+    let modulo_exprx =
+        ExprX::Binary(BinaryOp::Arith(ArithOp::EuclideanMod, mode), dividend, divisor_expr);
+
+    SpannedTyped::new(&expr_span, &expr_type, modulo_exprx)
 }
