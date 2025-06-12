@@ -1,0 +1,7 @@
+[package]
+name = "fv_array_as_result_attrs_copies"
+type = "bin"
+authors = [""]
+compiler_version = ">=0.34.0"
+
+[dependencies]
