@@ -5,7 +5,8 @@ use crate::vir::vir_gen::{
     expr_to_vir::{
         expression_location,
         types::{
-            ast_type_to_vir_type, build_tuple_type, get_binary_op_type, get_bit_not_bitwidth,
+            ast_const_to_vir_type_const, ast_type_to_vir_type, build_tuple_type,
+            get_binary_op_type, get_bit_not_bitwidth, get_collection_type_len, is_inner_type_array,
             make_unit_vir_type,
         },
     },
@@ -13,10 +14,13 @@ use crate::vir::vir_gen::{
 use noirc_errors::Location;
 use noirc_frontend::{
     ast::{BinaryOpKind, QuantifierType, UnaryOp},
-    monomorphization::{ast::{
-        Assign, Binary, Call, Cast, Definition, Expression, Function, Ident, If, LValue, Literal,
-        Match, Type, Unary,
-    }, FUNC_RETURN_VAR_NAME},
+    monomorphization::{
+        FUNC_RETURN_VAR_NAME,
+        ast::{
+            Assign, Binary, Call, Cast, Definition, Expression, Function, Ident, If, Index, LValue,
+            Literal, Match, Type, Unary,
+        },
+    },
     shared::Signedness,
     signed_field::SignedField,
 };
@@ -25,8 +29,8 @@ use num_traits::ToPrimitive;
 use vir::{
     ast::{
         AirQuant, ArithOp, AutospecUsage, BinaryOp, BinderX, BitwiseOp, CallTarget, CallTargetKind,
-        FieldOpr, Fun, FunX, InequalityOp, IntRange, PathX, Quant, Typ, UnaryOp as VirUnaryOp,
-        UnaryOpr, VarBinder, VarBinderX, VariantCheck,
+        FieldOpr, Fun, FunX, Idents, ImplPath, ImplPaths, InequalityOp, IntRange, PathX, Primitive,
+        Quant, Typ, Typs, UnaryOp as VirUnaryOp, UnaryOpr, VarBinder, VarBinderX, VariantCheck,
     },
     ast_util::{bitwidth_from_type, int_range_from_type, is_integer_type_signed},
 };
@@ -56,7 +60,7 @@ pub fn ast_expr_to_vir_expr(expr: &Expression, mode: Mode) -> Expr {
         }
         Expression::Unary(unary) => ast_unary_to_vir_expr(unary, mode),
         Expression::Binary(binary) => ast_binary_to_vir_expr(binary, mode),
-        Expression::Index(index) => todo!(),
+        Expression::Index(index) => ast_index_to_vir_expr(index, mode),
         Expression::Cast(cast) => ast_cast_to_vir_expr(cast, mode),
         Expression::For(_) => todo!(),
         Expression::Loop(expression) => todo!(),
@@ -504,6 +508,115 @@ fn ast_quant_to_vir_expr(
         &build_span_no_id(format!("Quantifier {}", quantifier_type), quantifier_location),
         &Arc::new(TypX::Bool),
         quantifier_vir_exprx,
+    )
+}
+
+fn ast_index_to_vir_expr(index: &Index, mode: Mode) -> Expr {
+    let array_expr = ast_expr_to_vir_expr(&index.collection, mode);
+    let index_expr = ast_expr_to_vir_expr(&index.index, mode);
+    let element_type = ast_type_to_vir_type(&index.element_type);
+
+    let array_type = index.collection.return_type();
+    assert!(
+        array_type.as_ref().map_or(false, |inner_type| is_inner_type_array(inner_type.as_ref())),
+        "Found a type which can not be indexed"
+    );
+    let array_len = get_collection_type_len(array_type.unwrap().as_ref())
+        .expect("Collections must have a length");
+    let array_len_as_type =
+        ast_const_to_vir_type_const(array_len.try_into().expect("Failed to convert u32 to usize"));
+    let array_inner_type_and_length_type: Typs =
+        Arc::new(vec![element_type.clone(), array_len_as_type.clone()]);
+
+    let vstd_krate = Some(Arc::new("vstd".to_string()));
+
+    let segments: Idents;
+    let call_target_kind: CallTargetKind;
+    let typs_for_vstd_func_call: Typs;
+    let trait_impl_paths: ImplPaths;
+    let autospec_usage: AutospecUsage;
+    match mode {
+        Mode::Spec | Mode::Proof => {
+            segments = Arc::new(vec![
+                Arc::new("array".to_string()),
+                Arc::new("ArrayAdditionalSpecFns".to_string()),
+                Arc::new("spec_index".to_string()),
+            ]);
+            let segments_for_resolved = Arc::new(vec![
+                Arc::new("array".to_string()),
+                Arc::new("impl&%2".to_string()),
+                Arc::new("spec_index".to_string()),
+            ]);
+            call_target_kind = CallTargetKind::DynamicResolved {
+                resolved: Arc::new(FunX {
+                    path: Arc::new(PathX {
+                        krate: vstd_krate.clone(),
+                        segments: segments_for_resolved,
+                    }),
+                }),
+                typs: array_inner_type_and_length_type,
+                impl_paths: Arc::new(vec![]),
+                is_trait_default: false,
+            };
+            let array_as_primary_vir_type = Arc::new(TypX::Primitive(
+                Primitive::Array,
+                Arc::new(vec![element_type.clone(), array_len_as_type.clone()]),
+            ));
+            typs_for_vstd_func_call =
+                Arc::new(vec![array_as_primary_vir_type, element_type.clone()]);
+            let trait_impl_path1 = ImplPath::TraitImplPath(Arc::new(PathX {
+                krate: vstd_krate.clone(),
+                segments: Arc::new(vec![
+                    Arc::new("array".to_string()),
+                    Arc::new("impl&%0".to_string()),
+                ]),
+            }));
+            let trait_impl_path2 = ImplPath::TraitImplPath(Arc::new(PathX {
+                krate: vstd_krate.clone(),
+                segments: Arc::new(vec![
+                    Arc::new("array".to_string()),
+                    Arc::new("impl&%2".to_string()),
+                ]),
+            }));
+            trait_impl_paths = Arc::new(vec![trait_impl_path1, trait_impl_path2]);
+            autospec_usage = AutospecUsage::IfMarked;
+        }
+        Mode::Exec => {
+            segments = Arc::new(vec![
+                Arc::new("array".to_string()),
+                Arc::new("array_index_get".to_string()),
+            ]);
+            call_target_kind = CallTargetKind::Static;
+            let trait_impl_path = ImplPath::TraitImplPath(Arc::new(PathX {
+                krate: None,
+                segments: Arc::new(vec![Arc::new("fun%0".to_string())]),
+            }));
+            typs_for_vstd_func_call = array_inner_type_and_length_type;
+            trait_impl_paths = Arc::new(vec![trait_impl_path]);
+            autospec_usage = AutospecUsage::Final;
+        }
+    };
+
+    let array_get_vir_exprx: ExprX = ExprX::Call(
+        CallTarget::Fun(
+            call_target_kind.clone(),
+            Arc::new(FunX {
+                path: Arc::new(PathX { krate: vstd_krate.clone(), segments: segments.clone() }),
+            }),
+            typs_for_vstd_func_call.clone(),
+            trait_impl_paths.clone(),
+            autospec_usage,
+        ),
+        Arc::new(vec![array_expr.clone(), index_expr]),
+    );
+
+    SpannedTyped::new(
+        &build_span_no_id(
+            format!("Array {}, indexed by {}", index.collection, index.index),
+            Some(index.location),
+        ),
+        &element_type,
+        array_get_vir_exprx,
     )
 }
 

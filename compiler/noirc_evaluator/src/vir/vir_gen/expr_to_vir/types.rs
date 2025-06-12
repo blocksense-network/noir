@@ -1,7 +1,11 @@
 use std::sync::Arc;
 
 use acvm::{AcirField, FieldElement};
-use noirc_frontend::{ast::{BinaryOpKind, IntegerBitSize}, monomorphization::ast::Type, shared::Signedness};
+use noirc_frontend::{
+    ast::{BinaryOpKind, IntegerBitSize},
+    monomorphization::ast::Type,
+    shared::Signedness,
+};
 use num_bigint::BigInt;
 use vir::ast::{Dt, IntRange, IntegerTypeBitwidth, Primitive, Typ, TypX};
 
@@ -39,9 +43,9 @@ pub fn ast_type_to_vir_type(ast_type: &Type) -> Typ {
         Type::String(_) => todo!(),
         Type::FmtString(_, _) => todo!(),
         Type::Unit => make_unit_vir_typx(),
-        Type::Tuple(item_types) => build_tuple_type(
-            item_types.iter().map(ast_type_to_vir_type).collect(),
-        ),
+        Type::Tuple(item_types) => {
+            build_tuple_type(item_types.iter().map(ast_type_to_vir_type).collect())
+        }
         Type::Slice(_) => todo!(),
         Type::Reference(_, _) => todo!(),
         Type::Function(items, _, _, _) => todo!(),
@@ -86,4 +90,26 @@ pub fn get_binary_op_type(lhs_type: Typ, binary_op: &BinaryOpKind) -> Typ {
 
 pub fn build_tuple_type(vir_types: Vec<Typ>) -> TypX {
     TypX::Datatype(Dt::Tuple(vir_types.len()), Arc::new(vir_types), Arc::new(Vec::new()))
+}
+
+pub fn get_collection_type_len(ast_type: &Type) -> Option<u32> {
+    match ast_type {
+        Type::Array(len, _) => Some(*len),
+        Type::Slice(inner_type) => get_collection_type_len(inner_type),
+        Type::Reference(inner_type, _) => get_collection_type_len(inner_type),
+        _ => None,
+    }
+}
+
+pub fn is_inner_type_array(ast_type: &Type) -> bool {
+    match ast_type {
+        Type::Array(_, _) => true,
+        Type::Slice(inner_type) => is_inner_type_array(inner_type),
+        Type::Reference(inner_type, _) => is_inner_type_array(inner_type),
+        _ => false
+    }
+}
+
+pub fn ast_const_to_vir_type_const(const_number: usize) -> Typ {
+    Arc::new(TypX::ConstInt(BigInt::from(const_number)))
 }
