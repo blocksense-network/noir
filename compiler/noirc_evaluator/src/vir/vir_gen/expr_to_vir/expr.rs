@@ -108,19 +108,9 @@ pub fn ast_expr_to_vir_expr(expr: &Expression, mode: Mode) -> Expr {
 fn ast_ident_to_vir_expr(ident: &Ident) -> Expr {
     let ident_id: u32 =
         ast_definition_to_id(&ident.definition).expect("Definition doesn't have an id");
-    // Check if we encounter the special variable with name "%return" which we produce
-    // during the Monomorphization of the AST. This is the "result" variable which
-    // you can refer from `ensures` attributes. We define it as AirLocal because
-    // we want to differentiate it from normal variables.
-    let var_disambiguate = if ident.name == FUNC_RETURN_VAR_NAME {
-        VarIdentDisambiguate::AirLocal
-    } else {
-        VarIdentDisambiguate::RustcId(
-            ident_id.try_into().expect("Failed to convert ast id to usize"),
-        )
-    };
+    let var_ident = ast_ident_to_vir_var_ident(ident, ident_id);
 
-    let exprx = ExprX::Var(VarIdent(Arc::new(ident.name.clone()), var_disambiguate));
+    let exprx = ExprX::Var(var_ident);
 
     SpannedTyped::new(
         &build_span(ident_id, format!("Var {}", ident.name), ident.location),
@@ -423,10 +413,7 @@ fn ast_call_to_vir_expr(call_expr: &Call, mode: Mode) -> Expr {
     )
 }
 
-fn ast_constrain_to_vir_expr(
-    assert_body_expr: &Expression,
-    location: Option<Location>,
-) -> Expr {
+fn ast_constrain_to_vir_expr(assert_body_expr: &Expression, location: Option<Location>) -> Expr {
     let exprx = ExprX::AssertAssume {
         is_assume: false,
         expr: ast_expr_to_vir_expr(assert_body_expr, Mode::Spec),
@@ -452,6 +439,16 @@ fn ast_constrain_to_vir_expr(
 }
 
 fn ast_assign_to_vir_expr(assign_expr: &Assign, location: Option<Location>, mode: Mode) -> Expr {
+    if let LValue::Index { array, index, element_type, location } = &assign_expr.lvalue {
+        return ast_array_assign_to_vir_expr(
+            &array,
+            &index,
+            &element_type,
+            &assign_expr.expression,
+            Some(*location),
+            mode,
+        );
+    }
     let is_lvalue_mut = is_lvalue_mut(&assign_expr.lvalue);
     let lhs_expr = ast_lvalue_to_vir_expr(&assign_expr.lvalue, location, mode);
     let exprx = ExprX::Assign {
@@ -463,6 +460,62 @@ fn ast_assign_to_vir_expr(assign_expr: &Assign, location: Option<Location>, mode
 
     SpannedTyped::new(
         &build_span_no_id(format!("Assign operation"), location),
+        &make_unit_vir_type(),
+        exprx,
+    )
+}
+
+fn ast_array_assign_to_vir_expr(
+    array: &LValue,
+    index: &Expression,
+    element_type: &Type,
+    rhs_to_be_assigned_expr: &Expression,
+    location: Option<Location>,
+    mode: Mode,
+) -> Expr {
+    let array_ident = get_lvalue_ident(array);
+    let lhs_array_expr = SpannedTyped::new(
+        &build_span_no_id(
+            format!("Lhs array identifier {}", array_ident.name),
+            array_ident.location,
+        ),
+        &ast_type_to_vir_type(&array_ident.typ),
+        ExprX::Loc(ast_lvalue_ident_to_vir_expr(array_ident)),
+    );
+
+    let exprx = ExprX::Call(
+        CallTarget::Fun(
+            CallTargetKind::Static,
+            Arc::new(FunX {
+                path: Arc::new(PathX {
+                    krate: Some(Arc::new("vstd".to_string())),
+                    segments: Arc::new(vec![
+                        Arc::new("std_specs".to_string()),
+                        Arc::new("core".to_string()),
+                        Arc::new("index_set".to_string()),
+                    ]),
+                }),
+            }),
+            Arc::new(vec![
+                ast_type_to_vir_type(&array_ident.typ),
+                Arc::new(TypX::Int(IntRange::USize)), // Type of the index
+                ast_type_to_vir_type(element_type),
+            ]),
+            Arc::new(Vec::new()),
+            AutospecUsage::Final,
+        ),
+        Arc::new(vec![
+            lhs_array_expr,
+            ast_expr_to_vir_expr(index, mode),
+            ast_expr_to_vir_expr(rhs_to_be_assigned_expr, mode),
+        ]),
+    );
+
+    SpannedTyped::new(
+        &build_span_no_id(
+            format!("{} at index {} = {}", array_ident.name, index, rhs_to_be_assigned_expr),
+            location,
+        ),
         &make_unit_vir_type(),
         exprx,
     )
@@ -707,10 +760,50 @@ fn is_lvalue_mut(lvalue: &LValue) -> bool {
     }
 }
 
+fn get_lvalue_ident(lvalue: &LValue) -> &Ident {
+    match lvalue {
+        LValue::Ident(ident) => ident,
+        LValue::Index { array, .. } => get_lvalue_ident(&array),
+        LValue::MemberAccess { object, .. } => get_lvalue_ident(&object),
+        LValue::Dereference { reference, .. } => get_lvalue_ident(&reference),
+    }
+}
+
+fn ast_lvalue_ident_to_vir_expr(ident: &Ident) -> Expr {
+    let ident_id: u32 =
+        ast_definition_to_id(&ident.definition).expect("Definition doesn't have an id");
+    let var_ident = ast_ident_to_vir_var_ident(ident, ident_id);
+
+    let exprx = ExprX::VarLoc(var_ident);
+
+    SpannedTyped::new(
+        &build_span(ident_id, format!("Lhs Var {}", ident.name), ident.location),
+        &ast_type_to_vir_type(&ident.typ),
+        exprx,
+    )
+}
+
+fn ast_ident_to_vir_var_ident(ident: &Ident, ident_id: u32) -> VarIdent {
+    // Check if we encounter the special variable with name "%return" which we produce
+    // during the Monomorphization of the AST. This is the "result" variable which
+    // you can refer from `ensures` attributes. We define it as AirLocal because
+    // we want to differentiate it from normal variables.
+    let var_disambiguate = if ident.name == FUNC_RETURN_VAR_NAME {
+        VarIdentDisambiguate::AirLocal
+    } else {
+        VarIdentDisambiguate::RustcId(
+            ident_id.try_into().expect("Failed to convert ast id to usize"),
+        )
+    };
+
+    VarIdent(Arc::new(ident.name.clone()), var_disambiguate)
+}
+
+/// Panics if LValue is of type Index
 fn ast_lvalue_to_vir_expr(lvalue: &LValue, location: Option<Location>, mode: Mode) -> Expr {
     match lvalue {
-        LValue::Ident(ident) => ast_ident_to_vir_expr(ident),
-        LValue::Index { array, index, element_type, location } => todo!(),
+        LValue::Ident(ident) => ast_lvalue_ident_to_vir_expr(ident),
+        LValue::Index { .. } => unreachable!(), // Array assignment has to be handled in a special way
         LValue::MemberAccess { object, field_index } => todo!(),
         LValue::Dereference { reference, element_type } => todo!(),
     }
