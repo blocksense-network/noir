@@ -1,0 +1,7 @@
+[package]
+name = "fv_index_var_array_with_var"
+type = "bin"
+authors = [""]
+compiler_version = ">=0.34.0"
+
+[dependencies]

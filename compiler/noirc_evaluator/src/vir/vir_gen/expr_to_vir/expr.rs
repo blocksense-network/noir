@@ -54,7 +54,9 @@ pub fn func_body_to_vir_expr(function: &Function, mode: Mode) -> Expr {
 pub fn ast_expr_to_vir_expr(expr: &Expression, mode: Mode) -> Expr {
     match expr {
         Expression::Ident(ident) => ast_ident_to_vir_expr(ident),
-        Expression::Literal(literal) => ast_literal_to_vir_expr(literal),
+        Expression::Literal(literal) => {
+            ast_literal_to_vir_expr(literal, expression_location(expr), mode)
+        }
         Expression::Block(expressions) => {
             ast_block_to_vir_expr(expressions, expression_location(expr), mode)
         }
@@ -88,7 +90,7 @@ pub fn ast_expr_to_vir_expr(expr: &Expression, mode: Mode) -> Expr {
         Expression::Assign(assign) => {
             ast_assign_to_vir_expr(assign, expression_location(expr), mode)
         }
-        Expression::Semi(expression) => todo!(),
+        Expression::Semi(expression) => ast_expr_to_vir_expr(&expression, mode),
         Expression::Clone(expression) => todo!(),
         Expression::Drop(expression) => todo!(),
         Expression::Break => ast_break_to_vir_expr(),
@@ -127,9 +129,22 @@ fn ast_ident_to_vir_expr(ident: &Ident) -> Expr {
     )
 }
 
-fn ast_literal_to_vir_expr(literal: &Literal) -> Expr {
+fn ast_literal_to_vir_expr(literal: &Literal, location: Option<Location>, mode: Mode) -> Expr {
     let expr = match literal {
-        Literal::Array(array_literal) => todo!(),
+        Literal::Array(array_literal) => {
+            let exprx = ExprX::ArrayLiteral(Arc::new(
+                array_literal
+                    .contents
+                    .iter()
+                    .map(|expr| ast_expr_to_vir_expr(expr, mode))
+                    .collect(),
+            ));
+            SpannedTyped::new(
+                &build_span_no_id(format!("Array literal expression"), location),
+                &ast_type_to_vir_type(&array_literal.typ),
+                exprx,
+            )
+        }
         Literal::Slice(array_literal) => todo!(),
         Literal::Integer(signed_field, ast_type, location) => {
             let exprx = numeric_const_to_vir_exprx(signed_field);
