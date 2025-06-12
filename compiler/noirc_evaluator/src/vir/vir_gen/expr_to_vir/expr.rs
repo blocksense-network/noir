@@ -32,7 +32,7 @@ use vir::{
         FieldOpr, Fun, FunX, Idents, ImplPath, ImplPaths, InequalityOp, IntRange, PathX, Primitive,
         Quant, Typ, Typs, UnaryOp as VirUnaryOp, UnaryOpr, VarBinder, VarBinderX, VariantCheck,
     },
-    ast_util::{bitwidth_from_type, int_range_from_type, is_integer_type_signed},
+    ast_util::{bitwidth_from_type, int_range_from_type, is_integer_type_signed, unit_typ},
 };
 use vir::{
     ast::{
@@ -85,7 +85,7 @@ pub fn ast_expr_to_vir_expr(expr: &Expression, mode: Mode) -> Expr {
         Expression::Call(call_expr) => ast_call_to_vir_expr(call_expr, mode),
         Expression::Let(let_expr) => todo!(),
         Expression::Constrain(expression, location, _) => {
-            ast_constrain_to_vir_expr(&expression, Some(*location), mode)
+            ast_constrain_to_vir_expr(&expression, Some(*location))
         }
         Expression::Assign(assign) => {
             ast_assign_to_vir_expr(assign, expression_location(expr), mode)
@@ -426,17 +426,28 @@ fn ast_call_to_vir_expr(call_expr: &Call, mode: Mode) -> Expr {
 fn ast_constrain_to_vir_expr(
     assert_body_expr: &Expression,
     location: Option<Location>,
-    mode: Mode,
 ) -> Expr {
     let exprx = ExprX::AssertAssume {
         is_assume: false,
-        expr: ast_expr_to_vir_expr(assert_body_expr, mode),
+        expr: ast_expr_to_vir_expr(assert_body_expr, Mode::Spec),
     };
 
-    SpannedTyped::new(
+    let assert_expr = SpannedTyped::new(
         &build_span_no_id(format!("Assert({})", assert_body_expr), location),
         &make_unit_vir_type(),
         exprx,
+    );
+
+    let block_wrap = SpannedTyped::new(
+        &build_span_no_id("A wrapper block for assert expression".to_string(), location),
+        &make_unit_vir_type(),
+        ExprX::Block(Arc::new(Vec::new()), Some(assert_expr)),
+    );
+
+    SpannedTyped::new(
+        &build_span_no_id("Ghost wrapper for AssertAssume".to_string(), location),
+        &make_unit_vir_type(),
+        ExprX::Ghost { alloc_wrapper: false, tracked: false, expr: block_wrap },
     )
 }
 
