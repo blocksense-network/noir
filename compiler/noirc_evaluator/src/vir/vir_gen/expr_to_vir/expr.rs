@@ -19,7 +19,7 @@ use noirc_frontend::{
         FUNC_RETURN_VAR_NAME,
         ast::{
             Assign, Binary, Call, Cast, Definition, Expression, Function, Ident, If, Index, LValue,
-            Literal, Match, Type, Unary,
+            Literal, Match, Type, Unary, While,
         },
     },
     shared::Signedness,
@@ -65,9 +65,13 @@ pub fn ast_expr_to_vir_expr(expr: &Expression, mode: Mode) -> Expr {
         Expression::Binary(binary) => ast_binary_to_vir_expr(binary, mode),
         Expression::Index(index) => ast_index_to_vir_expr(index, mode),
         Expression::Cast(cast) => ast_cast_to_vir_expr(cast, mode),
-        Expression::For(_) => todo!(),
-        Expression::Loop(expression) => todo!(),
-        Expression::While(_) => todo!(),
+        Expression::For(_) => todo!(), //TODO(totel) This is a very complicated expression to convert
+        Expression::Loop(loop_body) => {
+            ast_loop_to_vir_expr(loop_body, expression_location(expr), mode)
+        }
+        Expression::While(while_expression) => {
+            ast_while_to_vir_expr(while_expression, expression_location(expr), mode)
+        }
         Expression::If(if_expression) => {
             ast_if_to_vir_expr(if_expression, expression_location(expr), mode)
         }
@@ -270,7 +274,7 @@ fn ast_binary_to_vir_expr(binary_expr: &Binary, mode: Mode) -> Expr {
         &binary_op_type,
         exprx,
     );
-    
+
     if is_type_field(
         binary_expr.lhs.return_type().expect("Lhs of binary expression must have a type").as_ref(),
     ) && is_type_field(
@@ -708,6 +712,48 @@ fn ast_index_to_vir_expr(index: &Index, mode: Mode) -> Expr {
         ),
         &element_type,
         array_get_vir_exprx,
+    )
+}
+
+fn ast_loop_to_vir_expr(loop_body: &Expression, location: Option<Location>, mode: Mode) -> Expr {
+    let exprx = ExprX::Loop {
+        loop_isolation: true,
+        is_for_loop: false,
+        label: None,
+        cond: None,
+        body: ast_expr_to_vir_expr(loop_body, mode),
+        invs: Arc::new(Vec::new()),
+        decrease: Arc::new(Vec::new()),
+    };
+
+    SpannedTyped::new(
+        &build_span_no_id(format!("Loop with body {}", loop_body), location),
+        &make_unit_vir_type(),
+        exprx,
+    )
+}
+
+fn ast_while_to_vir_expr(while_expression: &While, location: Option<Location>, mode: Mode) -> Expr {
+    let exprx = ExprX::Loop {
+        loop_isolation: true,
+        is_for_loop: false,
+        label: None,
+        cond: Some(ast_expr_to_vir_expr(&while_expression.condition, mode)),
+        body: ast_expr_to_vir_expr(&while_expression.body, mode),
+        invs: Arc::new(Vec::new()),
+        decrease: Arc::new(Vec::new()),
+    };
+
+    SpannedTyped::new(
+        &build_span_no_id(
+            format!(
+                "While with condition {} and body {}",
+                while_expression.condition, while_expression.body
+            ),
+            location,
+        ),
+        &make_unit_vir_type(),
+        exprx,
     )
 }
 
