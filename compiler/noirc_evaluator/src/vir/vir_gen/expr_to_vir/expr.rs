@@ -178,9 +178,10 @@ fn ast_literal_to_vir_expr(literal: &Literal, location: Option<Location>, mode: 
 }
 
 fn numeric_const_to_vir_exprx(signed_field: &SignedField) -> ExprX {
-    let const_big_uint: BigUint = signed_field.absolute_value().into_repr().into();
-    let big_int_sign =
-        if signed_field.is_negative() { num_bigint::Sign::Minus } else { num_bigint::Sign::Plus };
+    // If we have a negative Field const we want to wrap it around the finite field modulus
+    let const_big_uint: BigUint = signed_field.to_field_element().into_repr().into();
+    // All Fields after wrapping are positive numbers
+    let big_int_sign = num_bigint::Sign::Plus;
     let const_big_int: BigInt = BigInt::from_biguint(big_int_sign, const_big_uint.clone());
 
     ExprX::Const(Constant::Int(const_big_int))
