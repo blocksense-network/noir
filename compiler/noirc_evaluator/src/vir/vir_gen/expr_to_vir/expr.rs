@@ -762,20 +762,33 @@ fn binary_op_to_vir_binary_op(
     mode: Mode,
     lhs_type: &Typ,
 ) -> BinaryOp {
+    let is_lhs_bool = matches!(lhs_type.as_ref(), TypX::Bool);
+    let bool_or_bitwise = |bool_op, bitwise_op| {
+        if is_lhs_bool {
+            bool_op
+        } else {
+            BinaryOp::Bitwise(bitwise_op, mode)
+        }
+    };
+
     match ast_binary_op {
         BinaryOpKind::Add => BinaryOp::Arith(ArithOp::Add, mode),
         BinaryOpKind::Subtract => BinaryOp::Arith(ArithOp::Sub, mode),
         BinaryOpKind::Multiply => BinaryOp::Arith(ArithOp::Mul, mode),
         BinaryOpKind::Divide => BinaryOp::Arith(ArithOp::EuclideanDiv, mode),
+        BinaryOpKind::Modulo => BinaryOp::Arith(ArithOp::EuclideanMod, mode),
+
         BinaryOpKind::Equal => BinaryOp::Eq(mode),
         BinaryOpKind::NotEqual => BinaryOp::Ne,
         BinaryOpKind::Less => BinaryOp::Inequality(InequalityOp::Lt),
         BinaryOpKind::LessEqual => BinaryOp::Inequality(InequalityOp::Le),
         BinaryOpKind::Greater => BinaryOp::Inequality(InequalityOp::Gt),
         BinaryOpKind::GreaterEqual => BinaryOp::Inequality(InequalityOp::Ge),
-        BinaryOpKind::And => BinaryOp::And,
-        BinaryOpKind::Or => BinaryOp::Or,
-        BinaryOpKind::Xor => BinaryOp::Xor,
+
+        BinaryOpKind::And => bool_or_bitwise(BinaryOp::And, BitwiseOp::BitAnd),
+        BinaryOpKind::Or => bool_or_bitwise(BinaryOp::Or, BitwiseOp::BitOr),
+        BinaryOpKind::Xor => bool_or_bitwise(BinaryOp::Xor, BitwiseOp::BitXor),
+
         BinaryOpKind::ShiftRight => BinaryOp::Bitwise(
             BitwiseOp::Shr(
                 bitwidth_from_type(lhs_type).expect("Bitwise operation with non int type"),
@@ -789,7 +802,7 @@ fn binary_op_to_vir_binary_op(
             ),
             mode,
         ),
-        BinaryOpKind::Modulo => BinaryOp::Arith(ArithOp::EuclideanMod, mode),
+
         BinaryOpKind::Implication => BinaryOp::Implies,
     }
 }
