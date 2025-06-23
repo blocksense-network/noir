@@ -831,7 +831,7 @@ fn is_lvalue_mut(lvalue: &LValue) -> bool {
     }
 }
 
-fn get_lvalue_ident(lvalue: &LValue) -> &Ident {
+pub fn get_lvalue_ident(lvalue: &LValue) -> &Ident {
     match lvalue {
         LValue::Ident(ident) => ident,
         LValue::Index { array, .. } => get_lvalue_ident(&array),
