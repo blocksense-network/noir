@@ -1,0 +1,9 @@
+fn main() {
+let x = 3;
+  {
+    let x = 5;
+    for i in 0..x {
+        // uses 5, not 3
+    }
+  }
+}
