@@ -17,7 +17,7 @@ pub fn ast_var_into_var_ident(name: String, id: u32) -> VarIdent {
     )
 }
 
-fn expression_location(expr: &Expression) -> Option<Location> {
+pub fn expression_location(expr: &Expression) -> Option<Location> {
     match expr {
         Expression::Ident(ident) => ident.location,
         Expression::Literal(literal) => literal_location(literal),
