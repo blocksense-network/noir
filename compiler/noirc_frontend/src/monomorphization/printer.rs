@@ -589,7 +589,7 @@ impl AstPrinter {
         )?;
         self.print_expr(expr, f)?;
         write!(f, ")")?;
-        todo!()
+        Ok(())
     }
 }
 

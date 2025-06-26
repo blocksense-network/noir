@@ -2458,6 +2458,7 @@ impl<'context> Elaborator<'context> {
         hir_func: &HirFunction,
         func_location: Location,
     ) {
+        self.in_specification_context = true;
         for attribute in fv_attributes {
             match attribute {
                 FormalVerificationAttribute::Ensures(ensures_attribute) => {
@@ -2504,6 +2505,7 @@ impl<'context> Elaborator<'context> {
                 }
             }
         }
+        self.in_specification_context = false;
     }
 
     /// Adds the function's return value to the variable scope with

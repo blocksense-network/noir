@@ -122,6 +122,9 @@ impl Expression {
                 }
                 owned(Type::Tuple(types))
             }
+            // Quantifiers are of type boolean because they can be
+            // chained via logical operators like &, | and etc.
+            Expression::Quant(..) => owned(Type::Bool),
 
             Expression::For(_)
             | Expression::Loop(_)
@@ -132,8 +135,7 @@ impl Expression {
             | Expression::Semi(_)
             | Expression::Drop(_)
             | Expression::Break
-            | Expression::Continue
-            | Expression::Quant(..) => None,
+            | Expression::Continue => None,
         }
     }
 
