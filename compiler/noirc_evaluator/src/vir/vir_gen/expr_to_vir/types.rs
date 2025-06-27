@@ -7,7 +7,7 @@ use noirc_frontend::{
     shared::Signedness,
 };
 use num_bigint::BigInt;
-use vir::ast::{Dt, IntRange, IntegerTypeBitwidth, Primitive, Typ, TypX};
+use vir::ast::{Dt, IntRange, IntegerTypeBitwidth, Primitive, Typ, TypDecoration, TypX};
 
 pub fn const_to_vir_type(number: u32) -> Typ {
     Arc::new(TypX::ConstInt(BigInt::from(number)))
@@ -47,7 +47,11 @@ pub fn ast_type_to_vir_type(ast_type: &Type) -> Typ {
             build_tuple_type(item_types.iter().map(ast_type_to_vir_type).collect())
         }
         Type::Slice(_) => todo!(),
-        Type::Reference(_, _) => todo!(),
+        Type::Reference(referenced_type, is_mutable) => TypX::Decorate(
+            if *is_mutable { TypDecoration::MutRef } else { TypDecoration::Ref },
+            None,
+            ast_type_to_vir_type(referenced_type),
+        ),
         Type::Function(items, _, _, _) => todo!(),
     };
 
@@ -106,7 +110,7 @@ pub fn is_inner_type_array(ast_type: &Type) -> bool {
         Type::Array(_, _) => true,
         Type::Slice(inner_type) => is_inner_type_array(inner_type),
         Type::Reference(inner_type, _) => is_inner_type_array(inner_type),
-        _ => false
+        _ => false,
     }
 }
 
