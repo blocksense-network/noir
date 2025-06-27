@@ -31,7 +31,8 @@ use vir::{
     ast::{
         AirQuant, ArithOp, AutospecUsage, BinaryOp, BinderX, BitwiseOp, CallTarget, CallTargetKind,
         FieldOpr, Fun, FunX, Idents, ImplPath, ImplPaths, InequalityOp, IntRange, PathX, Primitive,
-        Quant, Typ, Typs, UnaryOp as VirUnaryOp, UnaryOpr, VarBinder, VarBinderX, VariantCheck,
+        Quant, Typ, TypDecoration, Typs, UnaryOp as VirUnaryOp, UnaryOpr, VarBinder, VarBinderX,
+        VariantCheck,
     },
     ast_util::{bitwidth_from_type, int_range_from_type, is_integer_type_signed, unit_typ},
 };
@@ -248,8 +249,42 @@ fn ast_unary_to_vir_expr(unary_expr: &Unary, mode: Mode) -> Expr {
             VirUnaryOp::BitNot(get_bit_not_bitwidth(ast_type)),
             ast_expr_to_vir_expr(&unary_expr.rhs, mode),
         ),
-        (UnaryOp::Reference { mutable }, ast_type) => todo!(),
-        (UnaryOp::Dereference { implicitly_added }, ast_type) => todo!(),
+        (UnaryOp::Reference { mutable }, ast_type) => {
+            let expr: Expr = SpannedTyped::new(
+                &build_span_no_id(
+                    format!("Mutable:{} Reference {}", mutable, unary_expr.rhs),
+                    Some(unary_expr.location),
+                ),
+                &Arc::new(TypX::Decorate(
+                    if mutable { TypDecoration::MutRef } else { TypDecoration::Ref },
+                    None,
+                    ast_type_to_vir_type(ast_type),
+                )),
+                {
+                    let inner_expr = ast_expr_to_vir_expr(&unary_expr.rhs, mode);
+                    if mutable {
+                        ExprX::Loc(inner_expr)
+                    } else {
+                        inner_expr.x.clone() // Can not move out of Arc
+                    }
+                },
+            );
+            return expr;
+        }
+        (UnaryOp::Dereference { .. }, ast_type) => {
+            // If we have Dereference(Expr), Verus treats them as if it is only Expr.
+            // Therefore we will do the same and ignore the Dereference operation.
+            let expr = SpannedTyped::new(
+                &build_span_no_id(
+                    format!("Dereference {}", unary_expr.rhs),
+                    Some(unary_expr.location),
+                ),
+                &ast_type_to_vir_type(ast_type),
+                ast_expr_to_vir_expr(&unary_expr.rhs, mode).x.clone(), // Can not move out of Arc
+            );
+
+            return expr;
+        }
     };
 
     SpannedTyped::new(
@@ -765,11 +800,7 @@ fn binary_op_to_vir_binary_op(
 ) -> BinaryOp {
     let is_lhs_bool = matches!(lhs_type.as_ref(), TypX::Bool);
     let bool_or_bitwise = |bool_op, bitwise_op| {
-        if is_lhs_bool {
-            bool_op
-        } else {
-            BinaryOp::Bitwise(bitwise_op, mode)
-        }
+        if is_lhs_bool { bool_op } else { BinaryOp::Bitwise(bitwise_op, mode) }
     };
 
     match ast_binary_op {
@@ -877,7 +908,12 @@ fn ast_lvalue_to_vir_expr(lvalue: &LValue, location: Option<Location>, mode: Mod
         LValue::Ident(ident) => ast_lvalue_ident_to_vir_expr(ident),
         LValue::Index { .. } => unreachable!(), // Array assignment has to be handled in a special way
         LValue::MemberAccess { object, field_index } => todo!(),
-        LValue::Dereference { reference, element_type } => todo!(),
+        LValue::Dereference { reference, .. } => {
+            // There is no equivalent expression for `Dereference` in VIR.
+            // Verus doesn't support lhs dereference for assignment operations.
+            // We can still try to convert it as a regular lhs var and ignore the dereference
+            ast_lvalue_to_vir_expr(&reference, location, mode)
+        }
     }
 }
 
