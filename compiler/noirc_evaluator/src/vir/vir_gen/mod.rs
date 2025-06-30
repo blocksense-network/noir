@@ -1,6 +1,7 @@
 pub mod attribute;
 pub mod expr_to_vir;
 pub mod function;
+pub mod globals;
 
 use function::build_funx;
 use noirc_errors::Location;
@@ -12,6 +13,8 @@ use vir::{
     def::Spanned,
     messages::Span,
 };
+
+use crate::vir::vir_gen::{expr_to_vir::expression_location, globals::build_global_const_x};
 
 fn encode_span_to_string(location: Location) -> String {
     let stringified_span: String = format!("{}, {}", location.span.start(), location.span.end());
@@ -77,8 +80,24 @@ pub fn build_krate(program: Program) -> Result<Krate, BuildingKrateError> {
         },
     );
 
+    // Insert global constants as functions. This is how Verus processes constants
+    vir.functions.extend(program.globals.iter().map(
+        |(global_id, (name, ast_type, expression))| {
+            let global_const_x =
+                build_global_const_x(name, ast_type, expression, &module, &program.globals);
+            Spanned::new(
+                build_span(
+                    global_id.0,
+                    format!("Global const {} = {}", name, expression),
+                    expression_location(expression),
+                ),
+                global_const_x,
+            )
+        },
+    ));
+
     for function in &program.functions {
-        let func_x = build_funx(function, &module)?;
+        let func_x = build_funx(function, &module, &program.globals)?;
         let function = Spanned::new(
             build_span(
                 function.id.0,

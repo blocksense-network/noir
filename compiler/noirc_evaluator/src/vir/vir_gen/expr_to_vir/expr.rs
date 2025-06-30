@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use crate::vir::vir_gen::{
     build_span, build_span_no_id,
@@ -18,8 +18,8 @@ use noirc_frontend::{
     monomorphization::{
         FUNC_RETURN_VAR_NAME,
         ast::{
-            Assign, Binary, Call, Cast, Definition, Expression, Function, Ident, If, Index, LValue,
-            Literal, Match, Type, Unary, While,
+            Assign, Binary, Call, Cast, Definition, Expression, Function, GlobalId, Ident, If,
+            Index, LValue, Literal, Match, Type, Unary, While,
         },
     },
     shared::Signedness,
@@ -44,8 +44,12 @@ use vir::{
     def::Spanned,
 };
 
-pub fn func_body_to_vir_expr(function: &Function, mode: Mode) -> Expr {
-    let vir_expr = ast_expr_to_vir_expr(&function.body, mode);
+pub fn func_body_to_vir_expr(
+    function: &Function,
+    mode: Mode,
+    globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
+) -> Expr {
+    let vir_expr = ast_expr_to_vir_expr(&function.body, mode, globals);
     // TODO(totel):
     // We are unsure if we have to implement a special logic for converting a function body to a VIR expr.
     // There is a chance that we will have to map expressions into VIR expr block of statements
@@ -53,32 +57,36 @@ pub fn func_body_to_vir_expr(function: &Function, mode: Mode) -> Expr {
     vir_expr
 }
 
-pub fn ast_expr_to_vir_expr(expr: &Expression, mode: Mode) -> Expr {
+pub fn ast_expr_to_vir_expr(
+    expr: &Expression,
+    mode: Mode,
+    globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
+) -> Expr {
     match expr {
         Expression::Ident(ident) => ast_ident_to_vir_expr(ident),
         Expression::Literal(literal) => {
-            ast_literal_to_vir_expr(literal, expression_location(expr), mode)
+            ast_literal_to_vir_expr(literal, expression_location(expr), mode, globals)
         }
         Expression::Block(expressions) => {
-            ast_block_to_vir_expr(expressions, expression_location(expr), mode)
+            ast_block_to_vir_expr(expressions, expression_location(expr), mode, globals)
         }
-        Expression::Unary(unary) => ast_unary_to_vir_expr(unary, mode),
-        Expression::Binary(binary) => ast_binary_to_vir_expr(binary, mode),
-        Expression::Index(index) => ast_index_to_vir_expr(index, mode),
-        Expression::Cast(cast) => ast_cast_to_vir_expr(cast, mode),
+        Expression::Unary(unary) => ast_unary_to_vir_expr(unary, mode, globals),
+        Expression::Binary(binary) => ast_binary_to_vir_expr(binary, mode, globals),
+        Expression::Index(index) => ast_index_to_vir_expr(index, mode, globals),
+        Expression::Cast(cast) => ast_cast_to_vir_expr(cast, mode, globals),
         Expression::For(_) => todo!(), //TODO(totel) This is a very complicated expression to convert
         Expression::Loop(loop_body) => {
-            ast_loop_to_vir_expr(loop_body, expression_location(expr), mode)
+            ast_loop_to_vir_expr(loop_body, expression_location(expr), mode, globals)
         }
         Expression::While(while_expression) => {
-            ast_while_to_vir_expr(while_expression, expression_location(expr), mode)
+            ast_while_to_vir_expr(while_expression, expression_location(expr), mode, globals)
         }
         Expression::If(if_expression) => {
-            ast_if_to_vir_expr(if_expression, expression_location(expr), mode)
+            ast_if_to_vir_expr(if_expression, expression_location(expr), mode, globals)
         }
         Expression::Match(_) => todo!(),
         Expression::Tuple(tuple_expressions) => {
-            ast_tuple_to_vir_expr(tuple_expressions, expression_location(expr), mode)
+            ast_tuple_to_vir_expr(tuple_expressions, expression_location(expr), mode, globals)
         }
         Expression::ExtractTupleField(tuple_expression, tuple_index) => {
             ast_tuple_access_to_vir_expr(
@@ -86,17 +94,18 @@ pub fn ast_expr_to_vir_expr(expr: &Expression, mode: Mode) -> Expr {
                 *tuple_index,
                 expression_location(expr),
                 mode,
+                globals,
             )
         }
-        Expression::Call(call_expr) => ast_call_to_vir_expr(call_expr, mode),
+        Expression::Call(call_expr) => ast_call_to_vir_expr(call_expr, mode, globals),
         Expression::Let(let_expr) => todo!(),
         Expression::Constrain(expression, location, _) => {
-            ast_constrain_to_vir_expr(&expression, Some(*location))
+            ast_constrain_to_vir_expr(&expression, Some(*location), globals)
         }
         Expression::Assign(assign) => {
-            ast_assign_to_vir_expr(assign, expression_location(expr), mode)
+            ast_assign_to_vir_expr(assign, expression_location(expr), mode, globals)
         }
-        Expression::Semi(expression) => ast_expr_to_vir_expr(&expression, mode),
+        Expression::Semi(expression) => ast_expr_to_vir_expr(&expression, mode, globals),
         Expression::Clone(expression) => todo!(),
         Expression::Drop(expression) => todo!(),
         Expression::Break => ast_break_to_vir_expr(),
@@ -107,16 +116,31 @@ pub fn ast_expr_to_vir_expr(expr: &Expression, mode: Mode) -> Expr {
             quantifier_body,
             expression_location(expr),
             mode,
+            globals,
         ),
     }
 }
 
-fn ast_ident_to_vir_expr(ident: &Ident) -> Expr {
+fn ast_ident_to_vir_expr(
+    ident: &Ident,
+) -> Expr {
     let ident_id: u32 =
         ast_definition_to_id(&ident.definition).expect("Definition doesn't have an id");
     let var_ident = ast_ident_to_vir_var_ident(ident, ident_id);
 
-    let exprx = ExprX::Var(var_ident);
+    let exprx = if matches!(ident.definition, Definition::Global(_)) {
+        ExprX::ConstVar(
+            Arc::new(FunX {
+                path: Arc::new(PathX {
+                    krate: None,
+                    segments: Arc::new(vec![Arc::new(ident.name.clone())]),
+                }),
+            }),
+            AutospecUsage::Final,
+        )
+    } else {
+        ExprX::Var(var_ident)
+    };
 
     SpannedTyped::new(
         &build_span(ident_id, format!("Var {}", ident.name), ident.location),
@@ -125,14 +149,19 @@ fn ast_ident_to_vir_expr(ident: &Ident) -> Expr {
     )
 }
 
-fn ast_literal_to_vir_expr(literal: &Literal, location: Option<Location>, mode: Mode) -> Expr {
+fn ast_literal_to_vir_expr(
+    literal: &Literal,
+    location: Option<Location>,
+    mode: Mode,
+    globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
+) -> Expr {
     let expr = match literal {
         Literal::Array(array_literal) => {
             let exprx = ExprX::ArrayLiteral(Arc::new(
                 array_literal
                     .contents
                     .iter()
-                    .map(|expr| ast_expr_to_vir_expr(expr, mode))
+                    .map(|expr| ast_expr_to_vir_expr(expr, mode, globals))
                     .collect(),
             ));
             SpannedTyped::new(
@@ -188,8 +217,14 @@ fn numeric_const_to_vir_exprx(signed_field: &SignedField) -> ExprX {
     ExprX::Const(Constant::Int(const_big_int))
 }
 
-fn ast_block_to_vir_expr(block: &Vec<Expression>, location: Option<Location>, mode: Mode) -> Expr {
-    let mut stmts: Vec<Stmt> = block.iter().map(|expr| ast_expr_to_stmt(expr, mode)).collect();
+fn ast_block_to_vir_expr(
+    block: &Vec<Expression>,
+    location: Option<Location>,
+    mode: Mode,
+    globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
+) -> Expr {
+    let mut stmts: Vec<Stmt> =
+        block.iter().map(|expr| ast_expr_to_stmt(expr, mode, globals)).collect();
 
     let (last_expr, block_type) = match stmts.pop() {
         Some(stmt) => match &stmt.as_ref().x {
@@ -216,13 +251,17 @@ fn ast_block_to_vir_expr(block: &Vec<Expression>, location: Option<Location>, mo
     )
 }
 
-fn ast_expr_to_stmt(expr: &Expression, mode: Mode) -> Stmt {
+fn ast_expr_to_stmt(
+    expr: &Expression,
+    mode: Mode,
+    globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
+) -> Stmt {
     if let Expression::Let(let_expr) = expr {
         let patternx = PatternX::Var {
             name: build_var_ident(let_expr.name.clone(), let_expr.id.0),
             mutable: let_expr.mutable,
         };
-        let init_expr = ast_expr_to_vir_expr(&let_expr.expression, mode);
+        let init_expr = ast_expr_to_vir_expr(&let_expr.expression, mode, globals);
         let pattern = SpannedTyped::new(&init_expr.span, &init_expr.typ, patternx);
         let stmtx =
             StmtX::Decl { pattern: pattern, mode: Some(mode), init: Some(init_expr), els: None };
@@ -232,22 +271,26 @@ fn ast_expr_to_stmt(expr: &Expression, mode: Mode) -> Stmt {
             stmtx,
         )
     } else {
-        let expr_as_vir = ast_expr_to_vir_expr(expr, mode);
+        let expr_as_vir = ast_expr_to_vir_expr(expr, mode, globals);
         let stmtx = StmtX::Expr(expr_as_vir.clone());
 
         Spanned::new(expr_as_vir.span.clone(), stmtx)
     }
 }
 
-fn ast_unary_to_vir_expr(unary_expr: &Unary, mode: Mode) -> Expr {
+fn ast_unary_to_vir_expr(
+    unary_expr: &Unary,
+    mode: Mode,
+    globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
+) -> Expr {
     let exprx = match (unary_expr.operator, &unary_expr.result_type) {
         (UnaryOp::Minus, _) => todo!(),
         (UnaryOp::Not, Type::Bool) => {
-            ExprX::Unary(VirUnaryOp::Not, ast_expr_to_vir_expr(&unary_expr.rhs, mode))
+            ExprX::Unary(VirUnaryOp::Not, ast_expr_to_vir_expr(&unary_expr.rhs, mode, globals))
         }
         (UnaryOp::Not, ast_type) => ExprX::Unary(
             VirUnaryOp::BitNot(get_bit_not_bitwidth(ast_type)),
-            ast_expr_to_vir_expr(&unary_expr.rhs, mode),
+            ast_expr_to_vir_expr(&unary_expr.rhs, mode, globals),
         ),
         (UnaryOp::Reference { mutable }, ast_type) => {
             let expr: Expr = SpannedTyped::new(
@@ -261,7 +304,7 @@ fn ast_unary_to_vir_expr(unary_expr: &Unary, mode: Mode) -> Expr {
                     ast_type_to_vir_type(ast_type),
                 )),
                 {
-                    let inner_expr = ast_expr_to_vir_expr(&unary_expr.rhs, mode);
+                    let inner_expr = ast_expr_to_vir_expr(&unary_expr.rhs, mode, globals);
                     if mutable {
                         ExprX::Loc(inner_expr)
                     } else {
@@ -280,7 +323,7 @@ fn ast_unary_to_vir_expr(unary_expr: &Unary, mode: Mode) -> Expr {
                     Some(unary_expr.location),
                 ),
                 &ast_type_to_vir_type(ast_type),
-                ast_expr_to_vir_expr(&unary_expr.rhs, mode).x.clone(), // Can not move out of Arc
+                ast_expr_to_vir_expr(&unary_expr.rhs, mode, globals).x.clone(), // Can not move out of Arc
             );
 
             return expr;
@@ -294,9 +337,13 @@ fn ast_unary_to_vir_expr(unary_expr: &Unary, mode: Mode) -> Expr {
     )
 }
 
-fn ast_binary_to_vir_expr(binary_expr: &Binary, mode: Mode) -> Expr {
-    let lhs_expr = ast_expr_to_vir_expr(&binary_expr.lhs, mode);
-    let rhs_expr = ast_expr_to_vir_expr(&binary_expr.rhs, mode);
+fn ast_binary_to_vir_expr(
+    binary_expr: &Binary,
+    mode: Mode,
+    globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
+) -> Expr {
+    let lhs_expr = ast_expr_to_vir_expr(&binary_expr.lhs, mode, globals);
+    let rhs_expr = ast_expr_to_vir_expr(&binary_expr.rhs, mode, globals);
     let binary_op = binary_op_to_vir_binary_op(&binary_expr.operator, mode, &lhs_expr.typ);
     let binary_op_type = get_binary_op_type(lhs_expr.typ.clone(), &binary_expr.operator);
 
@@ -323,8 +370,12 @@ fn ast_binary_to_vir_expr(binary_expr: &Binary, mode: Mode) -> Expr {
     }
 }
 
-fn ast_cast_to_vir_expr(cast_expr: &Cast, mode: Mode) -> Expr {
-    let castee = ast_expr_to_vir_expr(&cast_expr.lhs, mode);
+fn ast_cast_to_vir_expr(
+    cast_expr: &Cast,
+    mode: Mode,
+    globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
+) -> Expr {
+    let castee = ast_expr_to_vir_expr(&cast_expr.lhs, mode, globals);
     let target_type = ast_type_to_vir_type(&cast_expr.r#type);
     // The following unwrap is safe because the semantic analysis of
     // the compiler should guarantee correctly typed expressions.
@@ -349,11 +400,18 @@ fn ast_cast_to_vir_expr(cast_expr: &Cast, mode: Mode) -> Expr {
     )
 }
 
-fn ast_if_to_vir_expr(if_expr: &If, location: Option<Location>, mode: Mode) -> Expr {
-    let condition = ast_expr_to_vir_expr(&if_expr.condition, mode);
-    let consequence = ast_expr_to_vir_expr(&if_expr.consequence, mode);
-    let alternative =
-        if_expr.alternative.as_ref().map(|else_expr| ast_expr_to_vir_expr(&else_expr, mode));
+fn ast_if_to_vir_expr(
+    if_expr: &If,
+    location: Option<Location>,
+    mode: Mode,
+    globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
+) -> Expr {
+    let condition = ast_expr_to_vir_expr(&if_expr.condition, mode, globals);
+    let consequence = ast_expr_to_vir_expr(&if_expr.consequence, mode, globals);
+    let alternative = if_expr
+        .alternative
+        .as_ref()
+        .map(|else_expr| ast_expr_to_vir_expr(&else_expr, mode, globals));
 
     let exprx = ExprX::If(condition, consequence, alternative);
 
@@ -368,10 +426,13 @@ fn ast_tuple_to_vir_expr(
     tuple_expressions: &Vec<Expression>,
     location: Option<Location>,
     mode: Mode,
+    globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
 ) -> Expr {
     let tuple_length = tuple_expressions.len();
-    let vir_tuple_expressions: Vec<Expr> =
-        tuple_expressions.iter().map(|tuple_expr| ast_expr_to_vir_expr(tuple_expr, mode)).collect();
+    let vir_tuple_expressions: Vec<Expr> = tuple_expressions
+        .iter()
+        .map(|tuple_expr| ast_expr_to_vir_expr(tuple_expr, mode, globals))
+        .collect();
     let tuple_types: Vec<Typ> =
         vir_tuple_expressions.iter().map(|tuple_expression| tuple_expression.typ.clone()).collect();
 
@@ -402,8 +463,9 @@ fn ast_tuple_access_to_vir_expr(
     tuple_index: usize,
     location: Option<Location>,
     mode: Mode,
+    globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
 ) -> Expr {
-    let tuple_vir_expr = ast_expr_to_vir_expr(tuple_expr, mode);
+    let tuple_vir_expr = ast_expr_to_vir_expr(tuple_expr, mode, globals);
     let tuple_expr_type =
         tuple_expr.return_type().expect("Tuple type should be known at compile time");
     let Type::Tuple(types) = tuple_expr_type.as_ref() else {
@@ -427,12 +489,19 @@ fn ast_tuple_access_to_vir_expr(
     )
 }
 
-fn ast_call_to_vir_expr(call_expr: &Call, mode: Mode) -> Expr {
+fn ast_call_to_vir_expr(
+    call_expr: &Call,
+    mode: Mode,
+    globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
+) -> Expr {
     let Expression::Ident(function_ident) = call_expr.func.as_ref() else {
         unreachable!("Expected functions to be presented with identifiers");
     };
-    let arguments: Vec<Expr> =
-        call_expr.arguments.iter().map(|argument| ast_expr_to_vir_expr(argument, mode)).collect();
+    let arguments: Vec<Expr> = call_expr
+        .arguments
+        .iter()
+        .map(|argument| ast_expr_to_vir_expr(argument, mode, globals))
+        .collect();
 
     let exprx = ExprX::Call(
         CallTarget::Fun(
@@ -465,10 +534,14 @@ fn ast_call_to_vir_expr(call_expr: &Call, mode: Mode) -> Expr {
     )
 }
 
-fn ast_constrain_to_vir_expr(assert_body_expr: &Expression, location: Option<Location>) -> Expr {
+fn ast_constrain_to_vir_expr(
+    assert_body_expr: &Expression,
+    location: Option<Location>,
+    globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
+) -> Expr {
     let exprx = ExprX::AssertAssume {
         is_assume: false,
-        expr: ast_expr_to_vir_expr(assert_body_expr, Mode::Spec),
+        expr: ast_expr_to_vir_expr(assert_body_expr, Mode::Spec, globals),
     };
 
     let assert_expr = SpannedTyped::new(
@@ -490,7 +563,12 @@ fn ast_constrain_to_vir_expr(assert_body_expr: &Expression, location: Option<Loc
     )
 }
 
-fn ast_assign_to_vir_expr(assign_expr: &Assign, location: Option<Location>, mode: Mode) -> Expr {
+fn ast_assign_to_vir_expr(
+    assign_expr: &Assign,
+    location: Option<Location>,
+    mode: Mode,
+    globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
+) -> Expr {
     if let LValue::Index { array, index, element_type, location } = &assign_expr.lvalue {
         return ast_array_assign_to_vir_expr(
             &array,
@@ -499,6 +577,7 @@ fn ast_assign_to_vir_expr(assign_expr: &Assign, location: Option<Location>, mode
             &assign_expr.expression,
             Some(*location),
             mode,
+            globals,
         );
     }
     let is_lvalue_mut = is_lvalue_mut(&assign_expr.lvalue);
@@ -506,7 +585,7 @@ fn ast_assign_to_vir_expr(assign_expr: &Assign, location: Option<Location>, mode
     let exprx = ExprX::Assign {
         init_not_mut: !is_lvalue_mut,
         lhs: lhs_expr,
-        rhs: ast_expr_to_vir_expr(&assign_expr.expression, mode),
+        rhs: ast_expr_to_vir_expr(&assign_expr.expression, mode, globals),
         op: None,
     };
 
@@ -524,6 +603,7 @@ fn ast_array_assign_to_vir_expr(
     rhs_to_be_assigned_expr: &Expression,
     location: Option<Location>,
     mode: Mode,
+    globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
 ) -> Expr {
     let array_ident = get_lvalue_ident(array);
     let lhs_array_expr = SpannedTyped::new(
@@ -558,8 +638,8 @@ fn ast_array_assign_to_vir_expr(
         ),
         Arc::new(vec![
             lhs_array_expr,
-            ast_expr_to_vir_expr(index, mode),
-            ast_expr_to_vir_expr(rhs_to_be_assigned_expr, mode),
+            ast_expr_to_vir_expr(index, mode, globals),
+            ast_expr_to_vir_expr(rhs_to_be_assigned_expr, mode, globals),
         ]),
     );
 
@@ -595,6 +675,7 @@ fn ast_quant_to_vir_expr(
     quantifier_body: &Expression,
     quantifier_location: Option<Location>,
     mode: Mode,
+    globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
 ) -> Expr {
     let quantifier_vir_type = match quantifier_type {
         QuantifierType::Forall => Quant { quant: AirQuant::Forall },
@@ -629,7 +710,7 @@ fn ast_quant_to_vir_expr(
             expression_location(quantifier_body),
         ),
         &Arc::new(TypX::Bool), // All quantifier bodies must be of type bool
-        ast_expr_to_vir_expr(quantifier_body, mode).x.clone(),
+        ast_expr_to_vir_expr(quantifier_body, mode, globals).x.clone(),
     );
 
     let quantifier_vir_exprx =
@@ -642,9 +723,13 @@ fn ast_quant_to_vir_expr(
     )
 }
 
-fn ast_index_to_vir_expr(index: &Index, mode: Mode) -> Expr {
-    let array_expr = ast_expr_to_vir_expr(&index.collection, mode);
-    let index_expr = ast_expr_to_vir_expr(&index.index, mode);
+fn ast_index_to_vir_expr(
+    index: &Index,
+    mode: Mode,
+    globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
+) -> Expr {
+    let array_expr = ast_expr_to_vir_expr(&index.collection, mode, globals);
+    let index_expr = ast_expr_to_vir_expr(&index.index, mode, globals);
     let element_type = ast_type_to_vir_type(&index.element_type);
 
     let array_type = index.collection.return_type();
@@ -751,13 +836,18 @@ fn ast_index_to_vir_expr(index: &Index, mode: Mode) -> Expr {
     )
 }
 
-fn ast_loop_to_vir_expr(loop_body: &Expression, location: Option<Location>, mode: Mode) -> Expr {
+fn ast_loop_to_vir_expr(
+    loop_body: &Expression,
+    location: Option<Location>,
+    mode: Mode,
+    globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
+) -> Expr {
     let exprx = ExprX::Loop {
         loop_isolation: true,
         is_for_loop: false,
         label: None,
         cond: None,
-        body: ast_expr_to_vir_expr(loop_body, mode),
+        body: ast_expr_to_vir_expr(loop_body, mode, globals),
         invs: Arc::new(Vec::new()),
         decrease: Arc::new(Vec::new()),
     };
@@ -769,13 +859,18 @@ fn ast_loop_to_vir_expr(loop_body: &Expression, location: Option<Location>, mode
     )
 }
 
-fn ast_while_to_vir_expr(while_expression: &While, location: Option<Location>, mode: Mode) -> Expr {
+fn ast_while_to_vir_expr(
+    while_expression: &While,
+    location: Option<Location>,
+    mode: Mode,
+    globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
+) -> Expr {
     let exprx = ExprX::Loop {
         loop_isolation: true,
         is_for_loop: false,
         label: None,
-        cond: Some(ast_expr_to_vir_expr(&while_expression.condition, mode)),
-        body: ast_expr_to_vir_expr(&while_expression.body, mode),
+        cond: Some(ast_expr_to_vir_expr(&while_expression.condition, mode, globals)),
+        body: ast_expr_to_vir_expr(&while_expression.body, mode, globals),
         invs: Arc::new(Vec::new()),
         decrease: Arc::new(Vec::new()),
     };
