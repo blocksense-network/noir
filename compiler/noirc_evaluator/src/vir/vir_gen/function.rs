@@ -8,7 +8,8 @@ use super::{
     attribute::{func_ensures_to_vir_expr, func_requires_to_vir_expr},
 };
 use noirc_errors::Location;
-use noirc_frontend::monomorphization::ast::{Function, MonomorphizedFvAttribute, Type};
+use noirc_frontend::monomorphization::ast::{Expression, Function, GlobalId, MonomorphizedFvAttribute, Type};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use vir::ast::{
     BodyVisibility, Fun, FunX, FunctionAttrs, FunctionAttrsX, FunctionKind, FunctionX, ItemKind,
@@ -108,6 +109,7 @@ fn build_default_funx_attrs(zero_args: bool, is_constrained: bool) -> FunctionAt
 pub fn build_funx(
     function: &Function,
     current_module: &Module,
+    globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
 ) -> Result<FunctionX, BuildingKrateError> {
     let is_ghost = is_ghost_function(function);
     let mode = get_function_mode(is_ghost);
@@ -135,8 +137,8 @@ pub fn build_funx(
         params: function_params,
         ret: function_return_param,
         ens_has_return: !is_function_return_void(function),
-        require: func_requires_to_vir_expr(function),
-        ensure: func_ensures_to_vir_expr(function),
+        require: func_requires_to_vir_expr(function, globals),
+        ensure: func_ensures_to_vir_expr(function, globals),
         returns: None, // We don't support the special clause called `return`
         decrease: Arc::new(vec![]), // Annotation for recursive functions. We currently don't support it
         decrease_when: None, // Annotation for recursive functions. We currently don't support it
@@ -146,7 +148,7 @@ pub fn build_funx(
         unwind_spec: None,   // To be able to use functions from Verus std we need None on unwinding
         item_kind: ItemKind::Function,
         attrs: build_default_funx_attrs(function.parameters.is_empty(), !function.unconstrained),
-        body: Some(func_body_to_vir_expr(function, mode)),
+        body: Some(func_body_to_vir_expr(function, mode, globals)),
         extra_dependencies: Vec::new(),
     };
 
