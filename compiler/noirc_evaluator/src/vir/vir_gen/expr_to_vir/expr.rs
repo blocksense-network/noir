@@ -106,8 +106,31 @@ pub fn ast_expr_to_vir_expr(
             ast_assign_to_vir_expr(assign, expression_location(expr), mode, globals)
         }
         Expression::Semi(expression) => ast_expr_to_vir_expr(&expression, mode, globals),
-        Expression::Clone(expression) => todo!(),
-        Expression::Drop(expression) => todo!(),
+        Expression::Clone(expression) => {
+            // The `Clone` expression is introduced into the AST during the `handle_ownership` pass.
+            // These expressions are inserted only in unconstrained Noir code and conceptually represent
+            // an increment to the reference count of arrays.
+            //
+            // In Verus, array cloning is not supported. However, Rust treats arrays as `Copy` types,
+            // allowing them to be duplicated implicitly without invoking `Clone`.
+            //
+            // As a result, when we encounter a `Clone` expression, we simply return its inner expression,
+            // effectively ignoring the cloning operation.
+
+            ast_expr_to_vir_expr(expression, mode, globals)
+        }
+        Expression::Drop(expression) => {
+            // Similar to `Clone`, the `Drop` expression is introduced during the `handle_ownership` pass.
+            // It is only inserted in unconstrained Noir code and represents a decrement to the reference count of arrays.
+            //
+            // Since Verus does not support `core::mem::drop`, we consume the inner expression
+            // and return a unit value instead, effectively ignoring the drop operation.
+
+            vir::ast_util::mk_tuple(
+                &build_span_no_id(format!("Drop {}", expression), expression_location(expr)),
+                &Arc::new(Vec::new()),
+            )
+        }
         Expression::Break => ast_break_to_vir_expr(),
         Expression::Continue => ast_continue_to_vir_expr(),
         Expression::Quant(quantifier_type, idents, quantifier_body) => ast_quant_to_vir_expr(
@@ -121,9 +144,7 @@ pub fn ast_expr_to_vir_expr(
     }
 }
 
-fn ast_ident_to_vir_expr(
-    ident: &Ident,
-) -> Expr {
+fn ast_ident_to_vir_expr(ident: &Ident) -> Expr {
     let ident_id: u32 =
         ast_definition_to_id(&ident.definition).expect("Definition doesn't have an id");
     let var_ident = ast_ident_to_vir_var_ident(ident, ident_id);
