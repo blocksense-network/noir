@@ -1023,13 +1023,56 @@ fn ast_lvalue_to_vir_expr(lvalue: &LValue, location: Option<Location>, mode: Mod
     match lvalue {
         LValue::Ident(ident) => ast_lvalue_ident_to_vir_expr(ident),
         LValue::Index { .. } => unreachable!(), // Array assignment has to be handled in a special way
-        LValue::MemberAccess { object, field_index } => todo!(),
+        LValue::MemberAccess { object, field_index } => {
+            let object_type = get_lvalue_type(object);
+            assert!(
+                matches!(object_type, Type::Tuple(_)),
+                "We can only access members of type tuple!"
+            );
+            match object_type {
+                Type::Tuple(inner_types) => {
+                    let object_as_vir_expr = ast_lvalue_to_vir_expr(&object, location, mode);
+
+                    let exprx = ExprX::UnaryOpr(
+                        UnaryOpr::Field(FieldOpr {
+                            datatype: Dt::Tuple(inner_types.len()),
+                            variant: Arc::new(format!("tuple%{}", inner_types.len())),
+                            field: Arc::new(field_index.to_string()),
+                            get_variant: false,
+                            check: VariantCheck::None,
+                        }),
+                        object_as_vir_expr,
+                    );
+                    SpannedTyped::new(
+                        &build_span_no_id(
+                            format!("Member access at index {}", field_index),
+                            location,
+                        ),
+                        &ast_type_to_vir_type(&inner_types[*field_index]),
+                        exprx,
+                    )
+                }
+                _ => unreachable!(), // Unreachable because of the `assert!()` above
+            }
+        }
         LValue::Dereference { reference, .. } => {
             // There is no equivalent expression for `Dereference` in VIR.
             // Verus doesn't support lhs dereference for assignment operations.
             // We can still try to convert it as a regular lhs var and ignore the dereference
             ast_lvalue_to_vir_expr(&reference, location, mode)
         }
+    }
+}
+
+fn get_lvalue_type(lvalue: &LValue) -> &Type {
+    match lvalue {
+        LValue::Ident(ident) => &ident.typ,
+        LValue::Index { element_type, .. } => element_type,
+        LValue::MemberAccess { object, field_index } => match get_lvalue_type(&object) {
+            Type::Tuple(inner_types) => &inner_types[*field_index],
+            object_type => object_type, //TODO(totel): This branch is perhaps unreachable?
+        },
+        LValue::Dereference { element_type, .. } => element_type,
     }
 }
 
