@@ -515,6 +515,27 @@ fn ast_call_to_vir_expr(
     mode: Mode,
     globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
 ) -> Expr {
+
+    // Special logic for handling the function `assume` from our Noir FV STD crate
+    if let Expression::Ident(func_ident) = &*call_expr.func {
+        if func_ident.name == "assume" {
+            let exprx = ExprX::AssertAssume {
+                is_assume: true,
+                expr: ast_expr_to_vir_expr(&call_expr.arguments[0], Mode::Spec, globals),
+            };
+            let assume_expr = SpannedTyped::new(
+                &build_span_no_id(
+                    format!("Assume {} is true", call_expr.arguments[0]),
+                    Some(call_expr.location),
+                ),
+                &make_unit_vir_type(),
+                exprx,
+            );
+
+            return wrap_with_ghost_block(assume_expr, Some(call_expr.location));
+        }
+    }
+
     let Expression::Ident(function_ident) = call_expr.func.as_ref() else {
         unreachable!("Expected functions to be presented with identifiers");
     };
@@ -571,10 +592,14 @@ fn ast_constrain_to_vir_expr(
         exprx,
     );
 
+    wrap_with_ghost_block(assert_expr, location)
+}
+
+fn wrap_with_ghost_block(expr: Expr, location: Option<Location>) -> Expr {
     let block_wrap = SpannedTyped::new(
         &build_span_no_id("A wrapper block for assert expression".to_string(), location),
         &make_unit_vir_type(),
-        ExprX::Block(Arc::new(Vec::new()), Some(assert_expr)),
+        ExprX::Block(Arc::new(Vec::new()), Some(expr)),
     );
 
     SpannedTyped::new(
