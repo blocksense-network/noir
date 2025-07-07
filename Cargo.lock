@@ -1952,6 +1952,7 @@ dependencies = [
  "function_name",
  "insta",
  "noirc_errors",
+ "noirc_evaluator",
  "noirc_frontend",
  "nom",
  "num-bigint 0.4.6",
