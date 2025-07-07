@@ -8,6 +8,7 @@ members = [
     "compiler/noirc_errors",
     "compiler/noirc_driver",
     "compiler/noirc_printable_type",
+    "compiler/formal_verification",
     "compiler/fm",
     "compiler/wasm",
     # Crates related to tooling built on top of the Noir compiler
