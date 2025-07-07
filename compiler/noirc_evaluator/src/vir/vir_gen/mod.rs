@@ -16,18 +16,18 @@ use vir::{
 
 use crate::vir::vir_gen::{expr_to_vir::expression_location, globals::build_global_const_x};
 
-fn encode_span_to_string(location: Location) -> String {
+pub fn encode_span_to_string(location: Location) -> String {
     let stringified_span: String = format!("{}, {}", location.span.start(), location.span.end());
     let stringified_file_id: String = format!("{}", location.file.as_usize());
 
     format!("({}, {})", stringified_span, stringified_file_id)
 }
 
-fn build_span_no_id(debug_string: String, span: Option<Location>) -> Span {
+pub fn build_span_no_id(debug_string: String, span: Option<Location>) -> Span {
     build_span(0, debug_string, span)
 }
 
-fn build_span(id: u32, debug_string: String, span: Option<Location>) -> Span {
+pub fn build_span(id: u32, debug_string: String, span: Option<Location>) -> Span {
     let encoded_span = span.map(encode_span_to_string).unwrap_or_default();
     Span {
         raw_span: Arc::new(()), // Currently unusable because of hard to resolve bug
