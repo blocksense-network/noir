@@ -1951,6 +1951,8 @@ dependencies = [
  "cfg-if",
  "function_name",
  "insta",
+ "noirc_errors",
+ "noirc_frontend",
  "nom",
  "num-bigint 0.4.6",
  "num-traits",

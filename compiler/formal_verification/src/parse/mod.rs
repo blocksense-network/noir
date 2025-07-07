@@ -1,3 +1,6 @@
+use noirc_errors::Location;
+use noirc_frontend::monomorphization::ast::{Expression, Function, GlobalId, Type};
+#[allow(unused)]
 use nom::{
     IResult, Parser,
     branch::alt,
@@ -5,19 +8,22 @@ use nom::{
     character::complete::{alpha1, alphanumeric0, char, digit1, multispace0},
     combinator::{cut, map, opt, recognize, value},
     error::{ContextError, ParseError, context},
-    multi::{fold_many0, separated_list1},
+    multi::{fold_many0, separated_list0, separated_list1},
     sequence::{delimited, pair, preceded, separated_pair, terminated},
 };
 use num_bigint::{BigInt, BigUint, Sign};
 use num_traits::ConstZero;
 use std::{
     cell::LazyCell,
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fmt::{self, Debug},
     sync::Arc,
 };
 use vir::{
-    ast::{Constant, Expr, ExprX, Ident, IntRange, SpannedTyped, Typ, TypX, VarIdent},
+    ast::{
+        AutospecUsage, CallTarget, CallTargetKind, Constant, Expr, ExprX, FunX, Ident, IntRange,
+        Path, PathX, SpannedTyped, Typ, TypX, VarIdent,
+    },
     messages::{RawSpan, Span},
 };
 
@@ -28,22 +34,21 @@ const SPAN: LazyCell<Span> = LazyCell::new(|| Span {
     as_string: "".to_string(),
 });
 
-enum Attribute {
+pub enum Attribute {
     Ghost,
     Ensures(Expr),
     Requires(Expr),
 }
-
-type Signature<'a> = HashMap<&'a str, Typ>;
 
 // TODO: variable/function rustc ids
 // TODO: function signature
 
 pub fn parse_attribute<'a>(
     annotation: &'a str,
-    signature: &Signature,
-    // initial_span: &SerializeTupleVariant
-) -> IResult<&'a str, Attribute> {
+    location: Location,
+    function: &Function,
+    gamma: &BTreeMap<GlobalId, (String, Type, Expression)>,
+) -> Result<Attribute, ()> {
     todo!()
 }
 
@@ -136,15 +141,46 @@ fn parse_var(input: &str) -> IResult<&str, Expr> {
 }
 
 fn parse_fn_call(input: &str) -> IResult<&str, Expr> {
-    todo!()
+    let (input, name) = parse_identifier(input)?;
+
+    let (input, params) = delimited(
+        tag("("),
+        separated_list0(pair(tag(","), opt(tag(" "))), parse_expression),
+        tag(")"),
+    )
+    .parse(input)?;
+
+    dbg!(&name, &params);
+
+    // TODO: Actual types, fetched from signatures
+    Ok((
+        input,
+        SpannedTyped::new(
+            &SPAN,
+            &Arc::new(TypX::Bool),
+            ExprX::Call(
+                CallTarget::Fun(
+                    CallTargetKind::Static,
+                    Arc::new(FunX {
+                        path: Path::new(PathX { krate: None, segments: Arc::new(vec![]) }),
+                    }),
+                    Arc::new(vec![]),
+                    Arc::new(vec![]),
+                    AutospecUsage::Final,
+                ),
+                Arc::new(vec![]),
+            ),
+        ),
+    ))
 }
 
 fn parse_expression(input: &str) -> IResult<&str, Expr> {
-    alt((
+    alt([
         //
+        parse_fn_call,
         parse_constant,
         parse_var,
-    ))
+    ])
     .parse(input)
 }
 
@@ -186,6 +222,14 @@ mod tests {
     fn test_ident_starts_with_digit() {
         let identche = "1Banica_123_";
         let expr = parse_var(identche).unwrap();
+        assert_eq!(expr.0, "");
+        dbg!(expr);
+    }
+
+    #[test]
+    fn test_function_call() {
+        let identche = "banica(1, f(), g(1, kek))";
+        let expr = parse_expression(identche).unwrap();
         assert_eq!(expr.0, "");
         dbg!(expr);
     }
