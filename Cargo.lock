@@ -2100,6 +2100,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "fv_bridge"
+version = "1.0.0-beta.7"
+dependencies = [
+ "fm",
+ "formal_verification",
+ "iter-extended",
+ "noirc_driver",
+ "noirc_errors",
+ "noirc_evaluator",
+ "noirc_frontend",
+ "serde",
+ "vir",
+]
+
+[[package]]
 name = "fxhash"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
