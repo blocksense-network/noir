@@ -71,7 +71,7 @@ struct LambdaContext {
 ///
 /// This struct holds the FIFO queue of functions to monomorphize, which is added to
 /// whenever a new (function, type) combination is encountered.
-pub(super) struct Monomorphizer<'interner> {
+pub struct Monomorphizer<'interner> {
     /// Functions are keyed by their unique ID, whether they're unconstrained, their expected type,
     /// and any generics they have so that we can monomorphize a new version of the function for each type.
     ///
@@ -83,16 +83,16 @@ pub(super) struct Monomorphizer<'interner> {
     /// duplicated during monomorphization. Doing so would allow them to be used polymorphically
     /// but would also cause them to be re-evaluated which is a performance trap that would
     /// confuse users.
-    locals: HashMap<node_interner::DefinitionId, LocalId>,
+    pub locals: HashMap<node_interner::DefinitionId, LocalId>,
 
     /// Globals are keyed by their unique ID because they are never duplicated during monomorphization.
     globals: HashMap<node_interner::GlobalId, GlobalId>,
 
-    finished_globals: HashMap<GlobalId, (String, ast::Type, ast::Expression)>,
+    pub finished_globals: HashMap<GlobalId, (String, ast::Type, ast::Expression)>,
 
     /// Queue of functions to monomorphize next each item in the queue is a tuple of:
     /// (old_id, new_monomorphized_id, any type bindings to apply, the trait method if old_id is from a trait impl, is_unconstrained, location)
-    queue: VecDeque<(
+    pub queue: VecDeque<(
         node_interner::FuncId,
         FuncId,
         TypeBindings,
@@ -103,10 +103,10 @@ pub(super) struct Monomorphizer<'interner> {
 
     /// When a function finishes being monomorphized, the monomorphized ast::Function is
     /// stored here along with its FuncId.
-    finished_functions: BTreeMap<FuncId, Function>,
+    pub finished_functions: BTreeMap<FuncId, Function>,
 
     /// Used to reference existing definitions in the HIR
-    interner: &'interner mut NodeInterner,
+    pub interner: &'interner mut NodeInterner,
 
     lambda_envs_stack: Vec<LambdaContext>,
 
@@ -117,11 +117,11 @@ pub(super) struct Monomorphizer<'interner> {
 
     is_range_loop: bool,
 
-    return_location: Option<Location>,
+    pub return_location: Option<Location>,
 
-    debug_type_tracker: DebugTypeTracker,
+    pub debug_type_tracker: DebugTypeTracker,
 
-    in_unconstrained_function: bool,
+    pub in_unconstrained_function: bool,
 }
 
 /// Using nested HashMaps here lets us avoid cloning HirTypes when calling .get()
@@ -215,7 +215,7 @@ pub fn monomorphize_debug(
 }
 
 impl<'interner> Monomorphizer<'interner> {
-    pub(crate) fn new(
+    pub fn new(
         interner: &'interner mut NodeInterner,
         debug_type_tracker: DebugTypeTracker,
     ) -> Self {
@@ -343,7 +343,7 @@ impl<'interner> Monomorphizer<'interner> {
             .insert(turbofish_generics, new_id);
     }
 
-    fn compile_main(
+    pub fn compile_main(
         &mut self,
         main_id: node_interner::FuncId,
     ) -> Result<FunctionSignature, MonomorphizationError> {
@@ -365,7 +365,7 @@ impl<'interner> Monomorphizer<'interner> {
         Ok(main_meta.function_signature())
     }
 
-    fn function(
+    pub fn function(
         &mut self,
         f: node_interner::FuncId,
         id: FuncId,
