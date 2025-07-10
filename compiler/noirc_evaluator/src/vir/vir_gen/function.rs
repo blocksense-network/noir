@@ -7,14 +7,17 @@ use super::{
     BuildingKrateError,
     attribute::{func_ensures_to_vir_expr, func_requires_to_vir_expr},
 };
+use formal_verification::parse::Attribute;
 use noirc_errors::Location;
-use noirc_frontend::monomorphization::ast::{Expression, Function, GlobalId, MonomorphizedFvAttribute, Type};
+use noirc_frontend::monomorphization::ast::{
+    Expression, Function, GlobalId, MonomorphizedFvAttribute, Type,
+};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use vir::ast::{
-    BodyVisibility, Fun, FunX, FunctionAttrs, FunctionAttrsX, FunctionKind, FunctionX, ItemKind,
-    Mode, Module, Opaqueness, Param, ParamX, Params, PathX, VarIdent, VarIdentDisambiguate,
-    Visibility,
+    BodyVisibility, Exprs, Fun, FunX, FunctionAttrs, FunctionAttrsX, FunctionKind, FunctionX,
+    ItemKind, Mode, Module, Opaqueness, Param, ParamX, Params, PathX, VarIdent,
+    VarIdentDisambiguate, Visibility,
 };
 use vir::def::Spanned;
 
@@ -139,6 +142,89 @@ pub fn build_funx(
         ens_has_return: !is_function_return_void(function),
         require: func_requires_to_vir_expr(function, globals),
         ensure: func_ensures_to_vir_expr(function, globals),
+        returns: None, // We don't support the special clause called `return`
+        decrease: Arc::new(vec![]), // Annotation for recursive functions. We currently don't support it
+        decrease_when: None, // Annotation for recursive functions. We currently don't support it
+        decrease_by: None,   // Annotation for recursive functions. We currently don't support it
+        fndef_axioms: None,  // We currently don't support this feature
+        mask_spec: None,     // We currently don't support this feature
+        unwind_spec: None,   // To be able to use functions from Verus std we need None on unwinding
+        item_kind: ItemKind::Function,
+        attrs: build_default_funx_attrs(function.parameters.is_empty(), !function.unconstrained),
+        body: Some(func_body_to_vir_expr(function, mode, globals)),
+        extra_dependencies: Vec::new(),
+    };
+
+    Ok(funx)
+}
+
+// Converts the given Monomorphized AST function into a VIR function.
+/// Same as `build_funx` but expects the FV attributes
+/// to be already transformed into VIR form.
+pub fn build_funx_with_ready_annotations(
+    function: &Function,
+    current_module: &Module,
+    globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
+    annotations: Vec<Attribute>,
+) -> Result<FunctionX, BuildingKrateError> {
+    let is_ghost = annotations.iter().any(|x| matches!(x, Attribute::Ghost));
+    let mode = get_function_mode(is_ghost);
+
+    let function_params = get_function_params(function, mode)?;
+    let function_return_param = get_function_return_param(function, mode)?;
+
+    let (requires_annotations, ensures_annotations): (Vec<Attribute>, Vec<Attribute>) = annotations
+        .into_iter()
+        .filter(|attribute| {
+            matches!(attribute, Attribute::Requires(_))
+                || matches!(attribute, Attribute::Ensures(_))
+        })
+        .partition(|attribute| matches!(attribute, Attribute::Requires(_)));
+
+    let requires_annotations_inner: Exprs = Arc::new(
+        requires_annotations
+            .into_iter()
+            .filter_map(|x| match x {
+                Attribute::Ghost => None,
+                Attribute::Ensures(_) => None,
+                Attribute::Requires(expr) => Some(expr),
+            })
+            .collect(),
+    );
+
+    let ensures_annotations_inner: Exprs = Arc::new(
+        ensures_annotations
+            .into_iter()
+            .filter_map(|x| match x {
+                Attribute::Ghost => None,
+                Attribute::Requires(_) => None,
+                Attribute::Ensures(expr) => Some(expr),
+            })
+            .collect(),
+    );
+
+    let funx = FunctionX {
+        name: function_into_funx_name(function),
+        proxy: None, // Only needed for external fn specifications which we currently don't support
+        kind: FunctionKind::Static, // Monomorphized AST has only static functions
+        visibility: Visibility {
+            restricted_to: None, // `None` is for functions with public visibility
+        }, // Categorization for public/private visibility doesn't exist in the Mon. AST
+        body_visibility: BodyVisibility::Visibility(Visibility {
+            restricted_to: None, // We currently support only fully visible ghost functions
+        }),
+        opaqueness: Opaqueness::Revealed {
+            visibility: Visibility { restricted_to: None }, // We currently don't support opaqueness control
+        },
+        owning_module: Some(current_module.x.path.clone()), // The module in which this function is located.
+        mode,
+        typ_params: Arc::new(Vec::new()), // There are no generics in Monomorphized AST
+        typ_bounds: Arc::new(Vec::new()), // There are no generics in Monomorphized AST
+        params: function_params,
+        ret: function_return_param,
+        ens_has_return: !is_function_return_void(function),
+        require: requires_annotations_inner,
+        ensure: ensures_annotations_inner,
         returns: None, // We don't support the special clause called `return`
         decrease: Arc::new(vec![]), // Annotation for recursive functions. We currently don't support it
         decrease_when: None, // Annotation for recursive functions. We currently don't support it
