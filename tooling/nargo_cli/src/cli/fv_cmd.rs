@@ -5,12 +5,14 @@ use std::{
 
 use clap::Args;
 use fm::{FileId, FileManager, FileMap};
+use fv_bridge::compile_and_build_vir_krate;
 use nargo::{ops::report_errors, prepare_package, workspace::Workspace};
 use nargo_toml::PackageSelection;
-use noirc_driver::{CompileOptions, CompiledProgram, link_to_debug_crate};
+use noirc_driver::{CompileOptions, link_to_debug_crate};
 use noirc_errors::{CustomDiagnostic, DiagnosticKind, Location, Span, reporter::ReportedErrors};
 use noirc_frontend::debug::DebugInstrumenter;
 use serde::Deserialize;
+use vir::ast::Krate;
 
 use crate::{cli::compile_cmd::parse_workspace, errors::CliError};
 
@@ -30,6 +32,10 @@ pub(crate) struct FormalVerifyCommand {
     /// Emit debug information for the intermediate Verus VIR to stdout
     #[arg(long, hide = true)]
     pub show_vir: bool,
+
+    /// Use the new syntax for FV annotations
+    #[arg(long)]
+    pub new_syntax: bool,
 
     // Flags which will be propagated to the Venir binary
     #[clap(last = true)]
@@ -58,24 +64,39 @@ pub(crate) fn run(args: FormalVerifyCommand, workspace: Workspace) -> Result<(),
         context.package_build_path = workspace.package_build_path(package);
         context.perform_formal_verification = true;
 
-        let compiled_program =
-            noirc_driver::compile_main(&mut context, crate_id, &args.compile_options, None);
-
-        // We want to formally verify only compilable programs
-        let compiled_program = report_errors(
-            compiled_program,
-            &workspace_file_manager,
-            args.compile_options.deny_warnings,
-            true, // We don't want to report compile related warnings
-        )?;
-
+        let krate: Krate = if args.new_syntax {
+            // Compile with new syntax and report errors
+            report_errors(
+                compile_and_build_vir_krate(&mut context, crate_id, &args.compile_options),
+                &workspace_file_manager,
+                args.compile_options.deny_warnings,
+                true,
+            )?
+        } else {
+            // Compile with old syntax, report errors, then extract and unwrap VIR
+            let compiled = report_errors(
+                noirc_driver::compile_main(&mut context, crate_id, &args.compile_options, None),
+                &workspace_file_manager,
+                args.compile_options.deny_warnings,
+                true,
+            )?;
+        
+            let vir_result = compiled.verus_vir
+                .ok_or_else(|| CliError::Generic("Failed to generate VIR with no specific error".into()))?;
+        
+            let krate = vir_result.map_err(|e| CliError::Generic(e.to_string()))?;
+        
+            krate
+        };
+        
+        // Shared post-processing
         if args.show_vir {
             println!("Generated VIR:");
-            println!("{:#?}", compiled_program.verus_vir);
+            println!("{:#?}", krate);
         }
-
+        
         z3_verify(
-            compiled_program,
+            krate,
             &workspace_file_manager,
             args.compile_options.deny_warnings,
             &args.venir_flags,
@@ -88,18 +109,11 @@ pub(crate) fn run(args: FormalVerifyCommand, workspace: Workspace) -> Result<(),
 /// Runs the Venir binary and passes the compiled program in VIR format to it
 /// Reports all errors produced during Venir (SMT solver) verification
 fn z3_verify(
-    compiled_program: CompiledProgram,
+    krate: Krate,
     workspace_file_manager: &FileManager,
     deny_warnings: bool,
     venir_args: &Vec<String>,
 ) -> Result<(), CliError> {
-    let krate = compiled_program
-        .verus_vir
-        .ok_or_else(|| {
-            CliError::Generic(String::from("Failed to generate VIR with no specific error"))
-        })?
-        .map_err(|e| CliError::Generic(e.to_string()))?;
-
     let serialized_vir_krate = serde_json::to_string(&krate).expect("Failed to serialize");
 
     // Run the Venir binary which is used for verifying the vir_krate input.

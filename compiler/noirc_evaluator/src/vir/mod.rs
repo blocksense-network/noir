@@ -1,6 +1,6 @@
-use formal_verification::parse::Attribute;
 use noirc_frontend::monomorphization::ast::{FuncId, Program};
 use vir::ast::Krate;
+use vir_gen::Attribute;
 use vir_gen::{BuildingKrateError, build_krate};
 
 use crate::vir::{
