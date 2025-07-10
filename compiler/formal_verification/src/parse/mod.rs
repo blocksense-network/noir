@@ -1,6 +1,6 @@
 use noirc_errors::{Location, Span};
 use noirc_evaluator::vir::vir_gen::{
-    build_span_no_id,
+    Attribute, build_span_no_id,
     expr_to_vir::{expr::function_name_to_vir_fun, types::ast_type_to_vir_type},
 };
 use noirc_frontend::{
@@ -103,12 +103,6 @@ fn build_expr(
     );
 
     SpannedTyped::new(&span, &Arc::new(typx), exprx)
-}
-
-pub enum Attribute {
-    Ghost,
-    Ensures(Expr),
-    Requires(Expr),
 }
 
 // TODO: variable/function rustc ids

@@ -1,10 +1,11 @@
 use std::collections::{BTreeMap, HashMap};
 
 use fm::FileId;
-use formal_verification::parse::{Attribute, parse_attribute};
+use formal_verification::parse::parse_attribute;
 use iter_extended::vecmap;
 use noirc_driver::{CompilationResult, CompileError, CompileOptions, check_crate};
 use noirc_errors::{CustomDiagnostic, Location};
+use noirc_evaluator::vir::vir_gen::Attribute;
 use noirc_evaluator::{
     errors::{RuntimeError, SsaReport},
     vir::{create_verus_vir_with_ready_annotations, vir_gen::BuildingKrateError},
@@ -174,7 +175,14 @@ fn modified_monomorphize(
                     .into_iter()
                     .map(|(annotation_body, location)| {
                         //TODO(totel): After error types are introduced remove the `unwrap` and switch to `?`
-                        parse_attribute(annotation_body, location, function, &globals).unwrap()
+                        parse_attribute(
+                            annotation_body,
+                            location,
+                            function,
+                            &globals,
+                            &monomorphizer.finished_functions,
+                        )
+                        .unwrap()
                     })
                     .collect(),
             )
