@@ -3,14 +3,13 @@ pub mod expr_to_vir;
 pub mod function;
 pub mod globals;
 
-use formal_verification::parse::Attribute;
 use function::build_funx;
 use noirc_errors::Location;
 use noirc_frontend::monomorphization::ast::{FuncId, Program};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt::Display, sync::Arc};
 use vir::{
-    ast::{Krate, KrateX, ModuleX, PathX},
+    ast::{Expr, Krate, KrateX, ModuleX, PathX},
     def::Spanned,
     messages::Span,
 };
@@ -19,6 +18,12 @@ use crate::vir::vir_gen::{
     expr_to_vir::expression_location, function::build_funx_with_ready_annotations,
     globals::build_global_const_x,
 };
+
+pub enum Attribute {
+    Ghost,
+    Ensures(Expr),
+    Requires(Expr),
+}
 
 pub fn encode_span_to_string(location: Location) -> String {
     let stringified_span: String = format!("{}, {}", location.span.start(), location.span.end());

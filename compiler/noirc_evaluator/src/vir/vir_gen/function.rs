@@ -7,7 +7,7 @@ use super::{
     BuildingKrateError,
     attribute::{func_ensures_to_vir_expr, func_requires_to_vir_expr},
 };
-use formal_verification::parse::Attribute;
+use crate::vir::vir_gen::Attribute;
 use noirc_errors::Location;
 use noirc_frontend::monomorphization::ast::{
     Expression, Function, GlobalId, MonomorphizedFvAttribute, Type,

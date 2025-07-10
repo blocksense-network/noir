@@ -3374,6 +3374,7 @@ dependencies = [
  "dirs",
  "fm",
  "fs2",
+ "fv_bridge",
  "fxhash",
  "iai",
  "insta",
@@ -3422,6 +3423,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "vir",
 ]
 
 [[package]]
@@ -3898,7 +3900,6 @@ dependencies = [
  "cfg-if",
  "chrono",
  "fm",
- "formal_verification",
  "function_name",
  "fxhash",
  "im",
