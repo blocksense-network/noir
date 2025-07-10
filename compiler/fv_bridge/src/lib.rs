@@ -7,7 +7,7 @@ use noirc_driver::{CompilationResult, CompileError, CompileOptions, check_crate}
 use noirc_errors::{CustomDiagnostic, Location};
 use noirc_evaluator::{
     errors::{RuntimeError, SsaReport},
-    vir::{create_verus_vir, vir_gen::BuildingKrateError},
+    vir::{create_verus_vir_with_ready_annotations, vir_gen::BuildingKrateError},
 };
 use noirc_frontend::{
     debug::DebugInstrumenter,
@@ -83,12 +83,14 @@ fn modified_compile_no_check(
     }
 
     Ok(KrateAndWarnings {
-        krate: create_verus_vir(program).map_err(|BuildingKrateError::Error(msg)| {
-            RuntimeError::InternalError(noirc_evaluator::errors::InternalError::General {
-                message: msg,
-                call_stack: vec![],
-            })
-        })?,
+        krate: create_verus_vir_with_ready_annotations(program, fv_annotations).map_err(
+            |BuildingKrateError::Error(msg)| {
+                RuntimeError::InternalError(noirc_evaluator::errors::InternalError::General {
+                    message: msg,
+                    call_stack: vec![],
+                })
+            },
+        )?,
         warnings: vec![],
         parse_annotations_errors: vec![], // TODO(totel): Get the errors from `modified_monomorphize()`
     })
