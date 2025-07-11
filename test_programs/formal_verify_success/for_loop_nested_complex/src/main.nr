@@ -1,4 +1,4 @@
-#[ensures(result == 2)]
+#['ensures(result == 2)]
 fn main() -> pub u32 {
 let x = 2;
 let y = 3;

@@ -7,5 +7,5 @@ fn main(x: u32) -> pub u32 {
     }
 }
 
-#[requires(x > 5)]
+#['requires(x > 5)]
 fn foo(x: u32) {}
