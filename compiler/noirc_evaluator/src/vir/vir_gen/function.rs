@@ -167,41 +167,24 @@ pub fn build_funx_with_ready_annotations(
     globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
     annotations: Vec<Attribute>,
 ) -> Result<FunctionX, BuildingKrateError> {
-    let is_ghost = annotations.iter().any(|x| matches!(x, Attribute::Ghost));
+    let mut is_ghost = false;
+    let mut requires_annotations_inner = vec![];
+    let mut ensures_annotations_inner = vec![];
+
+    for a in annotations.into_iter() {
+        match a {
+            Attribute::Ghost => {
+                is_ghost = true;
+            }
+            Attribute::Ensures(expr) => ensures_annotations_inner.push(expr),
+            Attribute::Requires(expr) => requires_annotations_inner.push(expr),
+        }
+    }
+
     let mode = get_function_mode(is_ghost);
 
     let function_params = get_function_params(function, mode)?;
     let function_return_param = get_function_return_param(function, mode)?;
-
-    let (requires_annotations, ensures_annotations): (Vec<Attribute>, Vec<Attribute>) = annotations
-        .into_iter()
-        .filter(|attribute| {
-            matches!(attribute, Attribute::Requires(_))
-                || matches!(attribute, Attribute::Ensures(_))
-        })
-        .partition(|attribute| matches!(attribute, Attribute::Requires(_)));
-
-    let requires_annotations_inner: Exprs = Arc::new(
-        requires_annotations
-            .into_iter()
-            .filter_map(|x| match x {
-                Attribute::Ghost => None,
-                Attribute::Ensures(_) => None,
-                Attribute::Requires(expr) => Some(expr),
-            })
-            .collect(),
-    );
-
-    let ensures_annotations_inner: Exprs = Arc::new(
-        ensures_annotations
-            .into_iter()
-            .filter_map(|x| match x {
-                Attribute::Ghost => None,
-                Attribute::Requires(_) => None,
-                Attribute::Ensures(expr) => Some(expr),
-            })
-            .collect(),
-    );
 
     let funx = FunctionX {
         name: function_into_funx_name(function),
@@ -223,8 +206,8 @@ pub fn build_funx_with_ready_annotations(
         params: function_params,
         ret: function_return_param,
         ens_has_return: !is_function_return_void(function),
-        require: requires_annotations_inner,
-        ensure: ensures_annotations_inner,
+        require: Arc::new(requires_annotations_inner),
+        ensure: Arc::new(ensures_annotations_inner),
         returns: None, // We don't support the special clause called `return`
         decrease: Arc::new(vec![]), // Annotation for recursive functions. We currently don't support it
         decrease_when: None, // Annotation for recursive functions. We currently don't support it
