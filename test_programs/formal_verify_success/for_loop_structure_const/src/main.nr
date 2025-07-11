@@ -3,7 +3,7 @@ struct A {
   b: u32
 }
 
-#[ensures(result == 10)]
+#['ensures(result == 10)]
 fn main() -> pub u32 {
   let x = A{a: 2, b: 5};
   let y = x.b;

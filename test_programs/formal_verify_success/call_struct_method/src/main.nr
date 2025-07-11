@@ -4,7 +4,7 @@ struct A {
 }
 
 impl A {
-    #[ensures(result.balance == self.balance / 2)]
+    #['ensures(result.balance == self.balance / 2)]
     fn foo(mut self) -> Self {
         self.balance = self.balance / 2;
         self
