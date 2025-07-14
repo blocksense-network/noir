@@ -44,6 +44,11 @@ use vir::{
     def::Spanned,
 };
 
+/// The function `assume()` from `fv_std_lib`
+static ASSUME: &str = "assume";
+/// The function `old()` from `fv_std_lib`
+static OLD: &str = "old";
+
 pub fn func_body_to_vir_expr(
     function: &Function,
     mode: Mode,
@@ -525,24 +530,9 @@ fn ast_call_to_vir_expr(
     mode: Mode,
     globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
 ) -> Expr {
-    // Special logic for handling the function `assume` from our Noir FV STD crate
-    if let Expression::Ident(func_ident) = &*call_expr.func {
-        if func_ident.name == "assume" {
-            let exprx = ExprX::AssertAssume {
-                is_assume: true,
-                expr: ast_expr_to_vir_expr(&call_expr.arguments[0], Mode::Spec, globals),
-            };
-            let assume_expr = SpannedTyped::new(
-                &build_span_no_id(
-                    format!("Assume {} is true", call_expr.arguments[0]),
-                    Some(call_expr.location),
-                ),
-                &make_unit_vir_type(),
-                exprx,
-            );
-
-            return wrap_with_ghost_block(assume_expr, Some(call_expr.location));
-        }
+    // Handle function calls to `fv_std_lib`
+    if let Some(expr) = handle_fv_std_call(call_expr, mode, globals) {
+        return expr;
     }
 
     let Expression::Ident(function_ident) = call_expr.func.as_ref() else {
@@ -583,6 +573,67 @@ fn ast_call_to_vir_expr(
         &ast_type_to_vir_type(&call_expr.return_type),
         exprx,
     )
+}
+
+/// Handles function calls from the `fv_std` library and converts them to special VIR expressions.
+fn handle_fv_std_call(
+    call_expr: &Call,
+    _mode: Mode, // Reserved for future use with additional `fv_std` functions
+    globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
+) -> Option<Expr> {
+    let ident = match &*call_expr.func {
+        Expression::Ident(ident) => ident,
+        _ => return None,
+    };
+
+    match ident.name.as_str() {
+        // Special logic for handling the function `assume` from our Noir `fv_std` library
+        s if s == ASSUME => {
+            let condition_expr = ast_expr_to_vir_expr(&call_expr.arguments[0], Mode::Spec, globals);
+
+            let exprx = ExprX::AssertAssume { is_assume: true, expr: condition_expr };
+
+            let assume_expr = SpannedTyped::new(
+                &build_span_no_id(
+                    format!("Assume {} is true", call_expr.arguments[0]),
+                    Some(call_expr.location),
+                ),
+                &make_unit_vir_type(),
+                exprx,
+            );
+
+            Some(wrap_with_ghost_block(assume_expr, Some(call_expr.location)))
+        }
+
+        // Special logic for handling the function `old` from our Noir `fv_std` library
+        s if s == OLD => {
+            assert!(
+                call_expr.arguments.len() == 1,
+                "Expected function `old` from `noir_fv_std` to have exactly one argument"
+            );
+
+            if let Expression::Ident(var_ident) = &call_expr.arguments[0] {
+                let ident_id = ast_definition_to_id(&var_ident.definition)
+                    .expect("Definition doesn't have an id");
+                let vir_ident = ast_ident_to_vir_var_ident(var_ident, ident_id);
+
+                let exprx = ExprX::VarAt(vir_ident, vir::ast::VarAt::Pre);
+
+                Some(SpannedTyped::new(
+                    &build_span_no_id(
+                        format!("old({})", call_expr.arguments[0]),
+                        Some(call_expr.location),
+                    ),
+                    &ast_type_to_vir_type(&call_expr.return_type),
+                    exprx,
+                ))
+            } else {
+                None
+            }
+        }
+
+        _ => None,
+    }
 }
 
 fn ast_constrain_to_vir_expr(

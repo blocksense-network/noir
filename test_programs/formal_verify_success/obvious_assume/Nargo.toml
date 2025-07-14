@@ -1,0 +1,7 @@
+[package]
+name = "obvious_assume"
+type = "bin"
+authors = [""]
+
+[dependencies]
+fv_std = { path = "../../../fv_std" }
