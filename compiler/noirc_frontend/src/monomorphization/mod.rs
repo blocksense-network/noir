@@ -52,7 +52,7 @@ use self::{
 /// and its value is the body expression of the function to which the `ensures`
 /// attribute is attached to.
 /// The leading `%` makes it an illegal identifier which ensures that it won't
-/// clash with existing identifiers. 
+/// clash with existing identifiers.
 pub const FUNC_RETURN_VAR_NAME: &str = "%return";
 
 pub mod ast;

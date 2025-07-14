@@ -901,6 +901,7 @@ fn formal_verify_success_{test_name}() {{
     let mut cmd = Command::cargo_bin("nargo").unwrap();
     cmd.arg("--program-dir").arg(test_program_dir);
     cmd.arg("formal-verify");
+    cmd.arg("--new-syntax");
 
     cmd.assert().success();
 }}
@@ -929,6 +930,7 @@ fn formal_verify_failure_{test_name}() {{
     let mut cmd = Command::cargo_bin("nargo").unwrap();
     cmd.arg("--program-dir").arg(test_program_dir);
     cmd.arg("formal-verify");
+    cmd.arg("--new-syntax");
 
     cmd.assert().failure().stderr(
         predicate::str::contains("The application panicked (crashed).")

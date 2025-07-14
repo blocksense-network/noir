@@ -19,6 +19,7 @@ use crate::vir::vir_gen::{
     globals::build_global_const_x,
 };
 
+#[derive(Debug, Clone)]
 pub enum Attribute {
     Ghost,
     Ensures(Expr),
