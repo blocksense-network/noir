@@ -604,7 +604,7 @@ pub(crate) fn parse_cast_suffix<'a>(input: Input<'a>) -> PResult<'a, CastTargetT
 
 pub(crate) fn parse_atom_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     alt((
-        context("parenthesised", parse_parenthesised_expr),
+        context("parenthesised or tuple", parse_parenthesised_or_tuple_expr),
         context("quantifier", parse_quantifier_expr),
         // context("path", parse_path_expr),
         context("fn_call", parse_fn_call_expr),
@@ -616,13 +616,46 @@ pub(crate) fn parse_atom_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     .parse(input)
 }
 
-pub(crate) fn parse_parenthesised_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
-    delimited(
-        expect("'('".to_string(), tag("(")),
-        delimited(multispace, parse_expression, multispace),
-        expect("')'".to_string(), tag(")")),
+pub(crate) fn parse_parenthesised_or_tuple_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+    let prev_offset = input.len();
+
+    // NOTE: Both parenthesised and tuple expressions have a starting `(`
+    let (input, (exprs, trailing_comma)) = delimited(
+        expect("(", tag("(")),
+        // NOTE: Inside, we have a list of 0 or more expressions separated by commas...
+        pair(
+            separated_list0(
+                delimited(multispace, expect(",", tag(",")), multispace),
+                parse_expression,
+            ),
+            // NOTE: ...with an optional trailing comma
+            opt(delimited(multispace, tag(","), multispace)),
+        ),
+        cut(expect(")", tag(")"))),
     )
-    .parse(input)
+    .parse(input)?;
+
+    let after_offset = input.len();
+
+    let result_expr = if let Some((only, [])) = exprs.split_first()
+        && trailing_comma.is_none()
+    {
+        // NOTE:
+        // Special case: exactly one expression and NO comma
+        // This is a parenthesized expression
+        build_expr(prev_offset, after_offset, ExprF::Parenthesised { expr: only.clone() })
+    } else {
+        // NOTE:
+        // All other cases are tuples:
+        // - `()` -> 0 expressions
+        // - `(1,)` -> 1 expression with a trailing comma
+        // - `(1, 2)` -> 2 expressions
+        // TODO:
+        // empty tuple vs unit?
+        build_expr(prev_offset, after_offset, ExprF::Tuple { exprs })
+    };
+
+    Ok((input, result_expr))
 }
 
 pub(crate) fn parse_quantifier_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
@@ -1046,6 +1079,13 @@ pub mod tests {
     #[test]
     fn test_postfix() {
         let expr = parse("5 + ala.126[nica].012[1[3]][2].15[da] / 5").unwrap();
+        dbg!(&expr);
+        assert_eq!(expr.0, "");
+    }
+
+    #[test]
+    fn test_tuple() {
+        let expr = parse("(1, kek, true).2").unwrap();
         dbg!(&expr);
         assert_eq!(expr.0, "");
     }

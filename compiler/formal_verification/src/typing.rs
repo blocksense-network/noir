@@ -89,6 +89,8 @@ pub fn bi_can_fit_in(bi: &BigInt, hole_size: &IntegerBitSize, hole_sign: &Signed
     return FitsIn::Yes;
 }
 
+// WARN: will (possibly) incorrectly propagate types in tuple literals
+//       `(1000, 5, 1000).1 == (5 as u8)`
 pub fn propagate_concrete_type(
     e: SpannedOptionallyTypedExpr,
     t: NoirType,
@@ -521,7 +523,12 @@ pub fn type_infer(
                 }
                 ExprF::TupleAccess { expr, index } => {
                     let Some(NoirType::Tuple(types)) = &expr.ann.1 else {
-                        panic!();
+                        // TODO(totel): better error?
+                        return Err(TypeInferenceError::NoirTypeError(
+                            TypeCheckError::ResolverError(ResolverError::SelfReferentialType {
+                                location,
+                            }),
+                        ));
                     };
                     let type_inner = types.get(*index as usize).ok_or(
                         TypeInferenceError::NoirTypeError(TypeCheckError::TupleIndexOutOfBounds {
@@ -573,6 +580,25 @@ pub fn type_infer(
                     }
 
                     (ExprF::Cast { expr, target: target.clone() }, Some(target.clone()))
+                }
+                ExprF::Tuple { exprs } => {
+                    // TODO: support not-yet-typed expressions in the tuple literals,
+                    //       later back-propagating the type inferrence through the projections
+                    //       into the tuple
+                    (
+                        exprf.clone(),
+                        Some(NoirType::Tuple(
+                            exprs
+                                .iter()
+                                .map(|e| e.ann.1.clone())
+                                .collect::<Option<Vec<_>>>()
+                                .ok_or(TypeInferenceError::NoirTypeError(
+                                    TypeCheckError::TypeAnnotationsNeededForFieldAccess {
+                                        location,
+                                    },
+                                ))?,
+                        )),
+                    )
                 }
             };
 
@@ -708,6 +734,7 @@ mod tests {
                     ExprF::Index { expr, index } => expr && index,
                     ExprF::TupleAccess { expr, .. } => expr,
                     ExprF::Cast { expr, .. } => expr,
+                    ExprF::Tuple { exprs } => exprs.into_iter().all(identity),
 
                     // Non-recursive variants don't carry information
                     ExprF::Literal { value: Literal::Bool(_) } | ExprF::Variable(_) => true,
@@ -747,6 +774,7 @@ mod tests {
                     ExprF::Index { expr, index } => expr && index,
                     ExprF::TupleAccess { expr, .. } => expr,
                     ExprF::Cast { expr, .. } => expr,
+                    ExprF::Tuple { exprs } => exprs.into_iter().all(identity),
 
                     // Non-recursive variants don't carry information
                     ExprF::Literal { value: Literal::Bool(_) } | ExprF::Variable(_) => true,
@@ -774,6 +802,7 @@ mod tests {
                     ExprF::Index { expr, index } => expr && index,
                     ExprF::TupleAccess { expr, .. } => expr,
                     ExprF::Cast { expr, .. } => expr,
+                    ExprF::Tuple { exprs } => exprs.into_iter().all(identity),
 
                     // Non-recursive variants don't carry information
                     ExprF::Literal { .. } => true,
@@ -961,6 +990,27 @@ mod tests {
         let spanned_typed_expr = type_infer(&state, spanned_expr).unwrap();
         dbg!(&strip_ann(spanned_typed_expr));
         // assert_eq!(spanned_typed_expr.ann.1, NoirType::Bool);
+    }
+
+    #[test]
+    fn test_tuple() {
+        let annotation = "ensures(((), kek, true).2)";
+        let state = empty_state();
+        let attribute = parse_attribute(
+            annotation,
+            Location {
+                span: Span::inclusive(0, annotation.len() as u32),
+                file: Default::default(),
+            },
+            state.function,
+            state.global_constants,
+            state.functions,
+        )
+        .unwrap();
+
+        let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
+        let spanned_typed_expr = type_infer(&state, spanned_expr).unwrap();
+        dbg!(&strip_ann(spanned_typed_expr));
     }
 
     #[test]

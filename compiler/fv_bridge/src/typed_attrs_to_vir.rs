@@ -337,6 +337,10 @@ pub(crate) fn ann_expr_to_vir_expr(ann_expr: SpannedTypedExpr, state: &State) ->
                 // TODO(totel): conversion of cast expressions
                 todo!()
             },
+            ExprF::Tuple { exprs } => {
+                // TODO(totel): conversion of tuple expressions
+                todo!()
+            },
         }
     })
 }

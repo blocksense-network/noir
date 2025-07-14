@@ -17,6 +17,7 @@ pub enum ExprF<R> {
     TupleAccess { expr: R, index: u32 },
     Cast { expr: R, target: NoirType },
     Literal { value: Literal },
+    Tuple { exprs: Vec<R> },
     Variable(Variable),
 }
 
@@ -162,6 +163,9 @@ pub fn fmap<A, B>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> B) -> ExprF<B> {
         ExprF::TupleAccess { expr, index } => ExprF::TupleAccess { expr: cata_fn(expr), index },
         ExprF::Cast { expr, target } => ExprF::Cast { expr: cata_fn(expr), target },
         ExprF::Literal { value } => ExprF::Literal { value },
+        ExprF::Tuple { exprs } => {
+            ExprF::Tuple { exprs: exprs.into_iter().map(cata_fn).collect::<Vec<_>>() }
+        }
         ExprF::Variable(Variable { path, name, id }) => {
             ExprF::Variable(Variable { path, name, id })
         }
@@ -188,6 +192,9 @@ fn try_fmap<A, B, E>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> Result<B, E>) -> Res
         ExprF::TupleAccess { expr, index } => ExprF::TupleAccess { expr: cata_fn(expr)?, index },
         ExprF::Cast { expr, target } => ExprF::Cast { expr: cata_fn(expr)?, target },
         ExprF::Literal { value } => ExprF::Literal { value },
+        ExprF::Tuple { exprs } => {
+            ExprF::Tuple { exprs: exprs.into_iter().map(cata_fn).collect::<Result<Vec<_>, _>>()? }
+        }
         ExprF::Variable(Variable { path, name, id }) => {
             ExprF::Variable(Variable { path, name, id })
         }
