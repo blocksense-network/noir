@@ -18,6 +18,7 @@ pub enum ExprF<R> {
     Cast { expr: R, target: NoirType },
     Literal { value: Literal },
     Tuple { exprs: Vec<R> },
+    Array { exprs: Vec<R> },
     Variable(Variable),
 }
 
@@ -166,6 +167,9 @@ pub fn fmap<A, B>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> B) -> ExprF<B> {
         ExprF::Tuple { exprs } => {
             ExprF::Tuple { exprs: exprs.into_iter().map(cata_fn).collect::<Vec<_>>() }
         }
+        ExprF::Array { exprs } => {
+            ExprF::Array { exprs: exprs.into_iter().map(cata_fn).collect::<Vec<_>>() }
+        }
         ExprF::Variable(Variable { path, name, id }) => {
             ExprF::Variable(Variable { path, name, id })
         }
@@ -195,6 +199,9 @@ fn try_fmap<A, B, E>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> Result<B, E>) -> Res
         ExprF::Tuple { exprs } => {
             ExprF::Tuple { exprs: exprs.into_iter().map(cata_fn).collect::<Result<Vec<_>, _>>()? }
         }
+        ExprF::Array { exprs } => ExprF::Array {
+            exprs: exprs.into_iter().map(cata_fn).collect::<Result<Vec<_>, _>>()?,
+        },
         ExprF::Variable(Variable { path, name, id }) => {
             ExprF::Variable(Variable { path, name, id })
         }

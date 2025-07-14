@@ -600,6 +600,36 @@ pub fn type_infer(
                         )),
                     )
                 }
+                ExprF::Array { exprs } => {
+                    match exprs.split_first() {
+                        // NOTE: we do not support empty array literals
+                        //       (pretty useless and a PITA to type infer)
+                        None => {
+                            // TODO(totel): better error?
+                            return Err(TypeInferenceError::NoirTypeError(
+                                TypeCheckError::InvalidTypeForEntryPoint { location },
+                            ));
+                        }
+                        Some((first, rest)) => {
+                            // NOTE: all expressions in the array have to have the same type
+                            if rest.iter().any(|e| e.ann.1 != first.ann.1) {
+                                // TODO(totel): better error?
+                                return Err(TypeInferenceError::NoirTypeError(
+                                    TypeCheckError::InvalidTypeForEntryPoint { location },
+                                ));
+                            }
+
+                            (
+                                exprf.clone(),
+                                first
+                                    .ann
+                                    .1
+                                    .clone()
+                                    .map(|t| NoirType::Array(exprs.len() as u32, Box::new(t))),
+                            )
+                        }
+                    }
+                }
             };
 
             Ok(SpannedOptionallyTypedExpr { ann: (location, exprf_type), expr: Box::new(exprf) })
@@ -735,6 +765,7 @@ mod tests {
                     ExprF::TupleAccess { expr, .. } => expr,
                     ExprF::Cast { expr, .. } => expr,
                     ExprF::Tuple { exprs } => exprs.into_iter().all(identity),
+                    ExprF::Array { exprs } => exprs.into_iter().all(identity),
 
                     // Non-recursive variants don't carry information
                     ExprF::Literal { value: Literal::Bool(_) } | ExprF::Variable(_) => true,
@@ -775,6 +806,7 @@ mod tests {
                     ExprF::TupleAccess { expr, .. } => expr,
                     ExprF::Cast { expr, .. } => expr,
                     ExprF::Tuple { exprs } => exprs.into_iter().all(identity),
+                    ExprF::Array { exprs } => exprs.into_iter().all(identity),
 
                     // Non-recursive variants don't carry information
                     ExprF::Literal { value: Literal::Bool(_) } | ExprF::Variable(_) => true,
@@ -803,6 +835,7 @@ mod tests {
                     ExprF::TupleAccess { expr, .. } => expr,
                     ExprF::Cast { expr, .. } => expr,
                     ExprF::Tuple { exprs } => exprs.into_iter().all(identity),
+                    ExprF::Array { exprs } => exprs.into_iter().all(identity),
 
                     // Non-recursive variants don't carry information
                     ExprF::Literal { .. } => true,
@@ -995,6 +1028,27 @@ mod tests {
     #[test]
     fn test_tuple() {
         let annotation = "ensures(((), kek, true).2)";
+        let state = empty_state();
+        let attribute = parse_attribute(
+            annotation,
+            Location {
+                span: Span::inclusive(0, annotation.len() as u32),
+                file: Default::default(),
+            },
+            state.function,
+            state.global_constants,
+            state.functions,
+        )
+        .unwrap();
+
+        let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
+        let spanned_typed_expr = type_infer(&state, spanned_expr).unwrap();
+        dbg!(&strip_ann(spanned_typed_expr));
+    }
+
+    #[test]
+    fn test_array() {
+        let annotation = "ensures([15 as i32, a, 129 as i32][2])";
         let state = empty_state();
         let attribute = parse_attribute(
             annotation,

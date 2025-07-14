@@ -606,10 +606,10 @@ pub(crate) fn parse_atom_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     alt((
         context("parenthesised or tuple", parse_parenthesised_or_tuple_expr),
         context("quantifier", parse_quantifier_expr),
-        // context("path", parse_path_expr),
         context("fn_call", parse_fn_call_expr),
         // context("member", parse_member_expr),
         // context("method_call", parse_method_call_expr),
+        context("array", parse_array_expr),
         context("literal", parse_literal_expr),
         context("var", parse_var_expr),
     ))
@@ -735,6 +735,23 @@ pub(crate) fn parse_fn_call_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr
             ExprF::FnCall { name: name.to_string(), args: params },
         ),
     ))
+}
+
+pub(crate) fn parse_array_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+    let prev_offset = input.len();
+
+    let (input, exprs) = delimited(
+        expect("[", tag("[")),
+        separated_list0(delimited(multispace, expect(",", tag(",")), multispace), parse_expression),
+        cut(expect("]", tag("]"))),
+    )
+    .parse(input)?;
+
+    let after_offset = input.len();
+
+    let result_expr = build_expr(prev_offset, after_offset, ExprF::Array { exprs });
+
+    Ok((input, result_expr))
 }
 
 pub(crate) fn parse_literal_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
@@ -1086,6 +1103,13 @@ pub mod tests {
     #[test]
     fn test_tuple() {
         let expr = parse("(1, kek, true).2").unwrap();
+        dbg!(&expr);
+        assert_eq!(expr.0, "");
+    }
+
+    #[test]
+    fn test_array() {
+        let expr = parse("[1, kek, true][2]").unwrap();
         dbg!(&expr);
         assert_eq!(expr.0, "");
     }
