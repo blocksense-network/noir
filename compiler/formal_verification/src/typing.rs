@@ -273,23 +273,17 @@ impl SpannedPartiallyTypedExpr {
 pub fn concretize_type(
     opt_type: OptionalType,
     default_integer_literal_type: &NoirType,
-) -> Result<NoirType, TypeInferenceError> {
+) -> Option<NoirType> {
     match opt_type {
-        OptionalType::Well(t) => Ok(t),
-        OptionalType::IntegerLiteral => Ok(default_integer_literal_type.clone()),
+        OptionalType::Well(t) => Some(t),
+        OptionalType::IntegerLiteral => Some(default_integer_literal_type.clone()),
         OptionalType::PartialTuple(elements) => elements
             .into_iter()
             .map(|e| match e {
-                OptionalType::IntegerLiteral => Err(TypeInferenceError::NoirTypeError(
-                    // TODO: carry optional information in `concretize_type`
-                    TypeCheckError::TypeAnnotationNeededOnArrayLiteral {
-                        is_array: true,
-                        location: Location::dummy(),
-                    },
-                )),
+                OptionalType::IntegerLiteral => None,
                 _ => concretize_type(e, default_integer_literal_type),
             })
-            .collect::<Result<_, _>>()
+            .collect::<Option<_>>()
             .map(NoirType::Tuple),
     }
 }
@@ -955,7 +949,14 @@ pub fn type_infer(
                     )?;
 
                     let concrete_element_type =
-                        concretize_type(unified_opt_type, &default_literal_type)?;
+                        concretize_type(unified_opt_type, &default_literal_type).ok_or(
+                            TypeInferenceError::NoirTypeError(
+                                TypeCheckError::TypeAnnotationNeededOnArrayLiteral {
+                                    is_array: true,
+                                    location,
+                                },
+                            ),
+                        )?;
 
                     exprs
                         .into_iter()
