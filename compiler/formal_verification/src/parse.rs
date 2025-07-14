@@ -335,7 +335,6 @@ pub(crate) fn parse_comparison_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetE
 pub(crate) fn parse_shift_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     let (i, mut expr_left) = parse_additive_expr(input)?;
 
-    // Apply the same `opt`/`cut` pattern here
     if let (i, Some((op, expr_right))) = opt(pair(
         delimited(multispace, expect("'<<' or '>>'", alt((tag("<<"), tag(">>")))), multispace),
         cut(parse_additive_expr),
@@ -361,10 +360,8 @@ pub(crate) fn parse_additive_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExp
     let (mut i, mut expr_left) = parse_multiplicative_expr(input)?;
 
     loop {
-        // Use `opt` to look for an operator. If none, we're done.
         let (next_i, remainder) = opt(pair(
             delimited(multispace, expect("'+' or '-'", alt((tag("+"), tag("-")))), multispace),
-            // If the operator IS found, `cut` makes the RHS mandatory.
             cut(parse_multiplicative_expr),
         ))
         .parse(i)?;
@@ -502,7 +499,6 @@ pub(crate) fn parse_member_suffix<'a>(input: Input<'a>) -> PResult<'a, BigInt> {
         .parse(input)
 }
 
-// Add this helper function to your parser file.
 fn trace<'a, P, O: Debug>(
     name: &'static str,
     mut parser: P,
@@ -723,7 +719,6 @@ pub(crate) fn parse_identifier<'a>(input: Input<'a>) -> PResult<'a, &'a str> {
 
     let identifier_parser = recognize(pair(take_while1(is_valid_start), take_while(is_valid_char)));
 
-    // Wrap the internal parser to catch the error from `take_while1`
     expect("an identifier".to_string(), identifier_parser)(input)
 }
 
