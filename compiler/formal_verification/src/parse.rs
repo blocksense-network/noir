@@ -31,8 +31,6 @@ use crate::{
 pub type Input<'a> = &'a str;
 pub type PResult<'a, T> = IResult<Input<'a>, T, Error>;
 
-// https://github.com/rust-bakery/nom/blob/main/doc/error_management.md
-
 pub(crate) fn build_location(
     annotation_location: Location,
     full_length: u32,
