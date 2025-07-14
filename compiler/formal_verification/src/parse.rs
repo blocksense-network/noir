@@ -256,10 +256,7 @@ pub(crate) fn parse_shift_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> 
     // Comparison operators are not associative (e.g., `a < b < c` is invalid),
     // so we just look for one optional occurrence.
     if let Ok((input, (op, expr_right))) = pair(
-        context(
-            "comparison",
-            delimited(multispace, alt((tag("<<"), tag(">>"))), multispace),
-        ),
+        context("comparison", delimited(multispace, alt((tag("<<"), tag(">>"))), multispace)),
         parse_additive_expr,
     )
     .parse(input)
@@ -427,7 +424,16 @@ pub(crate) fn parse_atom_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
 }
 
 pub(crate) fn parse_parenthesised_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
-    delimited(multispace, delimited(tag("("), parse_expression, tag(")")), multispace).parse(input)
+    delimited(
+        multispace,
+        delimited(
+            delimited(multispace, tag("("), multispace),
+            parse_expression,
+            delimited(multispace, tag(")"), multispace),
+        ),
+        multispace,
+    )
+    .parse(input)
 }
 
 pub(crate) fn parse_quantifier_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
@@ -768,6 +774,14 @@ pub mod tests {
     fn test_sum() {
         let identche = "1 + 2 * 3";
         let expr = parse(identche).unwrap();
+        dbg!(&expr);
+        assert_eq!(expr.0, "");
+    }
+
+    #[test]
+    fn test_parenthesis() {
+        let s = "( (( 1 + 2 ) ) * 3   )";
+        let expr = parse(s).unwrap();
         dbg!(&expr);
         assert_eq!(expr.0, "");
     }
