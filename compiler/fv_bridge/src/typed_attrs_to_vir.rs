@@ -243,7 +243,7 @@ pub(crate) fn ann_expr_to_vir_expr(ann_expr: SpannedTypedExpr, state: &State) ->
                     BinaryOp::Xor => bool_or_bitwise(VirBinaryOp::Xor, BitwiseOp::BitXor),
                 };
 
-                let binary_op_type = get_binary_op_type(expr_left.typ.clone(), &op);
+                let binary_op_type = ast_type_to_vir_type(&typ);
                 let exprx = ExprX::Binary(vir_binary_op, expr_left, expr_right);
 
                 let vir_binary_expr =
@@ -347,8 +347,4 @@ pub(crate) fn ann_expr_to_vir_expr(ann_expr: SpannedTypedExpr, state: &State) ->
             },
         }
     })
-}
-
-fn get_binary_op_type(lhs_type: Typ, binary_op: &BinaryOp) -> Typ {
-    if !binary_op.is_arithmetic() { Arc::new(TypX::Bool) } else { lhs_type }
 }

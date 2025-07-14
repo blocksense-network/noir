@@ -1,9 +1,9 @@
-use std::fmt::Display;
+use std::{convert::identity, fmt::Display};
 
 use crate::{
     MonomorphizationRequest, State,
     ast::{
-        AnnExpr, BinaryOp, ExprF, Literal, SpannedExpr, SpannedTypedExpr, UnaryOp, Variable,
+        AnnExpr, BinaryOp, ExprF, Literal, SpannedExpr, SpannedTypedExpr, UnaryOp, Variable, cata,
         strip_ann, try_cata, try_contextual_cata,
     },
 };
@@ -23,6 +23,8 @@ pub enum OptionalType {
     Well(NoirType),
     /// Untyped (yet) integer literal or quantified variable
     IntegerLiteral,
+    /// Tuple with holes
+    PartialTuple(Vec<OptionalType>),
 }
 
 impl Display for OptionalType {
@@ -30,6 +32,7 @@ impl Display for OptionalType {
         match self {
             OptionalType::Well(t) => write!(f, "{t}"),
             OptionalType::IntegerLiteral => write!(f, "Integer literal"),
+            OptionalType::PartialTuple(types) => write!(f, "Partial tuple with types: {:?}", types),
         }
     }
 }
@@ -110,61 +113,235 @@ pub fn bi_can_fit_in(bi: &BigInt, hole_size: &IntegerBitSize, hole_sign: &Signed
     return FitsIn::Yes;
 }
 
-// WARN: will (possibly) incorrectly propagate types in tuple literals
-//       `(1000, 5, 1000).1 == (5 as u8)`
-pub fn propagate_concrete_type(
-    e: SpannedPartiallyTypedExpr,
-    t: NoirType,
+/// Unifies a partially-typed expression with a target concrete type
+/// - If the expression is an `IntegerLiteral`, it's checked and given the target type
+/// - If the expression is already `Well`-typed, it checks if the types match
+/// - If the expression is a `PartialTuple`, it recursively unifies its elements
+pub fn unify_expression_with_type(
+    expr: SpannedPartiallyTypedExpr,
+    target_type: NoirType,
 ) -> Result<SpannedPartiallyTypedExpr, TypeInferenceError> {
-    let limits = match &t {
-        NoirType::Field => None,
-        NoirType::Integer(hole_sign, hole_size) => Some((hole_sign, hole_size)),
-        _ => todo!(
-            "Can only propagate integer types, trying to ram {:#?} into {:#?}",
-            t,
-            strip_ann(e)
-        ),
-    };
+    let (location, opt_type) = expr.ann;
+    let exprf = *expr.expr;
 
-    try_cata(e, &|(location, _type), expr| {
-        match expr {
-            ExprF::Literal { value: Literal::Int(ref bi) } => {
-                debug_assert!(
-                    _type == OptionalType::IntegerLiteral,
-                    "Trying to smash type {:?} into {:?} which already has type {:?}",
-                    t,
-                    bi,
-                    _type
-                );
-                // NOTE: only check limits for integer types
-                //       (assume that `NoirType::Field` can hold anything)
-                if let Some((hole_sign, hole_size)) = limits {
-                    let fits = bi_can_fit_in(bi, hole_size, hole_sign);
-                    match fits {
-                        FitsIn::Yes => {}
-                        FitsIn::No { need } => {
-                            return Err(TypeInferenceError::IntegerLiteralDoesNotFit {
-                                literal: bi.clone(),
-                                literal_type: t.clone(),
-                                fit_into: need.clone(),
-                                message: format!(
-                                    "Integer literal {} cannot fit in {}, needs at least {:?} or larger",
-                                    bi, t, need,
-                                ),
-                                location,
-                            });
-                        }
-                    }
+    match opt_type {
+        OptionalType::IntegerLiteral => match exprf {
+            ExprF::Literal { value: Literal::Int(bi) } => {
+                if let NoirType::Integer(ref sign, ref size) = target_type
+                    && let FitsIn::No { need } = bi_can_fit_in(&bi, size, sign)
+                {
+                    return Err(TypeInferenceError::IntegerLiteralDoesNotFit {
+                        literal: bi.clone(),
+                        literal_type: target_type.clone(),
+                        fit_into: need.clone(),
+                        location,
+                        message: format!(
+                            "Integer literal {} cannot fit in {}, needs at least {:?} or larger",
+                            bi, target_type, need
+                        ),
+                    });
                 }
+
+                Ok(SpannedPartiallyTypedExpr {
+                    expr: Box::new(ExprF::Literal { value: Literal::Int(bi) }),
+                    ann: (location, OptionalType::Well(target_type)),
+                })
             }
-            _ => {}
+            // NOTE: quantified variable
+            ExprF::Variable(var) => Ok(SpannedPartiallyTypedExpr {
+                ann: (location, OptionalType::Well(target_type)),
+                expr: Box::new(ExprF::Variable(var)),
+            }),
+            ExprF::BinaryOp { op, expr_left, expr_right } => {
+                let new_left = unify_expression_with_type(expr_left, target_type.clone())?;
+                let new_right = unify_expression_with_type(expr_right, target_type.clone())?;
+                let result_type = if op.is_comparison() { NoirType::Bool } else { target_type };
+                Ok(SpannedPartiallyTypedExpr {
+                    ann: (location, OptionalType::Well(result_type)),
+                    expr: Box::new(ExprF::BinaryOp {
+                        op,
+                        expr_left: new_left,
+                        expr_right: new_right,
+                    }),
+                })
+            }
+            ExprF::TupleAccess { expr: inner_tuple_expr, index } => {
+                let ExprF::Tuple { exprs } = *inner_tuple_expr.expr else { unreachable!() };
+
+                let new_elements = exprs
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, elem_expr)| {
+                        if i as u32 == index {
+                            unify_expression_with_type(elem_expr, target_type.clone())
+                        } else if let OptionalType::IntegerLiteral = elem_expr.ann.1 {
+                            // NOTE: Default other integer literals to Field, as they are unconstrained.
+                            unify_expression_with_type(elem_expr, NoirType::Field)
+                        } else {
+                            Ok(elem_expr)
+                        }
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                let new_element_types =
+                    new_elements.iter().map(|e| e.ann.1.clone()).collect::<Vec<_>>();
+                let updated_inner_tuple_type = new_element_types
+                    .iter()
+                    .map(|ot| match ot {
+                        OptionalType::Well(t) => Some(t.clone()),
+                        _ => None,
+                    })
+                    .collect::<Option<Vec<_>>>()
+                    .map(NoirType::Tuple)
+                    .map(OptionalType::Well)
+                    .unwrap_or(OptionalType::PartialTuple(new_element_types));
+
+                let updated_inner_tuple = SpannedPartiallyTypedExpr {
+                    ann: (inner_tuple_expr.ann.0, updated_inner_tuple_type),
+                    expr: Box::new(ExprF::Tuple { exprs: new_elements }),
+                };
+
+                Ok(SpannedPartiallyTypedExpr {
+                    ann: (location, OptionalType::Well(target_type.clone())),
+                    expr: Box::new(ExprF::TupleAccess { expr: updated_inner_tuple, index }),
+                })
+            }
+            ExprF::Parenthesised { expr: inner_expr } => {
+                let new_inner = unify_expression_with_type(inner_expr, target_type)?;
+                Ok(SpannedPartiallyTypedExpr {
+                    ann: new_inner.ann.clone(),
+                    expr: Box::new(ExprF::Parenthesised { expr: new_inner }),
+                })
+            }
+            _ => unreachable!(
+                "ICE: Unexpected expression {:?} found with IntegerLiteral type",
+                exprf
+            ),
+        },
+
+        OptionalType::Well(well_type) => {
+            if well_type == target_type {
+                Ok(SpannedPartiallyTypedExpr {
+                    ann: (location, OptionalType::Well(well_type)),
+                    expr: Box::new(exprf),
+                })
+            } else {
+                Err(TypeInferenceError::NoirTypeError(TypeCheckError::TypeMismatch {
+                    expected_typ: target_type.to_string(),
+                    expr_typ: well_type.to_string(),
+                    expr_location: location,
+                }))
+            }
         }
 
-        Ok(SpannedPartiallyTypedExpr {
-            expr: Box::new(expr),
-            ann: (location, OptionalType::Well(t.clone())),
-        })
-    })
+        OptionalType::PartialTuple(_) => {
+            let NoirType::Tuple(ref target_expr_types) = target_type else {
+                return Err(TypeInferenceError::NoirTypeError(TypeCheckError::TypeMismatch {
+                    expected_typ: target_type.to_string(),
+                    expr_typ: "tuple".to_string(),
+                    expr_location: location,
+                }));
+            };
+
+            let ExprF::Tuple { exprs } = exprf else { unreachable!() };
+
+            if exprs.len() != target_expr_types.len() {
+                return Err(TypeInferenceError::NoirTypeError(TypeCheckError::TupleMismatch {
+                    tuple_types: vec![],
+                    actual_count: exprs.len(),
+                    location,
+                }));
+            }
+
+            let new_exprs = exprs
+                .into_iter()
+                .zip(target_expr_types)
+                .map(|(elem_expr, target_elem_type)| {
+                    unify_expression_with_type(elem_expr, target_elem_type.clone())
+                })
+                .collect::<Result<_, _>>()?;
+
+            Ok(SpannedPartiallyTypedExpr {
+                ann: (location, OptionalType::Well(target_type)),
+                expr: Box::new(ExprF::Tuple { exprs: new_exprs }),
+            })
+        }
+    }
+}
+
+/// Converts an `OptionalType` into a concrete `NoirType`,
+/// using the default for any remaining untyped integer literals,
+/// unless in a partial tuple
+pub fn concretize_type(
+    opt_type: OptionalType,
+    default_integer_literal_type: &NoirType,
+) -> Result<NoirType, TypeInferenceError> {
+    match opt_type {
+        OptionalType::Well(t) => Ok(t),
+        OptionalType::IntegerLiteral => Ok(default_integer_literal_type.clone()),
+        OptionalType::PartialTuple(elements) => elements
+            .into_iter()
+            .map(|e| match e {
+                OptionalType::IntegerLiteral => Err(TypeInferenceError::NoirTypeError(
+                    // TODO: carry optional information in `concretize_type`
+                    TypeCheckError::TypeAnnotationNeededOnArrayLiteral {
+                        is_array: true,
+                        location: Location::dummy(),
+                    },
+                )),
+                _ => concretize_type(e, default_integer_literal_type),
+            })
+            .collect::<Result<_, _>>()
+            .map(NoirType::Tuple),
+    }
+}
+
+/// Takes two partially-typed expressions and attempts to make their types equal
+/// Information flows from the `Well` typed expression to the `IntegerLiteral`
+/// Returns the two (potentially updated) expressions
+pub fn unify(
+    left: SpannedPartiallyTypedExpr,
+    right: SpannedPartiallyTypedExpr,
+    default_literal_type: &NoirType,
+) -> Result<(SpannedPartiallyTypedExpr, SpannedPartiallyTypedExpr, NoirType), TypeInferenceError> {
+    match (&left.ann.1, &right.ann.1) {
+        (OptionalType::Well(t1), OptionalType::Well(t2)) => {
+            if t1 != t2 {
+                return Err(TypeInferenceError::NoirTypeError(TypeCheckError::TypeMismatch {
+                    expected_typ: t1.to_string(),
+                    expr_typ: t2.to_string(),
+                    expr_location: right.ann.0,
+                }));
+            }
+            let t = t1.clone();
+            Ok((left, right, t))
+        }
+
+        (OptionalType::Well(t), OptionalType::IntegerLiteral) => {
+            let new_right = unify_expression_with_type(right, t.clone())?;
+            let t = t.clone();
+            Ok((left, new_right, t))
+        }
+        (OptionalType::IntegerLiteral, OptionalType::Well(t)) => {
+            let new_left = unify_expression_with_type(left, t.clone())?;
+            let t = t.clone();
+            Ok((new_left, right, t))
+        }
+
+        (OptionalType::IntegerLiteral, OptionalType::IntegerLiteral) => {
+            let new_left = unify_expression_with_type(left, default_literal_type.clone())?;
+            let new_right = unify_expression_with_type(right, default_literal_type.clone())?;
+            Ok((new_left, new_right, default_literal_type.clone()))
+        }
+
+        // NOTE: All other combinations (e.g., trying to unify a bool with a tuple) are a type mismatch.
+        //       The calling function is responsible for handling recursive cases like tuples.
+        (t1, t2) => Err(TypeInferenceError::NoirTypeError(TypeCheckError::TypeMismatch {
+            expected_typ: t1.to_string(),
+            expr_typ: t2.to_string(),
+            expr_location: right.ann.0,
+        })),
+    }
 }
 
 pub fn type_infer(
@@ -294,8 +471,8 @@ pub fn type_infer(
                                 OptionalType::Well(NoirType::Reference(t, _)) => {
                                     OptionalType::Well(*t.clone())
                                 }
-                                // TODO(totel): better error?
-                                OptionalType::Well(_) | OptionalType::IntegerLiteral => {
+                                _ => {
+                                    // TODO(totel): better error?
                                     return Err(TypeInferenceError::NoirTypeError(
                                         TypeCheckError::UnconstrainedReferenceToConstrained {
                                             location,
@@ -310,201 +487,224 @@ pub fn type_infer(
                     (exprf.clone(), t)
                 }
                 ExprF::BinaryOp { op, expr_left, expr_right } => {
-                    match op {
-                        BinaryOp::ShiftLeft | BinaryOp::ShiftRight => {
-                            let mut expr_left = expr_left.clone();
-                            let mut expr_right = expr_right.clone();
-
-                            let shift_amount_type =
-                                NoirType::Integer(Signedness::Unsigned, IntegerBitSize::Eight);
-
-                            match &expr_right.ann.1 {
-                                // Fine shift amount, only `u8` is allowed in `Noir`
-                                OptionalType::Well(t) if *t == shift_amount_type => {}
-                                // Integer literal, try type inferring to `u8`
-                                OptionalType::IntegerLiteral => {
-                                    expr_right =
-                                        propagate_concrete_type(expr_right, shift_amount_type)?;
+                    enum TupleTypes {
+                        Well(Vec<NoirType>),
+                        Partial(Vec<OptionalType>),
+                    }
+                    impl From<TupleTypes> for Vec<OptionalType> {
+                        fn from(value: TupleTypes) -> Self {
+                            match value {
+                                TupleTypes::Well(types) => {
+                                    types.into_iter().map(OptionalType::Well).collect()
                                 }
-                                // Not fine shift amount
-                                OptionalType::Well(_) => {
-                                    return Err(TypeInferenceError::NoirTypeError(
-                                        TypeCheckError::InvalidShiftSize { location },
-                                    ));
-                                }
+                                TupleTypes::Partial(types) => types,
                             }
+                        }
+                    }
+                    fn is_tupleish(t: &OptionalType) -> Option<TupleTypes> {
+                        match t {
+                            OptionalType::Well(NoirType::Tuple(types)) => {
+                                Some(TupleTypes::Well(types.clone()))
+                            }
+                            OptionalType::PartialTuple(types) => {
+                                Some(TupleTypes::Partial(types.clone()))
+                            }
+                            _ => None,
+                        }
+                    }
 
-                            match &expr_left.ann.1 {
-                                // Fine shiftee
-                                OptionalType::Well(NoirType::Integer(_, _)) => {}
-                                // Integer literal, try type inferring to u32
-                                OptionalType::IntegerLiteral => {
-                                    expr_left = propagate_concrete_type(
-                                        expr_left,
-                                        default_literal_type.clone(),
-                                    )?;
-                                }
-                                // Not fine shiftee
-                                OptionalType::Well(expr_left_typ) => {
+                    if matches!(op, BinaryOp::Eq | BinaryOp::Neq)
+                        && let (Some(_), Some(_)) =
+                            (is_tupleish(&expr_left.ann.1), is_tupleish(&expr_right.ann.1))
+                    {
+                        let ExprF::Tuple { exprs: mut left_exprs } = *expr_left.expr.clone() else {
+                            unreachable!()
+                        };
+
+                        let ExprF::Tuple { exprs: mut right_exprs } = *expr_right.expr.clone()
+                        else {
+                            unreachable!()
+                        };
+
+                        if left_exprs.len() != right_exprs.len() {
+                            // TODO(totel): better error?
+                            return Err(TypeInferenceError::NoirTypeError(
+                                TypeCheckError::TupleMismatch {
+                                    location,
+                                    tuple_types: vec![],
+                                    actual_count: right_exprs.len(),
+                                },
+                            ));
+                        }
+
+                        let mut new_exprs_types = Vec::with_capacity(left_exprs.len());
+
+                        // NOTE: Unify all pair of elements
+                        for i in 0..left_exprs.len() {
+                            let (new_left_expr, new_right_expr, t) = unify(
+                                left_exprs[i].clone(),
+                                right_exprs[i].clone(),
+                                &default_literal_type,
+                            )?;
+
+                            (left_exprs[i], right_exprs[i]) = (new_left_expr, new_right_expr);
+                            new_exprs_types.push(t.clone());
+                        }
+
+                        let new_expr_left = SpannedPartiallyTypedExpr {
+                            expr: Box::new(ExprF::Tuple { exprs: left_exprs }),
+                            ann: (
+                                expr_left.ann.0,
+                                OptionalType::Well(NoirType::Tuple(new_exprs_types.clone())),
+                            ),
+                        };
+                        let new_expr_right = SpannedPartiallyTypedExpr {
+                            expr: Box::new(ExprF::Tuple { exprs: right_exprs }),
+                            ann: (
+                                expr_right.ann.0,
+                                OptionalType::Well(NoirType::Tuple(new_exprs_types.clone())),
+                            ),
+                        };
+
+                        (
+                            ExprF::BinaryOp {
+                                op: op.clone(),
+                                expr_left: new_expr_left,
+                                expr_right: new_expr_right,
+                            },
+                            OptionalType::Well(NoirType::Bool),
+                        )
+                    } else if op.is_shift() {
+                        let mut new_left = expr_left.clone();
+                        let mut new_right = expr_right.clone();
+                        let shift_amount_type =
+                            NoirType::Integer(Signedness::Unsigned, IntegerBitSize::Eight);
+
+                        match &new_right.ann.1 {
+                            OptionalType::Well(t) if *t != shift_amount_type => {
+                                return Err(TypeInferenceError::NoirTypeError(
+                                    TypeCheckError::InvalidShiftSize { location },
+                                ));
+                            }
+                            OptionalType::IntegerLiteral => {
+                                new_right =
+                                    unify_expression_with_type(new_right, shift_amount_type)?;
+                            }
+                            _ => {} // OK
+                        }
+
+                        if let OptionalType::IntegerLiteral = &new_left.ann.1 {
+                            new_left =
+                                unify_expression_with_type(new_left, default_literal_type.clone())?;
+                        }
+
+                        let result_type = new_left.ann.1.clone();
+                        (
+                            ExprF::BinaryOp {
+                                op: op.clone(),
+                                expr_left: new_left,
+                                expr_right: new_right,
+                            },
+                            result_type,
+                        )
+                    } else {
+                        match (&expr_left.ann.1, &expr_right.ann.1) {
+                            (OptionalType::Well(t1), OptionalType::Well(t2)) => {
+                                if t1 != t2 {
                                     return Err(TypeInferenceError::NoirTypeError(
                                         TypeCheckError::TypeMismatch {
-                                            expr_typ: expr_left_typ.to_string(),
-                                            expected_typ: String::from("Numeric type"),
-                                            expr_location: location,
+                                            expected_typ: t1.to_string(),
+                                            expr_typ: t2.to_string(),
+                                            expr_location: expr_right.ann.0,
                                         },
                                     ));
                                 }
+                                let result_type =
+                                    if op.is_comparison() { NoirType::Bool } else { t1.clone() };
+                                (exprf, OptionalType::Well(result_type))
                             }
 
-                            let t = expr_left.ann.1.clone();
-
-                            (ExprF::BinaryOp { op: op.clone(), expr_left, expr_right }, t)
-                        }
-                        BinaryOp::Mul
-                        | BinaryOp::Div
-                        | BinaryOp::Mod
-                        | BinaryOp::Add
-                        | BinaryOp::Sub
-                        | BinaryOp::Eq
-                        | BinaryOp::Neq
-                        | BinaryOp::Lt
-                        | BinaryOp::Le
-                        | BinaryOp::Gt
-                        | BinaryOp::Ge
-                        | BinaryOp::And
-                        | BinaryOp::Or
-                        | BinaryOp::Xor => {
-                            let is_arith = op.is_arithmetic();
-
-                            match (&expr_left.ann.1, &expr_right.ann.1) {
-                                (OptionalType::IntegerLiteral, OptionalType::IntegerLiteral) => {
-                                    if is_arith {
-                                        (exprf, OptionalType::IntegerLiteral)
-                                    } else {
-                                        let expr_left_inner = propagate_concrete_type(
-                                            expr_left.clone(),
-                                            default_literal_type.clone(),
-                                        )?;
-                                        let expr_right_inner = propagate_concrete_type(
-                                            expr_right.clone(),
-                                            default_literal_type.clone(),
-                                        )?;
-
-                                        (
-                                            ExprF::BinaryOp {
-                                                op: op.clone(),
-                                                expr_left: expr_left_inner,
-                                                expr_right: expr_right_inner,
-                                            },
-                                            OptionalType::Well(NoirType::Bool),
-                                        )
-                                    }
+                            (OptionalType::Well(t1), OptionalType::IntegerLiteral) => {
+                                if (op.is_arithmetic() || op.is_bitwise()) && !is_numeric(t1) {
+                                    return Err(TypeInferenceError::NoirTypeError(
+                                        TypeCheckError::TypeMismatch {
+                                            expected_typ: "a numeric type".to_string(),
+                                            expr_typ: t1.to_string(),
+                                            expr_location: expr_left.ann.0,
+                                        },
+                                    ));
                                 }
-                                (OptionalType::IntegerLiteral, OptionalType::Well(t2)) => {
-                                    // NOTE: `1 & true`
-                                    if is_arith && !is_numeric(t2) {
-                                        return Err(TypeInferenceError::NoirTypeError(
-                                            TypeCheckError::TypeMismatch {
-                                                expected_typ: "Numeric type".to_string(),
-                                                expr_typ: t2.to_string(),
-                                                expr_location: location,
-                                            },
-                                        ));
-                                    }
+                                let new_right =
+                                    unify_expression_with_type(expr_right.clone(), t1.clone())?;
+                                let result_type =
+                                    if op.is_comparison() { NoirType::Bool } else { t1.clone() };
+                                (
+                                    ExprF::BinaryOp {
+                                        op: op.clone(),
+                                        expr_left: expr_left.clone(),
+                                        expr_right: new_right,
+                                    },
+                                    OptionalType::Well(result_type),
+                                )
+                            }
 
-                                    let expr_left_inner =
-                                        propagate_concrete_type(expr_left.clone(), t2.clone())?;
+                            (OptionalType::IntegerLiteral, OptionalType::Well(t2)) => {
+                                if (op.is_arithmetic() || op.is_bitwise()) && !is_numeric(t2) {
+                                    return Err(TypeInferenceError::NoirTypeError(
+                                        TypeCheckError::TypeMismatch {
+                                            expected_typ: "a numeric type".to_string(),
+                                            expr_typ: t2.to_string(),
+                                            expr_location: expr_right.ann.0,
+                                        },
+                                    ));
+                                }
+                                let new_left =
+                                    unify_expression_with_type(expr_left.clone(), t2.clone())?;
+                                let result_type =
+                                    if op.is_comparison() { NoirType::Bool } else { t2.clone() };
+                                (
+                                    ExprF::BinaryOp {
+                                        op: op.clone(),
+                                        expr_left: new_left,
+                                        expr_right: expr_right.clone(),
+                                    },
+                                    OptionalType::Well(result_type),
+                                )
+                            }
 
+                            (OptionalType::IntegerLiteral, OptionalType::IntegerLiteral) => {
+                                if op.is_arithmetic() || op.is_bitwise() {
+                                    (exprf, OptionalType::IntegerLiteral)
+                                } else {
+                                    let new_left = unify_expression_with_type(
+                                        expr_left.clone(),
+                                        default_literal_type.clone(),
+                                    )?;
+                                    let new_right = unify_expression_with_type(
+                                        expr_right.clone(),
+                                        default_literal_type.clone(),
+                                    )?;
                                     (
                                         ExprF::BinaryOp {
                                             op: op.clone(),
-                                            expr_left: expr_left_inner,
-                                            expr_right: expr_right.clone(),
+                                            expr_left: new_left,
+                                            expr_right: new_right,
                                         },
-                                        OptionalType::Well(if is_arith {
-                                            t2.clone()
-                                        } else {
-                                            NoirType::Bool
-                                        }),
-                                    )
-                                }
-                                (OptionalType::Well(t1), OptionalType::IntegerLiteral) => {
-                                    // NOTE: `true & 1`
-                                    if is_arith && !is_numeric(t1) {
-                                        return Err(TypeInferenceError::NoirTypeError(
-                                            TypeCheckError::TypeMismatch {
-                                                expected_typ: "Numeric type".to_string(),
-                                                expr_typ: t1.to_string(),
-                                                expr_location: location,
-                                            },
-                                        ));
-                                    }
-
-                                    let expr_right_inner =
-                                        propagate_concrete_type(expr_right.clone(), t1.clone())?;
-
-                                    (
-                                        ExprF::BinaryOp {
-                                            op: op.clone(),
-                                            expr_left: expr_left.clone(),
-                                            expr_right: expr_right_inner,
-                                        },
-                                        OptionalType::Well(if is_arith {
-                                            t1.clone()
-                                        } else {
-                                            NoirType::Bool
-                                        }),
-                                    )
-                                }
-                                (OptionalType::Well(t1), OptionalType::Well(t2)) => {
-                                    if t1 != t2 {
-                                        return Err(TypeInferenceError::NoirTypeError(
-                                            TypeCheckError::TypeMismatch {
-                                                expected_typ: t2.to_string(),
-                                                expr_typ: t1.to_string(),
-                                                expr_location: location,
-                                            },
-                                        ));
-                                    }
-
-                                    (
-                                        ExprF::BinaryOp {
-                                            op: op.clone(),
-                                            expr_left: expr_left.clone(),
-                                            expr_right: expr_right.clone(),
-                                        },
-                                        OptionalType::Well(if is_arith {
-                                            t1.clone()
-                                        } else {
-                                            NoirType::Bool
-                                        }),
+                                        OptionalType::Well(NoirType::Bool),
                                     )
                                 }
                             }
-                        }
 
-                        // pure Boolean
-                        BinaryOp::Implies => {
-                            if expr_left.ann.1 != OptionalType::Well(NoirType::Bool) {
+                            // NOTE: Any other combination involving tuples is an error in this arm
+                            (t1, t2) => {
                                 return Err(TypeInferenceError::NoirTypeError(
                                     TypeCheckError::TypeMismatch {
-                                        expr_typ: expr_left.ann.1.to_string(),
-                                        expected_typ: NoirType::Bool.to_string(),
+                                        expected_typ: t1.to_string(),
+                                        expr_typ: t2.to_string(),
                                         expr_location: location,
                                     },
                                 ));
                             }
-                            if expr_right.ann.1 != OptionalType::Well(NoirType::Bool) {
-                                return Err(TypeInferenceError::NoirTypeError(
-                                    TypeCheckError::TypeMismatch {
-                                        expr_typ: expr_right.ann.1.to_string(),
-                                        expected_typ: NoirType::Bool.to_string(),
-                                        expr_location: location,
-                                    },
-                                ));
-                            }
-
-                            (exprf, OptionalType::Well(NoirType::Bool))
                         }
                     }
                 }
@@ -525,13 +725,14 @@ pub fn type_infer(
                         OptionalType::Well(NoirType::Integer(Signedness::Unsigned, _)) => {}
                         // Integer literal, try type inferring to `u32`
                         OptionalType::IntegerLiteral => {
-                            index = propagate_concrete_type(index, default_literal_type.clone())?;
+                            index =
+                                unify_expression_with_type(index, default_literal_type.clone())?;
                         }
                         // Not fine index
-                        OptionalType::Well(_) => {
+                        t => {
                             return Err(TypeInferenceError::NoirTypeError(
                                 TypeCheckError::TypeMismatch {
-                                    expr_typ: index.ann.1.to_string(),
+                                    expr_typ: t.to_string(),
                                     expected_typ: String::from("Unsigned integer type"),
                                     expr_location: location,
                                 },
@@ -545,26 +746,46 @@ pub fn type_infer(
                     )
                 }
                 ExprF::TupleAccess { expr, index } => {
-                    let OptionalType::Well(NoirType::Tuple(types)) = &expr.ann.1 else {
-                        // TODO(totel): better error?
-                        return Err(TypeInferenceError::NoirTypeError(
-                            TypeCheckError::ResolverError(ResolverError::SelfReferentialType {
-                                location,
-                            }),
-                        ));
+                    let t = match &expr.ann.1 {
+                        OptionalType::Well(NoirType::Tuple(types)) => {
+                            types.get(*index as usize).cloned().map(OptionalType::Well).ok_or(
+                                TypeInferenceError::NoirTypeError(
+                                    TypeCheckError::TupleIndexOutOfBounds {
+                                        index: *index as usize,
+                                        // NOTE: We are converting to Type::Tuple of empty vec because
+                                        // the inner types don't really matter for the error reporting
+                                        lhs_type: noirc_frontend::Type::Tuple(vec![]),
+                                        length: types.len(),
+                                        location,
+                                    },
+                                ),
+                            )?
+                        }
+                        OptionalType::PartialTuple(types) => {
+                            types.get(*index as usize).cloned().ok_or(
+                                TypeInferenceError::NoirTypeError(
+                                    TypeCheckError::TupleIndexOutOfBounds {
+                                        index: *index as usize,
+                                        // NOTE: We are converting to Type::Tuple of empty vec because
+                                        // the inner types don't really matter for the error reporting
+                                        lhs_type: noirc_frontend::Type::Tuple(vec![]),
+                                        length: types.len(),
+                                        location,
+                                    },
+                                ),
+                            )?
+                        }
+                        _ => {
+                            // TODO(totel): better error?
+                            return Err(TypeInferenceError::NoirTypeError(
+                                TypeCheckError::ResolverError(ResolverError::SelfReferentialType {
+                                    location,
+                                }),
+                            ));
+                        }
                     };
-                    let type_inner = types.get(*index as usize).ok_or(
-                        TypeInferenceError::NoirTypeError(TypeCheckError::TupleIndexOutOfBounds {
-                            index: *index as usize,
-                            // NOTE: We are converting to Type::Tuple of empty vec because
-                            // the inner types don't really matter for the error reporting
-                            lhs_type: noirc_frontend::Type::Tuple(vec![]),
-                            length: types.len(),
-                            location,
-                        }),
-                    )?;
 
-                    (exprf.clone(), OptionalType::Well(type_inner.clone()))
+                    (exprf.clone(), t)
                 }
                 ExprF::Cast { expr, target } => {
                     let mut expr = expr.clone();
@@ -599,7 +820,7 @@ pub fn type_infer(
 
                     // Try to type infer integer literals as the target type
                     if matches!(expr.ann.1, OptionalType::IntegerLiteral) {
-                        expr = propagate_concrete_type(expr, target.clone())?;
+                        expr = unify_expression_with_type(expr, target.clone())?;
                     }
 
                     (
@@ -611,55 +832,140 @@ pub fn type_infer(
                     // TODO: support not-yet-typed expressions in the tuple literals,
                     //       later back-propagating the type inferrence through the projections
                     //       into the tuple
-                    (
-                        exprf.clone(),
-                        OptionalType::Well(NoirType::Tuple(
-                            exprs
-                                .iter()
-                                .map(|e| e.ann.1.clone())
-                                .map(|ot| match ot {
-                                    OptionalType::Well(t) => Some(t),
-                                    OptionalType::IntegerLiteral => None,
-                                })
-                                .collect::<Option<Vec<_>>>()
-                                .ok_or(TypeInferenceError::NoirTypeError(
-                                    TypeCheckError::TypeAnnotationsNeededForFieldAccess {
-                                        location,
-                                    },
-                                ))?,
-                        )),
-                    )
+
+                    // NOTE: if all sub-expressions are well-typed, produce a well-typed `Tuple`
+                    //       otherwise, produce a `OptionalType::PartialTuple`
+                    let t = exprs
+                        .iter()
+                        .map(|e| e.ann.1.clone())
+                        .map(|ot| match ot {
+                            OptionalType::Well(t) => Some(t),
+                            _ => None,
+                        })
+                        .collect::<Option<Vec<_>>>()
+                        .map(NoirType::Tuple)
+                        .map(OptionalType::Well)
+                        .unwrap_or(OptionalType::PartialTuple(
+                            exprs.iter().map(|ae| ae.ann.1.clone()).collect(),
+                        ));
+
+                    (exprf.clone(), t)
                 }
                 ExprF::Array { exprs } => {
-                    match exprs.split_first() {
-                        // NOTE: we do not support empty array literals
-                        //       (pretty useless and a PITA to type infer)
-                        None => {
-                            // TODO(totel): better error?
-                            return Err(TypeInferenceError::NoirTypeError(
-                                TypeCheckError::InvalidTypeForEntryPoint { location },
-                            ));
-                        }
-                        Some((first, rest)) => {
-                            // NOTE: all expressions in the array have to have the same type
-                            if rest.iter().any(|e| e.ann.1 != first.ann.1) {
-                                // TODO(totel): better error?
-                                return Err(TypeInferenceError::NoirTypeError(
-                                    TypeCheckError::InvalidTypeForEntryPoint { location },
-                                ));
-                            }
-
-                            (
-                                exprf.clone(),
-                                match first.ann.1 {
-                                    OptionalType::Well(ref t) => OptionalType::Well(
-                                        NoirType::Array(exprs.len() as u32, Box::new(t.clone())),
-                                    ),
-                                    OptionalType::IntegerLiteral => OptionalType::IntegerLiteral,
-                                },
-                            )
-                        }
+                    if exprs.is_empty() {
+                        // TODO(totel): better error?
+                        return Err(TypeInferenceError::NoirTypeError(
+                            TypeCheckError::InvalidTypeForEntryPoint { location },
+                        ));
                     }
+
+                    let unified_opt_type = exprs.iter().try_fold(
+                        OptionalType::IntegerLiteral,
+                        |acc, current_expr| {
+                            // This closure acts as our "join" operation.
+                            fn join_types(
+                                t1: OptionalType,
+                                t2: OptionalType,
+                                location: Location,
+                            ) -> Result<OptionalType, TypeInferenceError>
+                            {
+                                match (t1, t2) {
+                                    // An integer literal can join with any other type.
+                                    (t, OptionalType::IntegerLiteral) => Ok(t),
+                                    (OptionalType::IntegerLiteral, t) => Ok(t),
+
+                                    // If both types are well-known, they must be identical.
+                                    (OptionalType::Well(w1), OptionalType::Well(w2)) => {
+                                        if w1 == w2 {
+                                            Ok(OptionalType::Well(w1))
+                                        } else {
+                                            Err(TypeInferenceError::NoirTypeError(
+                                                // TODO: calculate indices
+                                                TypeCheckError::NonHomogeneousArray {
+                                                    first_type: w1.to_string(),
+                                                    first_location: location,
+                                                    first_index: 0,
+                                                    second_type: w2.to_string(),
+                                                    second_location: location,
+                                                    second_index: 0,
+                                                },
+                                            ))
+                                        }
+                                    }
+
+                                    // Recursively join partial tuples.
+                                    (
+                                        OptionalType::PartialTuple(v1),
+                                        OptionalType::PartialTuple(v2),
+                                    ) => {
+                                        if v1.len() != v2.len() {
+                                            /* TODO: Mismatch error */
+                                            Ok(OptionalType::PartialTuple(vec![]))
+                                        } else {
+                                            let joined = v1
+                                                .into_iter()
+                                                .zip(v2.into_iter())
+                                                .map(|(e1, e2)| join_types(e1, e2, location))
+                                                .collect::<Result<_, _>>()?;
+                                            Ok(OptionalType::PartialTuple(joined))
+                                        }
+                                    }
+
+                                    // Coerce Well(Tuple) to PartialTuple for joining.
+                                    (
+                                        OptionalType::Well(NoirType::Tuple(v1)),
+                                        t2 @ OptionalType::PartialTuple(_),
+                                    ) => join_types(
+                                        OptionalType::PartialTuple(
+                                            v1.into_iter().map(OptionalType::Well).collect(),
+                                        ),
+                                        t2,
+                                        location,
+                                    ),
+                                    (
+                                        t1 @ OptionalType::PartialTuple(_),
+                                        OptionalType::Well(NoirType::Tuple(v2)),
+                                    ) => join_types(
+                                        t1,
+                                        OptionalType::PartialTuple(
+                                            v2.into_iter().map(OptionalType::Well).collect(),
+                                        ),
+                                        location,
+                                    ),
+
+                                    // NOTE: All other combinations are a non-homogeneous array error
+                                    (other1, other2) => Err(TypeInferenceError::NoirTypeError(
+                                        TypeCheckError::NonHomogeneousArray {
+                                            first_type: other1.to_string(),
+                                            first_location: location,
+                                            first_index: 0,
+                                            second_type: other2.to_string(),
+                                            second_location: location,
+                                            second_index: 0,
+                                        },
+                                    )),
+                                }
+                            }
+                            join_types(acc, current_expr.ann.1.clone(), location)
+                        },
+                    )?;
+
+                    let concrete_element_type =
+                        concretize_type(unified_opt_type, &default_literal_type)?;
+
+                    let new_exprs = exprs
+                        .into_iter()
+                        .map(|expr| {
+                            unify_expression_with_type(expr.clone(), concrete_element_type.clone())
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+
+                    let array_type = OptionalType::Well(NoirType::Array(
+                        new_exprs.len() as u32,
+                        Box::new(concrete_element_type),
+                    ));
+
+                    (ExprF::Array { exprs: new_exprs }, array_type)
                 }
             };
 
@@ -672,7 +978,7 @@ pub fn type_infer(
             OptionalType::Well(t) => {
                 Ok(SpannedTypedExpr { ann: (location, t), expr: Box::new(exprf) })
             }
-            OptionalType::IntegerLiteral => Err(format!("Expr {:?} still has no type", exprf)),
+            _ => Err(format!("Expr {:?} still has no type ({:?})", exprf, otype)),
         })
         .expect("Typing should have either succeeded or have resulted in an expected error");
 
@@ -693,7 +999,7 @@ mod tests {
 
     use crate::{
         Attribute,
-        ast::{Literal, Variable, cata},
+        ast::{Literal, Variable, cata, strip_ann},
         parse::{parse_attribute, tests::*},
     };
 
@@ -941,7 +1247,7 @@ mod tests {
         // NOTE: untyped integer literal (same for quantifier variables) force the other argument
         //       to also be numeric
         assert_eq!(expr_typ, "bool");
-        assert_eq!(expected_typ, "Numeric type");
+        assert_eq!(expected_typ, "a numeric type");
     }
 
     #[test]
@@ -1059,6 +1365,27 @@ mod tests {
     }
 
     #[test]
+    fn test_tuple_complex() {
+        let annotation = "ensures((1000, 5, 1000).1 == 15 as u8)";
+        let state = empty_state();
+        let attribute = parse_attribute(
+            annotation,
+            Location {
+                span: Span::inclusive(0, annotation.len() as u32),
+                file: Default::default(),
+            },
+            state.function,
+            state.global_constants,
+            state.functions,
+        )
+        .unwrap();
+
+        let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
+        let spanned_typed_expr = type_infer(&state, spanned_expr).unwrap();
+        dbg!(&strip_ann(spanned_typed_expr));
+    }
+
+    #[test]
     fn test_tuple() {
         let annotation = "ensures(((), kek, true).2)";
         let state = empty_state();
@@ -1077,6 +1404,87 @@ mod tests {
         let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
         let spanned_typed_expr = type_infer(&state, spanned_expr).unwrap();
         dbg!(&strip_ann(spanned_typed_expr));
+    }
+
+    #[test]
+    fn test_tuple_equality() {
+        let annotation = "ensures((1 as u8, 15) == (1, 15 as i16))";
+        let state = empty_state();
+        let attribute = parse_attribute(
+            annotation,
+            Location {
+                span: Span::inclusive(0, annotation.len() as u32),
+                file: Default::default(),
+            },
+            state.function,
+            state.global_constants,
+            state.functions,
+        )
+        .unwrap();
+
+        let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
+        let spanned_typed_expr = type_infer(&state, spanned_expr).unwrap();
+        dbg!(&strip_ann(spanned_typed_expr.clone()));
+
+        let ExprF::BinaryOp { op: BinaryOp::Eq, expr_left, expr_right } = *spanned_typed_expr.expr
+        else {
+            panic!()
+        };
+
+        let ExprF::Tuple { exprs: _ } = *expr_left.expr else { panic!() };
+        let ExprF::Tuple { exprs: _ } = *expr_right.expr else { panic!() };
+
+        // Assert that both tuple types are fully unified
+        assert_eq!(
+            expr_left.ann.1,
+            NoirType::Tuple(vec![
+                NoirType::Integer(Signedness::Unsigned, IntegerBitSize::Eight),
+                NoirType::Integer(Signedness::Signed, IntegerBitSize::Sixteen)
+            ])
+        );
+        assert_eq!(expr_left.ann.1, expr_right.ann.1);
+    }
+
+    #[test]
+    fn test_array_equality() {
+        let annotation = "ensures([(1, 2), (1 as u8, 7), (8, 9 as i16)] == [(0, 0), (1 as u8, 2 as i16), (0, 0)])";
+        let state = empty_state();
+        let attribute = parse_attribute(
+            annotation,
+            Location {
+                span: Span::inclusive(0, annotation.len() as u32),
+                file: Default::default(),
+            },
+            state.function,
+            state.global_constants,
+            state.functions,
+        )
+        .unwrap();
+
+        let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
+        let spanned_typed_expr = type_infer(&state, spanned_expr).unwrap();
+        dbg!(&strip_ann(spanned_typed_expr.clone()));
+
+        let ExprF::BinaryOp { op: BinaryOp::Eq, expr_left, expr_right } = *spanned_typed_expr.expr
+        else {
+            panic!()
+        };
+
+        let ExprF::Array { exprs: _ } = *expr_left.expr else { panic!() };
+        let ExprF::Array { exprs: _ } = *expr_right.expr else { panic!() };
+
+        // Assert that both array types are fully unified
+        assert_eq!(
+            expr_left.ann.1,
+            NoirType::Array(
+                3,
+                Box::new(NoirType::Tuple(vec![
+                    NoirType::Integer(Signedness::Unsigned, IntegerBitSize::Eight),
+                    NoirType::Integer(Signedness::Signed, IntegerBitSize::Sixteen)
+                ]))
+            )
+        );
+        assert_eq!(expr_left.ann.1, expr_right.ann.1);
     }
 
     #[test]
