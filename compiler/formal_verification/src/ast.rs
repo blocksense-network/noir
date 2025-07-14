@@ -156,8 +156,8 @@ pub fn fmap<A, B>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> B) -> ExprF<B> {
         ExprF::FnCall { name, args } => {
             ExprF::FnCall { name, args: args.into_iter().map(cata_fn).collect() }
         }
-        ExprF::Index { expr: indexee, index } => {
-            ExprF::Index { expr: cata_fn(indexee), index: cata_fn(index) }
+        ExprF::Index { expr, index } => {
+            ExprF::Index { expr: cata_fn(expr), index: cata_fn(index) }
         }
         ExprF::TupleAccess { expr, index } => ExprF::TupleAccess { expr: cata_fn(expr), index },
         ExprF::Cast { expr, target } => ExprF::Cast { expr: cata_fn(expr), target },
@@ -182,8 +182,8 @@ fn try_fmap<A, B, E>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> Result<B, E>) -> Res
             let processed_args = args.into_iter().map(cata_fn).collect::<Result<Vec<_>, _>>()?;
             ExprF::FnCall { name, args: processed_args }
         }
-        ExprF::Index { expr: indexee, index } => {
-            ExprF::Index { expr: cata_fn(indexee)?, index: cata_fn(index)? }
+        ExprF::Index { expr, index } => {
+            ExprF::Index { expr: cata_fn(expr)?, index: cata_fn(index)? }
         }
         ExprF::TupleAccess { expr, index } => ExprF::TupleAccess { expr: cata_fn(expr)?, index },
         ExprF::Cast { expr, target } => ExprF::Cast { expr: cata_fn(expr)?, target },
