@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use noirc_errors::Location;
 use noirc_frontend::monomorphization::ast::Type as NoirType;
 use num_bigint::BigInt;
@@ -10,22 +12,12 @@ pub enum ExprF<R> {
     BinaryOp { op: BinaryOp, expr_left: R, expr_right: R },
     UnaryOp { op: UnaryOp, expr: R },
     Parenthesised { expr: R },
-    Quantified {
-        quantifier: Quantifier,
-        // TODO: ids
-        name: Identifier,
-        expr: R,
-    },
+    Quantified { quantifier: Quantifier, variables: Vec<Variable>, expr: R },
     FnCall { name: Identifier, args: Vec<R> },
     Index { expr: R, index: R },
     TupleAccess { expr: R, index: u32 },
     Literal { value: Literal },
-    Variable {
-        name: Identifier,
-        // TODO: ids
-        // LocalId from Noir
-        // local_id: u32,
-    },
+    Variable(Variable),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,6 +30,14 @@ pub type SpannedOptionallyTypedExpr = AnnExpr<(Location, Option<NoirType>)>;
 pub type SpannedTypedExpr = AnnExpr<(Location, NoirType)>;
 pub type SpannedExpr = AnnExpr<Location>;
 pub type OffsetExpr = AnnExpr<(u32, u32)>;
+
+#[derive(Clone, derive_more::Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[debug("{_0:?}")]
+pub struct RawExpr(pub Box<ExprF<RawExpr>>);
+
+pub fn strip_ann<T>(expr: AnnExpr<T>) -> RawExpr {
+    cata(expr, &|_, expr| RawExpr(Box::new(expr)))
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Literal {
@@ -129,6 +129,16 @@ impl BinaryOp {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Variable {
+    pub name: Identifier,
+    pub id: Option<u32>,
+}
+
+/*
+* cata stuff
+* */
+
 pub fn fmap<A, B>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> B) -> ExprF<B> {
     match expr {
         ExprF::BinaryOp { op, expr_left, expr_right } => {
@@ -136,8 +146,8 @@ pub fn fmap<A, B>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> B) -> ExprF<B> {
         }
         ExprF::UnaryOp { op, expr } => ExprF::UnaryOp { op, expr: cata_fn(expr) },
         ExprF::Parenthesised { expr } => ExprF::Parenthesised { expr: cata_fn(expr) },
-        ExprF::Quantified { quantifier, name, expr } => {
-            ExprF::Quantified { quantifier, name, expr: cata_fn(expr) }
+        ExprF::Quantified { quantifier, variables, expr } => {
+            ExprF::Quantified { quantifier, variables, expr: cata_fn(expr) }
         }
         ExprF::FnCall { name, args } => {
             ExprF::FnCall { name, args: args.into_iter().map(cata_fn).collect() }
@@ -149,7 +159,7 @@ pub fn fmap<A, B>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> B) -> ExprF<B> {
             ExprF::TupleAccess { expr: cata_fn(expr), index: member }
         }
         ExprF::Literal { value } => ExprF::Literal { value },
-        ExprF::Variable { name } => ExprF::Variable { name },
+        ExprF::Variable(Variable { name, id }) => ExprF::Variable(Variable { name, id }),
     }
 }
 
@@ -160,8 +170,8 @@ fn try_fmap<A, B, E>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> Result<B, E>) -> Res
         }
         ExprF::UnaryOp { op, expr } => ExprF::UnaryOp { op, expr: cata_fn(expr)? },
         ExprF::Parenthesised { expr } => ExprF::Parenthesised { expr: cata_fn(expr)? },
-        ExprF::Quantified { quantifier, name, expr } => {
-            ExprF::Quantified { quantifier, name, expr: cata_fn(expr)? }
+        ExprF::Quantified { quantifier, variables, expr } => {
+            ExprF::Quantified { quantifier, variables, expr: cata_fn(expr)? }
         }
         ExprF::FnCall { name, args } => {
             let processed_args = args.into_iter().map(cata_fn).collect::<Result<Vec<_>, _>>()?;
@@ -174,7 +184,7 @@ fn try_fmap<A, B, E>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> Result<B, E>) -> Res
             ExprF::TupleAccess { expr: cata_fn(expr)?, index: member }
         }
         ExprF::Literal { value } => ExprF::Literal { value },
-        ExprF::Variable { name } => ExprF::Variable { name },
+        ExprF::Variable(Variable { name, id }) => ExprF::Variable(Variable { name, id }),
     })
 }
 

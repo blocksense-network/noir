@@ -2,7 +2,7 @@ use crate::{
     MonomorphizationRequest, State,
     ast::{
         BinaryOp, ExprF, Literal, SpannedExpr, SpannedOptionallyTypedExpr, SpannedTypedExpr,
-        UnaryOp, cata, try_cata, try_contextual_cata,
+        UnaryOp, Variable, cata, strip_ann, try_cata, try_contextual_cata,
     },
 };
 use noirc_frontend::{
@@ -84,7 +84,11 @@ pub fn propagate_concrete_type(
     let limits = match &t {
         NoirType::Field => None,
         NoirType::Integer(hole_sign, hole_size) => Some((hole_sign, hole_size)),
-        _ => todo!("Can only propagate integer types, {:#?}", t),
+        _ => todo!(
+            "Can only propagate integer types, trying to ram {:#?} into {:#?}",
+            t,
+            strip_ann(e)
+        ),
     };
 
     try_cata(e, &|(location, _type), expr| {
@@ -109,6 +113,8 @@ pub fn propagate_concrete_type(
                         }
                     }
                 }
+                // TODO: handle type inferring pure boolean operators
+                //       `(1 < 2) & x > 5`
                 _ => {}
             }
         }
@@ -122,8 +128,9 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
         expr,
         vec![],
         &|mut quantifier_bound_variables, e| {
-            if let ExprF::Quantified { name, .. } = e.expr.as_ref() {
-                quantifier_bound_variables.push(name.clone())
+            if let ExprF::Quantified { variables, .. } = e.expr.as_ref() {
+                quantifier_bound_variables
+                    .extend(variables.iter().map(|Variable { name, .. }| name.clone()) );
             }
             quantifier_bound_variables
         },
@@ -138,21 +145,24 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                         (exprf, None)
                     }
                 },
-                ExprF::Variable { name } => {
-                    let (variable_ident, variable_type): (&str, Option<NoirType>) =
+                ExprF::Variable(Variable { name, id }) => {
+                    // NOTE: parsing should not yield `id`s
+                    debug_assert_eq!(*id, None);
+                    let (variable_ident, variable_id, variable_type): (&str, Option<u32>, Option<NoirType>) =
                         quantifier_bound_variables
                             .iter()
                             .find_map(|bound_variable| {
-                                (bound_variable == name).then(|| (name.as_str(), None))
+                                // TODO: `id` not `None` (when we have a way to generate new `id`s)
+                                (bound_variable == name).then(|| (name.as_str(), None, None))
                             })
                             .or_else(|| {
-                                state.function.parameters.iter().find_map(|k| {
-                                    (k.2 == *name).then(|| (name.as_str(), Some(k.3.clone())))
+                                state.function.parameters.iter().find_map(|(id, _, par_name, t, _)| {
+                                    (par_name == name).then(|| (name.as_str(), Some(id.0), Some(t.clone())))
                                 })
                             })
                             .or_else(|| {
                                 (name == "result").then(|| {
-                                    (FUNC_RETURN_VAR_NAME, Some(state.function.return_type.clone()))
+                                    (FUNC_RETURN_VAR_NAME, None, Some(state.function.return_type.clone()))
                                 })
                             })
                             .ok_or(TypeInferenceError::TypeError {
@@ -161,7 +171,10 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                 message: Some(format!("Undefined variable {}", name)),
                             })?;
 
-                    (ExprF::Variable { name: variable_ident.to_string() }, variable_type)
+                    (
+                        ExprF::Variable(Variable { name: variable_ident.to_string(), id: variable_id }),
+                        variable_type,
+                    )
                 }
                 ExprF::FnCall { name, args } => {
                     let return_type = state
@@ -345,6 +358,8 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
         })
         .expect("Typing should have either succeeded or have resulted in an expected error");
 
+    // TODO: `assert!` that only the `FUNC_RETURN_VAR_NAME`
+
     Ok(fully_typed_expr)
 }
 
@@ -358,7 +373,12 @@ mod tests {
 
     use super::*;
 
-    use crate::{Attribute, ast::Literal, parse::tests::*, parse_attribute};
+    use crate::{
+        Attribute,
+        ast::{Literal, Variable},
+        parse::tests::*,
+        parse_attribute,
+    };
 
     #[test]
     fn test_integer_types() {
@@ -461,7 +481,7 @@ mod tests {
                     ExprF::TupleAccess { expr, .. } => expr,
 
                     // Non-recursive variants don't carry information
-                    ExprF::Literal { value: Literal::Bool(_) } | ExprF::Variable { .. } => true,
+                    ExprF::Literal { value: Literal::Bool(_) } | ExprF::Variable(_) => true,
                 }
             }),
             "All integer literals have the correct inferred type"
@@ -470,7 +490,7 @@ mod tests {
 
     #[test]
     fn test_quantifiers() {
-        let attribute = "ensures(exists(|i| result >= a + (16 / i % (7 * 4))))";
+        let attribute = "ensures(exists(| i ,  j | result >= a + (16 / i % (7 * 4))))";
         let state = empty_state();
         let attribute = parse_attribute(
             attribute,
@@ -499,7 +519,7 @@ mod tests {
                     ExprF::TupleAccess { expr, .. } => expr,
 
                     // Non-recursive variants don't carry information
-                    ExprF::Literal { value: Literal::Bool(_) } | ExprF::Variable { .. } => true,
+                    ExprF::Literal { value: Literal::Bool(_) } | ExprF::Variable(_) => true,
                 }
             }),
             "All integer literals have the correct inferred type"
@@ -507,7 +527,7 @@ mod tests {
         assert!(
             cata(spanned_typed_expr, &|(_, expr_type), expr| {
                 match expr {
-                    ExprF::Variable { name } => {
+                    ExprF::Variable(Variable { name, .. }) => {
                         if name == "i" {
                             expr_type
                                 == NoirType::Integer(Signedness::Signed, IntegerBitSize::ThirtyTwo)

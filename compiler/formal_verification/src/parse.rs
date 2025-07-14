@@ -12,7 +12,7 @@ use nom::{
 use num_bigint::{BigInt, BigUint, Sign};
 use std::fmt::Debug;
 
-use crate::ast::{BinaryOp, ExprF, Identifier, Literal, OffsetExpr, Quantifier, UnaryOp};
+use crate::ast::{BinaryOp, ExprF, Identifier, Literal, OffsetExpr, Quantifier, UnaryOp, Variable};
 
 #[derive(Debug)]
 pub enum ParserError {
@@ -444,12 +444,12 @@ pub(crate) fn parse_quantifier_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetE
 
     let (input, _) = multispace(input)?;
     // TODO: better `space` management
-    let (input, (name, expr)) = delimited(
+    let (input, (variables, expr)) = delimited(
         tag("("),
         cut(pair(
             delimited(
                 delimited(multispace, tag("|"), multispace),
-                parse_identifier,
+                cut(separated_list0(delimited(multispace, tag(","), multispace), parse_identifier)),
                 delimited(multispace, tag("|"), multispace),
             ),
             delimited(multispace, parse_expression, multispace),
@@ -464,7 +464,14 @@ pub(crate) fn parse_quantifier_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetE
         build_expr(
             prev_offset,
             after_offset,
-            ExprF::Quantified { quantifier, name: name.to_string(), expr },
+            ExprF::Quantified {
+                quantifier,
+                variables: variables
+                    .into_iter()
+                    .map(|name| Variable { name: name.to_string(), id: None })
+                    .collect(),
+                expr,
+            },
         ),
     ))
 }
@@ -475,7 +482,7 @@ pub(crate) fn parse_fn_call_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr
 
     let (input, params) = delimited(
         tag("("),
-        cut(separated_list0(pair(tag(","), multispace), parse_expression)),
+        cut(separated_list0(delimited(multispace, tag(","), multispace), parse_expression)),
         tag(")"),
     )
     .parse(input)?;
@@ -542,6 +549,7 @@ pub(crate) fn parse_sign<'a>(input: Input<'a>) -> PResult<'a, bool> {
     Ok((input, sign))
 }
 
+// TODO: parse module references `fv_std::SOMETHING`
 pub(crate) fn parse_var_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     let prev_offset = input.len();
     let (input, ident) = parse_identifier(input).map_err(|_| {
@@ -559,10 +567,16 @@ pub(crate) fn parse_var_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     })?;
     let after_offset = input.len();
 
-    Ok((input, build_expr(prev_offset, after_offset, ExprF::Variable { name: ident.to_string() })))
+    Ok((
+        input,
+        build_expr(
+            prev_offset,
+            after_offset,
+            ExprF::Variable(Variable { name: ident.to_string(), id: None }),
+        ),
+    ))
 }
 
-// TODO: parse module references `fv_std::SOMETHING`
 pub(crate) fn parse_identifier<'a>(input: Input<'a>) -> PResult<'a, &'a str> {
     fn is_valid_start(c: char) -> bool {
         c.is_ascii_alphabetic() || c == '_'
@@ -594,7 +608,7 @@ pub mod tests {
 
     use crate::{
         Attribute, State,
-        ast::{AnnExpr, Literal, cata},
+        ast::{AnnExpr, Literal, RawExpr, cata, strip_ann},
         parse_attribute,
     };
 
@@ -679,6 +693,21 @@ pub mod tests {
         parse_expression(input)
     }
 
+    pub fn test_precedence_equality(raw: &str, parenthesised: &str) {
+        let expr = parse(raw).unwrap();
+        let expr_expected = parse(parenthesised).unwrap();
+        dbg!(&strip_ann(expr.1.clone()));
+        assert_eq!(expr.0, "");
+        assert_eq!(expr_expected.0, "");
+
+        let expr_expected_flat: OffsetExpr = cata(expr_expected.1, &|ann, expr| match expr {
+            ExprF::Parenthesised { expr } => expr,
+            _ => OffsetExpr { ann, expr: Box::new(expr) },
+        });
+
+        assert_eq!(strip_ann(expr.1), strip_ann(expr_expected_flat));
+    }
+
     #[test]
     fn test_bool_true() {
         let (input, expr) = parse("true").unwrap();
@@ -703,7 +732,7 @@ pub mod tests {
         let (input, expr) = parse(identche).unwrap();
         assert_eq!(input, "");
         // assert!(matches!(*expr.1.typ, TypX::Bool));
-        let ExprF::Variable { name: i } = *expr.expr else { panic!() };
+        let ExprF::Variable(Variable { name: i, .. }) = *expr.expr else { panic!() };
         assert_eq!(&i, identche);
     }
 
@@ -725,22 +754,16 @@ pub mod tests {
 
     #[test]
     fn test_equality_precedence() {
-        let expr = parse("a == b | c == d").unwrap();
-        let expr_expected = parse("((a == (b | c)) == d)").unwrap();
-        dbg!(&expr);
-        assert_eq!(expr.0, "");
-        assert_eq!(expr_expected.0, "");
+        test_precedence_equality("a == b | c == d", "((a == (b | c)) == d)");
+    }
 
-        fn strip_ann<T>(expr: AnnExpr<T>) -> AnnExpr<()> {
-            cata(expr, &|_, expr| AnnExpr { ann: (), expr: Box::new(expr) })
-        }
-
-        let expr_expected_flat: OffsetExpr = cata(expr_expected.1, &|ann, expr| match expr {
-            ExprF::Parenthesised { expr } => expr,
-            _ => OffsetExpr { ann, expr: Box::new(expr) },
-        });
-
-        assert_eq!(strip_ann(expr.1), strip_ann(expr_expected_flat));
+    #[test]
+    fn test_and_precedence() {
+        test_precedence_equality(
+            "exists(|i| (0 <= i) & (i < 20) & arr[i] > 100)",
+            "exists(|i| (((0 <= i) & (i < 20)) & (arr[i] > 100)))",
+            // "exists(|i| ((((0 <= i) & (i < 20)) & arr[i]) > 100))",
+        );
     }
 
     #[test]
