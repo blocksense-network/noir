@@ -1,5 +1,3 @@
-#![feature(try_trait_v2)]
-
 use noirc_errors::{Location, Span};
 use noirc_frontend::monomorphization::ast as mast;
 use nom::Finish;
