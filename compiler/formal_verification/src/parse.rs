@@ -1,6 +1,13 @@
 use noirc_errors::{Location, Span};
 use nom::{
-    branch::alt, bytes::complete::{tag, take_while, take_while1}, character::complete::{digit1 as digit, multispace0 as multispace}, combinator::{cut, fail, map, opt, recognize, value}, error::{context, ContextError, ErrorKind, ParseError}, multi::{many0, separated_list0}, sequence::{delimited, pair, preceded, terminated}, Err, IResult, Parser
+    Err, IResult, Parser,
+    branch::alt,
+    bytes::complete::{tag, take_while, take_while1},
+    character::complete::{digit1 as digit, multispace0 as multispace},
+    combinator::{cut, fail, map, opt, recognize, value},
+    error::{ContextError, ErrorKind, ParseError, context},
+    multi::{many0, separated_list0},
+    sequence::{delimited, pair, preceded, terminated},
 };
 use num_bigint::{BigInt, BigUint, Sign};
 use std::fmt::Debug;
@@ -370,17 +377,15 @@ pub(crate) fn parse_postfix_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr
                     expr: Box::new(ExprF::Index { expr: current_expr, index: index_expr }),
                 }
             }
-            Postfix::TupleMember(index) => {
-                OffsetExpr {
-                    ann: new_ann,
-                    expr: Box::new(ExprF::TupleAccess {
-                        expr: current_expr,
-                        index: index.try_into().map_err(|_| {
-                            nom::Err::Error(Error { parser_errors: vec![], contexts: vec![] })
-                        })?,
-                    }),
-                }
-            }
+            Postfix::TupleMember(index) => OffsetExpr {
+                ann: new_ann,
+                expr: Box::new(ExprF::TupleAccess {
+                    expr: current_expr,
+                    index: index.try_into().map_err(|_| {
+                        nom::Err::Error(Error { parser_errors: vec![], contexts: vec![] })
+                    })?,
+                }),
+            },
         })
     })?;
 
@@ -587,7 +592,11 @@ pub mod tests {
         shared::Visibility,
     };
 
-    use crate::{Attribute, State, ast::Literal, parse_attribute};
+    use crate::{
+        Attribute, State,
+        ast::{AnnExpr, Literal, cata},
+        parse_attribute,
+    };
 
     use super::*;
 
@@ -715,10 +724,23 @@ pub mod tests {
     }
 
     #[test]
-    fn test_equality() {
+    fn test_equality_precedence() {
         let expr = parse("a == b | c == d").unwrap();
+        let expr_expected = parse("((a == (b | c)) == d)").unwrap();
         dbg!(&expr);
         assert_eq!(expr.0, "");
+        assert_eq!(expr_expected.0, "");
+
+        fn strip_ann<T>(expr: AnnExpr<T>) -> AnnExpr<()> {
+            cata(expr, &|_, expr| AnnExpr { ann: (), expr: Box::new(expr) })
+        }
+
+        let expr_expected_flat: OffsetExpr = cata(expr_expected.1, &|ann, expr| match expr {
+            ExprF::Parenthesised { expr } => expr,
+            _ => OffsetExpr { ann, expr: Box::new(expr) },
+        });
+
+        assert_eq!(strip_ann(expr.1), strip_ann(expr_expected_flat));
     }
 
     #[test]

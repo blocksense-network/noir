@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 pub type Identifier = String;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ExprF<R> {
     BinaryOp { op: BinaryOp, expr_left: R, expr_right: R },
     UnaryOp { op: UnaryOp, expr: R },
@@ -28,7 +28,7 @@ pub enum ExprF<R> {
     },
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnnExpr<A> {
     pub ann: A,
     pub expr: Box<ExprF<AnnExpr<A>>>,
@@ -39,25 +39,25 @@ pub type SpannedTypedExpr = AnnExpr<(Location, NoirType)>;
 pub type SpannedExpr = AnnExpr<Location>;
 pub type OffsetExpr = AnnExpr<(u32, u32)>;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Literal {
     Bool(bool),
     Int(BigInt),
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Quantifier {
     Forall,
     Exists,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UnaryOp {
     // Arithmetic and Boolean
     Not,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BinaryOp {
     // pure Arithmetic (data -> data)
     Mul,
