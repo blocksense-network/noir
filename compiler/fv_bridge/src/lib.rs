@@ -205,7 +205,7 @@ fn modified_monomorphize(
         .filter_map(|(new_func_id, function)| {
             new_ids_to_old_ids.get(new_func_id).map(|old_id| (*new_func_id, *old_id, function))
         })
-        .map(|(new_func_id, old_id, function)| {
+        .map(|(new_func_id, old_id, function)| -> Result<_, MonomorphizationErrorBundle> {
             // Create the state once per function to avoid repeated lookups inside a loop.
             let state = State {
                 function,
@@ -227,7 +227,7 @@ fn modified_monomorphize(
                         None
                     }
                 })
-                .map(|(annotation_body, location)| {
+                .map(|(annotation_body, location)| -> Result<_, MonomorphizationErrorBundle> {
                     // Step 1: Parse the attribute string.
                     let parsed_attribute = parse_attribute(
                         annotation_body,
@@ -256,14 +256,14 @@ fn modified_monomorphize(
                     };
 
                     // Step 3: Convert the typed attribute into its final representation.
-                    Ok::<_, MonomorphizationErrorBundle>(convert_typed_attribute_to_vir_attribute(
+                    Ok(convert_typed_attribute_to_vir_attribute(
                         typed_attribute,
                         &state,
                     ))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
-            Ok::<_, MonomorphizationErrorBundle>((new_func_id, attributes))
+            Ok((new_func_id, attributes))
         })
         .collect::<Result<Vec<_>, _>>()?;
 
