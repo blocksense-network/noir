@@ -32,7 +32,9 @@ use noirc_frontend::{
     parser::ParserError,
     token::SecondaryAttributeKind,
 };
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::rc::Rc;
 use vir::ast::Krate;
 
 use crate::errors::{CompilationErrorBundle, MonomorphizationErrorBundle};
@@ -200,8 +202,9 @@ fn modified_monomorphize(
     // Clone because of the borrow checker
     let globals = monomorphizer.finished_globals.clone().into_iter().collect::<BTreeMap<_, _>>();
 
-    let mut min_available_id: u32 =
+    let min_available_id: u32 =
         monomorphizer.locals.values().map(|LocalId(id)| *id).max().unwrap_or_default() + 1;
+    let min_available_id = Rc::new(RefCell::new(min_available_id));
 
     let functions_to_process: Vec<(FuncId, node_interner::FuncId)> = monomorphizer
         .finished_functions
@@ -255,7 +258,7 @@ fn modified_monomorphize(
                         &mut monomorphizer,
                         new_func_id,
                         &globals,
-                        &mut min_available_id,
+                        min_available_id.clone(),
                         expr,
                         &mut new_ids_to_old_ids,
                         &mut to_be_added_ghost_attribute,
@@ -267,7 +270,7 @@ fn modified_monomorphize(
                         &mut monomorphizer,
                         new_func_id,
                         &globals,
-                        &mut min_available_id,
+                        min_available_id.clone(),
                         expr,
                         &mut new_ids_to_old_ids,
                         &mut to_be_added_ghost_attribute,
@@ -280,7 +283,7 @@ fn modified_monomorphize(
                 function: &monomorphizer.finished_functions[&new_func_id],
                 global_constants: &globals,
                 functions: &monomorphizer.finished_functions,
-                min_local_id: &mut min_available_id,
+                min_local_id: min_available_id.clone(),
             };
 
             processed_attributes
@@ -334,7 +337,7 @@ fn type_infer_attribute_expr(
             noirc_frontend::monomorphization::ast::Expression,
         ),
     >,
-    min_available_id: &mut u32,
+    min_available_id: Rc<RefCell<u32>>,
     expr: AnnExpr<Location>,
     new_ids_to_old_ids: &mut HashMap<FuncId, node_interner::FuncId>,
     to_be_added_ghost_attribute: &mut HashSet<FuncId>,
@@ -351,7 +354,7 @@ fn type_infer_attribute_expr(
             function,
             global_constants: &globals,
             functions: &monomorphizer.finished_functions,
-            min_local_id: min_available_id,
+            min_local_id: min_available_id.clone(),
         };
 
         match type_infer(&state, expr.clone()) {

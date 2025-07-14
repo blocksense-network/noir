@@ -865,6 +865,8 @@ pub(crate) fn parse_identifier<'a>(input: Input<'a>) -> PResult<'a, &'a str> {
 
 #[cfg(test)]
 pub mod tests {
+    use std::{cell::RefCell, rc::Rc};
+
     use noirc_frontend::{
         monomorphization::ast::{
             Expression, FuncId, Function, InlineType, LocalId, Type as NoirType,
@@ -968,7 +970,7 @@ pub mod tests {
                 .into_iter()
                 .collect(),
             )),
-            min_local_id: Box::leak(Box::new(6)),
+            min_local_id: Rc::new(RefCell::new(6)),
         }
     }
 

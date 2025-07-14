@@ -1,9 +1,9 @@
-use std::fmt::Display;
+use std::{convert::identity, fmt::Display, ops::AddAssign};
 
 use crate::{
     MonomorphizationRequest, State,
     ast::{
-        AnnExpr, BinaryOp, ExprF, Literal, SpannedExpr, SpannedTypedExpr, UnaryOp, Variable,
+        AnnExpr, BinaryOp, ExprF, Literal, SpannedExpr, SpannedTypedExpr, UnaryOp, Variable, cata,
         try_cata, try_contextual_cata,
     },
 };
@@ -314,7 +314,11 @@ pub fn type_infer(
                         // NOTE: quantified variables should have no path
                         debug_assert_eq!(path.len(), 0);
 
-                        name.clone()
+                        // NOTE:: reserve an `id` for this variable
+                        let id = state.min_local_id.borrow().clone();
+                        state.min_local_id.borrow_mut().add_assign(1);
+
+                        (id, name.clone())
                     },
                 ));
             }
@@ -342,10 +346,10 @@ pub fn type_infer(
                         OptionalType,
                     ) = quantifier_bound_variables
                         .iter()
-                        .find_map(|bound_variable| {
-                            // TODO: `id` not `None` (when we have a way to generate new `id`s)
-                            (bound_variable == name)
-                                .then(|| (name.as_str(), None, OptionalType::IntegerLiteral))
+                        .find_map(|(id, bound_variable)| {
+                            (bound_variable == name).then(|| {
+                                (name.as_str(), Some(id.clone()), OptionalType::IntegerLiteral)
+                            })
                         })
                         .or_else(|| {
                             state.function.parameters.iter().find_map(|(id, _, par_name, t, _)| {
@@ -407,6 +411,18 @@ pub fn type_infer(
                             }
                         })
                         .collect::<Result<Vec<_>, _>>()?;
+
+                    // NOTE: add predertimed `id`s to the quantified variables
+                    variables.iter_mut().for_each(|variable| {
+                        variable.id = Some(
+                            *quantifier_bound_variables
+                                .iter()
+                                .find_map(|(id, bound_variable)| {
+                                    (*bound_variable == variable.name).then(|| id)
+                                })
+                                .expect("Should have been populated while traversing down the AST"),
+                        );
+                    });
 
                     OptionalType::Well(NoirType::Bool)
                 }
@@ -958,7 +974,30 @@ pub fn type_infer(
         })
         .expect("Typing should have either succeeded or have resulted in an expected error");
 
-    // TODO: `assert!` that only the `FUNC_RETURN_VAR_NAME`
+    // NOTE: only the `FUNC_RETURN_VAR_NAME` variable should have no id
+    assert!(cata(fully_typed_expr.clone(), &|ann, exprf| match exprf {
+        ExprF::Variable(Variable { path: _, name, id }) => {
+            let res = if name == FUNC_RETURN_VAR_NAME { id.is_none() } else { id.is_some() };
+            if !res {
+                dbg!(ann, name, id);
+            }
+            res
+        }
+
+        ExprF::FnCall { args, .. } => args.into_iter().all(identity),
+        ExprF::Quantified { expr, .. } => expr,
+        ExprF::Parenthesised { expr } => expr,
+        ExprF::UnaryOp { expr, .. } => expr,
+        ExprF::BinaryOp { expr_left, expr_right, .. } => expr_left && expr_right,
+        ExprF::Index { expr, index } => expr && index,
+        ExprF::TupleAccess { expr, .. } => expr,
+        ExprF::Cast { expr, .. } => expr,
+        ExprF::Tuple { exprs } => exprs.into_iter().all(identity),
+        ExprF::Array { exprs } => exprs.into_iter().all(identity),
+
+        // Non-recursive variants don't carry information
+        ExprF::Literal { .. } => true,
+    }));
 
     Ok(fully_typed_expr)
 }

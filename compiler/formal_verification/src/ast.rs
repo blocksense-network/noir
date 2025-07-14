@@ -227,13 +227,13 @@ where
     where
         C: Clone,
     {
-        let children_context = update_context(context.clone(), &expr);
+        let new_context = update_context(context, &expr);
 
         let children_results = try_fmap(*expr.expr, &|child_expr| {
-            recurse(child_expr, children_context.clone(), update_context, algebra)
+            recurse(child_expr, new_context.clone(), update_context, algebra)
         })?;
 
-        algebra(expr.ann, context, children_results)
+        algebra(expr.ann, new_context, children_results)
     }
 
     recurse(expr, initial_context, update_context, algebra)

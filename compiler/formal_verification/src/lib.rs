@@ -1,7 +1,7 @@
 use noirc_errors::Location;
 use noirc_frontend::monomorphization::ast as mast;
+use std::{cell::RefCell, collections::BTreeMap, fmt::Debug, rc::Rc};
 use typing::OptionalType;
-use std::{collections::BTreeMap, fmt::Debug};
 
 use crate::{
     ast::{OffsetExpr, SpannedExpr, cata},
@@ -11,15 +11,15 @@ use crate::{
 // NOTE: all types inside are not prefixed, to be used as `ast::OffsetExpr`
 pub mod ast;
 pub mod parse;
-pub mod typing;
 pub mod type_conversion;
+pub mod typing;
 
 #[derive(Debug)]
 pub struct State<'a> {
     pub function: &'a mast::Function,
     pub global_constants: &'a BTreeMap<mast::GlobalId, (String, mast::Type, mast::Expression)>,
     pub functions: &'a BTreeMap<mast::FuncId, mast::Function>,
-    pub min_local_id: &'a mut u32,
+    pub min_local_id: Rc<RefCell<u32>>,
 }
 
 #[derive(Debug, Clone)]
