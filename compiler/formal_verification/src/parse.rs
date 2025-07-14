@@ -81,158 +81,205 @@ pub(crate) fn build_offset_from_exprs(left: &OffsetExpr, right: &OffsetExpr) -> 
     (left.ann.0, right.ann.1)
 }
 
+/*************************************************************************
+* Main parser combinators, in order of precedence, like in upstream Noir *
+**************************************************************************/
+
 // TODO: array indexing - ast_index_to_vir_expr
 // TODO: tuple indexing - ast_tuple_access_to_vir_expr
 
-pub(crate) fn parse_bool<'a>(input: Input<'a>) -> PResult<'a, bool> {
-    alt((map(tag("true"), |_| true), map(tag("false"), |_| false))).parse(input)
-}
-
-pub(crate) fn parse_sign<'a>(input: Input<'a>) -> PResult<'a, bool> {
-    let (input, opt_sign) = opt(alt((
+pub(crate) fn parse_expression<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+    alt((
         //
-        value(false, tag(&b"-"[..])),
-        value(true, tag(&b"+"[..])),
-    )))
-    .parse(input)?;
-    let sign = opt_sign.unwrap_or(true);
-
-    Ok((input, sign))
-}
-
-pub(crate) fn parse_int<'a>(input: Input<'a>) -> PResult<'a, BigInt> {
-    let (input, sign) = parse_sign(input)?;
-    let (input, digits) = digit(input)?;
-
-    let biguint = digits
-        .chars()
-        .map(|c| c.to_digit(10).expect("`digit1` should return digits"))
-        .fold(BigUint::ZERO, |acc, d| acc * 10u8 + d);
-
-    let bigint = BigInt::from_biguint(
-        match sign {
-            true => Sign::Plus,
-            false => Sign::Minus,
-        },
-        biguint,
-    );
-
-    Ok((input, bigint))
-}
-
-pub(crate) fn parse_constant_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
-    let prev_offset = input.len();
-    let (input, exprf) = alt((
-        map(parse_bool, |b| ExprF::Literal { value: Literal::Bool(b) }),
-        map(parse_int, |bi| ExprF::Literal { value: Literal::Int(bi) }),
+        parse_implication_expr,
     ))
-    .parse(input)?;
-
-    let after_offset = input.len();
-
-    let res = build_expr(prev_offset, after_offset, exprf);
-
-    Ok((input, res))
+    .parse(input)
 }
 
-// TODO: parse module references `fv_std::SOMETHING`
-pub(crate) fn parse_identifier<'a>(input: Input<'a>) -> PResult<'a, &'a str> {
-    fn is_valid_start(c: char) -> bool {
-        c.is_ascii_alphabetic() || c == '_'
-    }
-
-    fn is_valid_char(c: char) -> bool {
-        c.is_ascii_alphanumeric() || c == '_'
-    }
-
-    let mut parser = recognize(pair(
-        //
-        take_while1(is_valid_start),
-        take_while(is_valid_char),
-    ));
-
-    let (input, name) = parser.parse(input)?;
-
-    Ok((input, name))
-}
-
-pub(crate) fn parse_var_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
-    let prev_offset = input.len();
-    let (input, ident) = parse_identifier(input).map_err(|_| {
-        // Err::Error(Error {
-        //     resolver_errors: vec![ResolverError::ParserError(Box::new(
-        //         NoirParserError::with_reason(
-        //             // TODO: ne
-        //             ParserErrorReason::DocCommentDoesNotDocumentAnything,
-        //             Location::dummy(),
-        //         ),
-        //     ))],
-        //     location: Location::dummy(),
-        // })
-        Err::Error(Error { parser_errors: vec![ParserError::Oops], contexts: vec![] })
-    })?;
-    let after_offset = input.len();
-
-    Ok((input, build_expr(prev_offset, after_offset, ExprF::Variable { name: ident.to_string() })))
-}
-
-pub(crate) fn parse_quantifier_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
-    let prev_offset = input.len();
-    let (input, quantifier_kind) = parse_identifier(input)?;
-
-    let quantifier = match quantifier_kind {
-        "forall" => Quantifier::Forall,
-        "exists" => Quantifier::Exists,
-        _ => return Err(nom::Err::Error(Error { parser_errors: vec![], contexts: vec![] })),
-    };
-
-    let (input, _) = multispace(input)?;
-    // TODO: better `space` management
-    let (input, (name, expr)) = delimited(
-        tag("("),
-        cut(pair(
-            delimited(
-                delimited(multispace, tag("|"), multispace),
-                parse_identifier,
-                delimited(multispace, tag("|"), multispace),
-            ),
-            delimited(multispace, parse_expression_expr, multispace),
-        )),
-        tag(")"),
+pub(crate) fn parse_implication_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+    let (input, (first, remainder)) = pair(
+        parse_equality_expr,
+        context(
+            "implication",
+            many0(pair(delimited(multispace, tag("==>"), multispace), parse_equality_expr)),
+        ),
     )
     .parse(input)?;
-    let after_offset = input.len();
 
     Ok((
         input,
-        build_expr(
-            prev_offset,
-            after_offset,
-            ExprF::Quantified { quantifier, name: name.to_string(), expr },
-        ),
+        remainder.into_iter().fold(first, |expr_left, (op, expr_right)| {
+            let op_kind = match op {
+                "==>" => BinaryOp::Implies,
+                _ => unreachable!(),
+            };
+            OffsetExpr {
+                ann: build_offset_from_exprs(&expr_left, &expr_right),
+                expr: Box::new(ExprF::BinaryOp { op: op_kind, expr_left, expr_right }),
+            }
+        }),
     ))
 }
 
-pub(crate) fn parse_fn_call_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
-    let prev_offset = input.len();
-    let (input, name) = context("fn_call name", parse_identifier).parse(input)?;
-
-    let (input, params) = delimited(
-        tag("("),
-        cut(separated_list0(pair(tag(","), multispace), parse_expression_expr)),
-        tag(")"),
+pub(crate) fn parse_equality_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+    let (input, (first, remainder)) = pair(
+        parse_or_expr,
+        context(
+            "equality",
+            many0(pair(
+                delimited(multispace, alt((tag("=="), tag("!="))), multispace),
+                parse_or_expr,
+            )),
+        ),
     )
     .parse(input)?;
-    let after_offset = input.len();
 
     Ok((
         input,
-        build_expr(
-            prev_offset,
-            after_offset,
-            ExprF::FnCall { name: name.to_string(), args: params },
-        ),
+        remainder.into_iter().fold(first, |expr_left, (op, expr_right)| {
+            let op_kind = match op {
+                "==" => BinaryOp::Eq,
+                "!=" => BinaryOp::Neq,
+                _ => unreachable!(),
+            };
+            OffsetExpr {
+                ann: build_offset_from_exprs(&expr_left, &expr_right),
+                expr: Box::new(ExprF::BinaryOp { op: op_kind, expr_left, expr_right }),
+            }
+        }),
     ))
+}
+
+pub(crate) fn parse_or_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+    let (input, (first, remainder)) = pair(
+        parse_and_expr,
+        context("or", many0(pair(delimited(multispace, tag("|"), multispace), parse_and_expr))),
+    )
+    .parse(input)?;
+
+    Ok((
+        input,
+        remainder.into_iter().fold(first, |expr_left, (op, expr_right)| {
+            let op_kind = match op {
+                "|" => BinaryOp::Or,
+                _ => unreachable!(),
+            };
+            OffsetExpr {
+                ann: build_offset_from_exprs(&expr_left, &expr_right),
+                expr: Box::new(ExprF::BinaryOp { op: op_kind, expr_left, expr_right }),
+            }
+        }),
+    ))
+}
+
+pub(crate) fn parse_and_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+    let (input, (first, remainder)) = pair(
+        parse_xor_expr,
+        context("and", many0(pair(delimited(multispace, tag("&"), multispace), parse_xor_expr))),
+    )
+    .parse(input)?;
+
+    Ok((
+        input,
+        remainder.into_iter().fold(first, |expr_left, (op, expr_right)| {
+            let op_kind = match op {
+                "&" => BinaryOp::And,
+                _ => unreachable!(),
+            };
+            OffsetExpr {
+                ann: build_offset_from_exprs(&expr_left, &expr_right),
+                expr: Box::new(ExprF::BinaryOp { op: op_kind, expr_left, expr_right }),
+            }
+        }),
+    ))
+}
+
+pub(crate) fn parse_xor_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+    let (input, (first, remainder)) = pair(
+        parse_comparison_expr,
+        context(
+            "xor",
+            many0(pair(delimited(multispace, tag("^"), multispace), parse_comparison_expr)),
+        ),
+    )
+    .parse(input)?;
+
+    Ok((
+        input,
+        remainder.into_iter().fold(first, |expr_left, (op, expr_right)| {
+            let op_kind = match op {
+                "^" => BinaryOp::Xor,
+                _ => unreachable!(),
+            };
+            OffsetExpr {
+                ann: build_offset_from_exprs(&expr_left, &expr_right),
+                expr: Box::new(ExprF::BinaryOp { op: op_kind, expr_left, expr_right }),
+            }
+        }),
+    ))
+}
+pub(crate) fn parse_comparison_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+    let (input, mut expr_left) = parse_shift_expr(input)?;
+
+    // Comparison operators are not associative (e.g., `a < b < c` is invalid),
+    // so we just look for one optional occurrence.
+    if let Ok((input, (op, expr_right))) = pair(
+        context(
+            "comparison",
+            delimited(multispace, alt((tag("<="), tag(">="), tag("<"), tag(">"))), multispace),
+        ),
+        parse_shift_expr,
+    )
+    .parse(input)
+    {
+        let op_kind = match op {
+            "<" => BinaryOp::Lt,
+            "<=" => BinaryOp::Le,
+            ">" => BinaryOp::Gt,
+            ">=" => BinaryOp::Ge,
+            _ => unreachable!(),
+        };
+        expr_left = OffsetExpr {
+            ann: build_offset_from_exprs(&expr_left, &expr_right),
+            expr: Box::new(ExprF::BinaryOp { op: op_kind, expr_left, expr_right }),
+        };
+
+        return Ok((input, expr_left));
+    }
+
+    Ok((input, expr_left))
+}
+
+pub(crate) fn parse_shift_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+    let (input, mut expr_left) = parse_additive_expr(input)?;
+
+    // Comparison operators are not associative (e.g., `a < b < c` is invalid),
+    // so we just look for one optional occurrence.
+    if let Ok((input, (op, expr_right))) = pair(
+        context(
+            "comparison",
+            delimited(multispace, alt((tag("<="), tag(">="), tag("<"), tag(">"))), multispace),
+        ),
+        parse_additive_expr,
+    )
+    .parse(input)
+    {
+        let op_kind = match op {
+            "<" => BinaryOp::Lt,
+            "<=" => BinaryOp::Le,
+            ">" => BinaryOp::Gt,
+            ">=" => BinaryOp::Ge,
+            _ => unreachable!(),
+        };
+        expr_left = OffsetExpr {
+            ann: build_offset_from_exprs(&expr_left, &expr_right),
+            expr: Box::new(ExprF::BinaryOp { op: op_kind, expr_left, expr_right }),
+        };
+
+        return Ok((input, expr_left));
+    }
+
+    Ok((input, expr_left))
 }
 
 pub(crate) fn parse_additive_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
@@ -294,32 +341,6 @@ pub(crate) fn parse_multiplicative_expr<'a>(input: Input<'a>) -> PResult<'a, Off
     ))
 }
 
-pub(crate) fn parse_expression_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
-    // NOTE: Start parsing from the lowest precedence operator
-    alt((
-        //
-        parse_implication_expr,
-    ))
-    .parse(input)
-}
-
-pub(crate) fn parse_parenthesised_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
-    delimited(multispace, delimited(tag("("), parse_expression_expr, tag(")")), multispace)
-        .parse(input)
-}
-
-pub(crate) fn parse_primary_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
-    alt((
-        //
-        context("parenthesised", parse_parenthesised_expr),
-        context("quantifier", parse_quantifier_expr),
-        context("fn_call", parse_fn_call_expr),
-        context("constant", parse_constant_expr),
-        context("var", parse_var_expr),
-    ))
-    .parse(input)
-}
-
 pub(crate) fn parse_unary_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     alt((
         context(
@@ -329,106 +350,179 @@ pub(crate) fn parse_unary_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> 
                 expr: Box::new(ExprF::UnaryOp { op: UnaryOp::Not, expr }),
             }),
         ),
-        parse_primary_expr,
+        parse_atom_expr,
     ))
     .parse(input)
 }
 
-pub(crate) fn parse_comparison_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
-    let (input, mut expr_left) = parse_additive_expr(input)?;
-
-    // Comparison operators are not associative (e.g., `a < b < c` is invalid),
-    // so we just look for one optional occurrence.
-    if let Ok((input, (op, expr_right))) = pair(
-        context(
-            "comparison",
-            delimited(
-                multispace,
-                alt((tag("=="), tag("!="), tag("<="), tag(">="), tag("<"), tag(">"))),
-                multispace,
-            ),
-        ),
-        parse_additive_expr,
-    )
+pub(crate) fn parse_atom_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+    alt((
+        context("parenthesised", parse_parenthesised_expr),
+        context("quantifier", parse_quantifier_expr),
+        // context("path", parse_path_expr),
+        context("fn_call", parse_fn_call_expr),
+        // context("member", parse_member_expr),
+        // context("method_call", parse_method_call_expr),
+        // context("index", parse_index_expr),
+        context("literal", parse_literal_expr),
+        context("var", parse_var_expr),
+    ))
     .parse(input)
-    {
-        let op_kind = match op {
-            "==" => BinaryOp::Eq,
-            "!=" => BinaryOp::Neq,
-            "<" => BinaryOp::Lt,
-            "<=" => BinaryOp::Le,
-            ">" => BinaryOp::Gt,
-            ">=" => BinaryOp::Ge,
-            _ => unreachable!(),
-        };
-        expr_left = OffsetExpr {
-            ann: build_offset_from_exprs(&expr_left, &expr_right),
-            expr: Box::new(ExprF::BinaryOp { op: op_kind, expr_left, expr_right }),
-        };
+}
 
-        return Ok((input, expr_left));
+pub(crate) fn parse_parenthesised_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+    delimited(multispace, delimited(tag("("), parse_expression, tag(")")), multispace).parse(input)
+}
+
+pub(crate) fn parse_quantifier_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+    let prev_offset = input.len();
+    let (input, quantifier_kind) = parse_identifier(input)?;
+
+    let quantifier = match quantifier_kind {
+        "forall" => Quantifier::Forall,
+        "exists" => Quantifier::Exists,
+        _ => return Err(nom::Err::Error(Error { parser_errors: vec![], contexts: vec![] })),
+    };
+
+    let (input, _) = multispace(input)?;
+    // TODO: better `space` management
+    let (input, (name, expr)) = delimited(
+        tag("("),
+        cut(pair(
+            delimited(
+                delimited(multispace, tag("|"), multispace),
+                parse_identifier,
+                delimited(multispace, tag("|"), multispace),
+            ),
+            delimited(multispace, parse_expression, multispace),
+        )),
+        tag(")"),
+    )
+    .parse(input)?;
+    let after_offset = input.len();
+
+    Ok((
+        input,
+        build_expr(
+            prev_offset,
+            after_offset,
+            ExprF::Quantified { quantifier, name: name.to_string(), expr },
+        ),
+    ))
+}
+
+pub(crate) fn parse_fn_call_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+    let prev_offset = input.len();
+    let (input, name) = context("fn_call name", parse_identifier).parse(input)?;
+
+    let (input, params) = delimited(
+        tag("("),
+        cut(separated_list0(pair(tag(","), multispace), parse_expression)),
+        tag(")"),
+    )
+    .parse(input)?;
+    let after_offset = input.len();
+
+    Ok((
+        input,
+        build_expr(
+            prev_offset,
+            after_offset,
+            ExprF::FnCall { name: name.to_string(), args: params },
+        ),
+    ))
+}
+
+pub(crate) fn parse_literal_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+    let prev_offset = input.len();
+    let (input, exprf) = alt((
+        map(parse_bool, |b| ExprF::Literal { value: Literal::Bool(b) }),
+        map(parse_int, |bi| ExprF::Literal { value: Literal::Int(bi) }),
+    ))
+    .parse(input)?;
+
+    let after_offset = input.len();
+
+    let res = build_expr(prev_offset, after_offset, exprf);
+
+    Ok((input, res))
+}
+
+pub(crate) fn parse_bool<'a>(input: Input<'a>) -> PResult<'a, bool> {
+    alt((map(tag("true"), |_| true), map(tag("false"), |_| false))).parse(input)
+}
+
+pub(crate) fn parse_int<'a>(input: Input<'a>) -> PResult<'a, BigInt> {
+    let (input, sign) = parse_sign(input)?;
+    let (input, digits) = digit(input)?;
+
+    let biguint = digits
+        .chars()
+        .map(|c| c.to_digit(10).expect("`digit1` should return digits"))
+        .fold(BigUint::ZERO, |acc, d| acc * 10u8 + d);
+
+    let bigint = BigInt::from_biguint(
+        match sign {
+            true => Sign::Plus,
+            false => Sign::Minus,
+        },
+        biguint,
+    );
+
+    Ok((input, bigint))
+}
+
+pub(crate) fn parse_sign<'a>(input: Input<'a>) -> PResult<'a, bool> {
+    let (input, opt_sign) = opt(alt((
+        //
+        value(false, tag(&b"-"[..])),
+        value(true, tag(&b"+"[..])),
+    )))
+    .parse(input)?;
+    let sign = opt_sign.unwrap_or(true);
+
+    Ok((input, sign))
+}
+
+pub(crate) fn parse_var_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+    let prev_offset = input.len();
+    let (input, ident) = parse_identifier(input).map_err(|_| {
+        // Err::Error(Error {
+        //     resolver_errors: vec![ResolverError::ParserError(Box::new(
+        //         NoirParserError::with_reason(
+        //             // TODO: ne
+        //             ParserErrorReason::DocCommentDoesNotDocumentAnything,
+        //             Location::dummy(),
+        //         ),
+        //     ))],
+        //     location: Location::dummy(),
+        // })
+        Err::Error(Error { parser_errors: vec![ParserError::Oops], contexts: vec![] })
+    })?;
+    let after_offset = input.len();
+
+    Ok((input, build_expr(prev_offset, after_offset, ExprF::Variable { name: ident.to_string() })))
+}
+
+// TODO: parse module references `fv_std::SOMETHING`
+pub(crate) fn parse_identifier<'a>(input: Input<'a>) -> PResult<'a, &'a str> {
+    fn is_valid_start(c: char) -> bool {
+        c.is_ascii_alphabetic() || c == '_'
     }
 
-    Ok((input, expr_left))
-}
+    fn is_valid_char(c: char) -> bool {
+        c.is_ascii_alphanumeric() || c == '_'
+    }
 
-pub(crate) fn parse_logical_and_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
-    let (input, (first, remainder)) = pair(
-        parse_comparison_expr,
-        context(
-            "logical and",
-            many0(pair(delimited(multispace, tag("&"), multispace), parse_comparison_expr)),
-        ),
-    )
-    .parse(input)?;
+    let mut parser = recognize(pair(
+        //
+        take_while1(is_valid_start),
+        take_while(is_valid_char),
+    ));
 
-    Ok((
-        input,
-        remainder.into_iter().fold(first, |expr_left, (_op, expr_right)| OffsetExpr {
-            ann: build_offset_from_exprs(&expr_left, &expr_right),
-            expr: Box::new(ExprF::BinaryOp { op: BinaryOp::And, expr_left, expr_right }),
-        }),
-    ))
-}
+    let (input, name) = parser.parse(input)?;
 
-pub(crate) fn parse_logical_or_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
-    let (input, (first, remainder)) = pair(
-        parse_logical_and_expr,
-        context(
-            "logical or",
-            many0(pair(delimited(multispace, tag("|"), multispace), parse_logical_and_expr)),
-        ),
-    )
-    .parse(input)?;
-
-    Ok((
-        input,
-        remainder.into_iter().fold(first, |expr_left, (_op, expr_right)| OffsetExpr {
-            ann: build_offset_from_exprs(&expr_left, &expr_right),
-            expr: Box::new(ExprF::BinaryOp { op: BinaryOp::Or, expr_left, expr_right }),
-        }),
-    ))
-}
-
-pub(crate) fn parse_implication_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
-    // TODO: parse_equality ? `compiler/noirc_frontend/src/parser/parser/infix.rs`
-    //       `a == b | c == d` should be `a == ((b | c) == d)`
-    let (input, (first, remainder)) = pair(
-        parse_logical_or_expr,
-        context(
-            "implication",
-            many0(pair(delimited(multispace, tag("==>"), multispace), parse_logical_or_expr)),
-        ),
-    )
-    .parse(input)?;
-
-    Ok((
-        input,
-        remainder.into_iter().fold(first, |expr_left, (_op, expr_right)| OffsetExpr {
-            ann: build_offset_from_exprs(&expr_left, &expr_right),
-            expr: Box::new(ExprF::BinaryOp { op: BinaryOp::Implies, expr_left, expr_right }),
-        }),
-    ))
+    Ok((input, name))
 }
 
 #[cfg(test)]
@@ -506,7 +600,7 @@ pub mod tests {
     }
 
     pub fn parse<'a>(input: &'a str) -> PResult<'a, OffsetExpr> {
-        parse_expression_expr(input)
+        parse_expression(input)
     }
 
     #[test]
@@ -542,30 +636,37 @@ pub mod tests {
     fn test_ident_starts_with_digit() {
         let identche = "1Banica_123_";
         let expr = parse_var_expr(identche).unwrap();
+        dbg!(&expr);
         assert_eq!(expr.0, "");
-        dbg!(expr);
     }
 
     #[test]
     fn test_function_call() {
         let expr = parse("banica(1, banica(a, kek))").unwrap();
+        dbg!(&expr);
         assert_eq!(expr.0, "");
-        dbg!(expr);
+    }
+
+    #[test]
+    fn test_equality() {
+        let expr = parse("a == b | c == d").unwrap();
+        dbg!(&expr);
+        assert_eq!(expr.0, "");
     }
 
     #[test]
     fn test_sum() {
         let identche = "1 + 2 * 3";
         let expr = parse(identche).unwrap();
+        dbg!(&expr);
         assert_eq!(expr.0, "");
-        dbg!(expr);
     }
 
     #[test]
     fn test_quantifier() {
         let expr = parse("exists(|x| 1 + x)").unwrap();
+        dbg!(&expr);
         assert_eq!(expr.0, "");
-        dbg!(expr);
     }
 
     #[test]
@@ -574,7 +675,10 @@ pub mod tests {
         let state = empty_state();
         let attribute = parse_attribute(
             annotation,
-            Location { span: Span::inclusive(0, annotation.len() as u32), file: Default::default() },
+            Location {
+                span: Span::inclusive(0, annotation.len() as u32),
+                file: Default::default(),
+            },
             state.function,
             state.global_constants,
             state.functions,
