@@ -7,22 +7,22 @@ fn main(x: Field, y: Field) {
     let _ = div(x, y);
 }
 
-#[ensures(result == x + y)]
+#['ensures(result == x + y)]
 fn plus(x: Field, y: Field) -> Field {
     x + y
 }
 
-#[ensures(result == x - y)]
+#['ensures(result == x - y)]
 fn minus(x: Field, y: Field) -> Field {
     x - y
 }
 
-#[ensures(result == x * y)]
+#['ensures(result == x * y)]
 fn mult(x: Field, y: Field) -> Field {
     x * y
 }
 
-#[ensures(result == x / y)]
+#['ensures(result == x / y)]
 fn div(x: Field, y: Field) -> Field {
     x / y
 }

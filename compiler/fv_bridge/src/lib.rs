@@ -10,6 +10,7 @@ use noirc_evaluator::{
     errors::{RuntimeError, SsaReport},
     vir::{create_verus_vir_with_ready_annotations, vir_gen::BuildingKrateError},
 };
+use noirc_frontend::hir::resolution::errors::ResolverError;
 use noirc_frontend::{
     debug::DebugInstrumenter,
     graph::CrateId,
@@ -50,8 +51,13 @@ fn modified_compile_main(
         vec![err]
     })?;
 
-    let compiled_program = modified_compile_no_check(context, options, main)
-        .map_err(|error| vec![CustomDiagnostic::from(error)])?;
+    let compiled_program =
+        modified_compile_no_check(context, options, main).map_err(|error| match error {
+            CompileOrResolverError::CompileError(compile_error) => vec![compile_error.into()],
+            CompileOrResolverError::ResolverErrors(resolver_errors) => {
+                resolver_errors.iter().map(Into::into).collect()
+            }
+        })?;
 
     let compilation_warnings = vecmap(compiled_program.warnings.clone(), CustomDiagnostic::from);
     if options.deny_warnings && !compilation_warnings.is_empty() {
@@ -64,12 +70,17 @@ fn modified_compile_main(
     Ok((compiled_program.krate, warnings))
 }
 
+pub enum CompileOrResolverError {
+    CompileError(CompileError),
+    ResolverErrors(Vec<ResolverError>),
+}
+
 // Something like the method `compile_no_check()`
 fn modified_compile_no_check(
     context: &mut Context,
     options: &CompileOptions,
     main_function: node_interner::FuncId,
-) -> Result<KrateAndWarnings, CompileError> {
+) -> Result<KrateAndWarnings, CompileOrResolverError> {
     let force_unconstrained = options.force_brillig || options.minimal_ssa;
 
     let (program, fv_annotations) = modified_monomorphize(
@@ -77,29 +88,41 @@ fn modified_compile_no_check(
         &mut context.def_interner,
         &DebugInstrumenter::default(),
         force_unconstrained,
-    )?;
+    )
+    .map_err(|e| match e {
+        MonomorphOrResolverError::MonomorphizationError(monomorphization_error) => {
+            CompileOrResolverError::CompileError(CompileError::MonomorphizationError(
+                monomorphization_error,
+            ))
+        }
+        MonomorphOrResolverError::ResolverErrors(resolver_errors) => {
+            CompileOrResolverError::ResolverErrors(resolver_errors)
+        }
+    })?;
 
     if options.show_monomorphized {
         println!("{program}");
     }
 
     Ok(KrateAndWarnings {
-        krate: create_verus_vir_with_ready_annotations(program, fv_annotations).map_err(
-            |BuildingKrateError::Error(msg)| {
+        krate: create_verus_vir_with_ready_annotations(program, fv_annotations)
+            .map_err(|BuildingKrateError::Error(msg)| {
                 RuntimeError::InternalError(noirc_evaluator::errors::InternalError::General {
                     message: msg,
                     call_stack: vec![],
                 })
-            },
-        )?,
+            })
+            .map_err(|runtime_error| {
+                CompileOrResolverError::CompileError(CompileError::RuntimeError(runtime_error))
+            })?,
         warnings: vec![],
         parse_annotations_errors: vec![], // TODO(totel): Get the errors from `modified_monomorphize()`
     })
 }
 
-enum MonomorphOrParserError {
+enum MonomorphOrResolverError {
     MonomorphizationError(MonomorphizationError),
-    ParserErrors(Vec<ParserError>),
+    ResolverErrors(Vec<ResolverError>),
 }
 
 fn modified_monomorphize(
@@ -107,13 +130,16 @@ fn modified_monomorphize(
     interner: &mut NodeInterner,
     debug_instrumenter: &DebugInstrumenter,
     force_unconstrained: bool,
-) -> Result<(Program, Vec<(FuncId, Vec<Attribute>)>), MonomorphizationError> {
+) -> Result<(Program, Vec<(FuncId, Vec<Attribute>)>), MonomorphOrResolverError> {
     let debug_type_tracker = DebugTypeTracker::build_from_debug_instrumenter(debug_instrumenter);
     // TODO(totel): Monomorphizer is a `pub(crate)` struct
     let mut monomorphizer = Monomorphizer::new(interner, debug_type_tracker);
     monomorphizer.in_unconstrained_function = force_unconstrained;
-    let function_sig = monomorphizer.compile_main(main)?;
+    let function_sig = monomorphizer
+        .compile_main(main)
+        .map_err(MonomorphOrResolverError::MonomorphizationError)?;
     let mut new_ids_to_old_ids: HashMap<FuncId, node_interner::FuncId> = HashMap::new();
+    new_ids_to_old_ids.insert(Program::main_id(), main);
 
     while !monomorphizer.queue.is_empty() {
         let (next_fn_id, new_id, bindings, trait_method, is_unconstrained, location) =
@@ -125,9 +151,12 @@ fn modified_monomorphize(
         perform_instantiation_bindings(&bindings);
         let interner = &monomorphizer.interner;
         let impl_bindings = perform_impl_bindings(interner, trait_method, next_fn_id, location)
-            .map_err(MonomorphizationError::InterpreterError)?;
+            .map_err(MonomorphizationError::InterpreterError)
+            .map_err(MonomorphOrResolverError::MonomorphizationError)?;
 
-        monomorphizer.function(next_fn_id, new_id, location)?;
+        monomorphizer
+            .function(next_fn_id, new_id, location)
+            .map_err(MonomorphOrResolverError::MonomorphizationError)?;
         new_ids_to_old_ids.insert(new_id, next_fn_id);
         undo_instantiation_bindings(impl_bindings);
         undo_instantiation_bindings(bindings);
@@ -169,12 +198,11 @@ fn modified_monomorphize(
                 })
                 .collect();
 
-            (
+            Ok((
                 new_func_id.clone(),
                 tag_attributes
                     .into_iter()
                     .map(|(annotation_body, location)| {
-                        //TODO(totel): After error types are introduced remove the `unwrap` and switch to `?`
                         parse_attribute(
                             annotation_body,
                             location,
@@ -182,12 +210,12 @@ fn modified_monomorphize(
                             &globals,
                             &monomorphizer.finished_functions,
                         )
-                        .unwrap()
+                        .map_err(MonomorphOrResolverError::ResolverErrors)
                     })
-                    .collect(),
-            )
+                    .collect::<Result<Vec<_>, _>>()?,
+            ))
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
 
     let functions = vecmap(monomorphizer.finished_functions, |(_, f)| f);
 
