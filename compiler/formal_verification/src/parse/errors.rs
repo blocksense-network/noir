@@ -7,10 +7,16 @@ use std::fmt::Debug;
 
 use super::Input;
 
-// An individual, specific error that occurred.
 #[derive(Debug, Clone)]
 pub struct ParserError {
-    pub span: Span,
+    /// Offset from the end of the annotation
+    pub offset: u32,
+    pub kind: ParserErrorKind,
+}
+
+#[derive(Debug, Clone)]
+pub struct ParserErrorWithLocation {
+    pub location: Location,
     pub kind: ParserErrorKind,
 }
 
@@ -44,16 +50,14 @@ pub struct Error {
     pub contexts: Vec<String>,
 }
 
-// Helper to get a Span from a nom Input
-pub fn input_to_span(i: Input) -> Span {
-    let offset = i.as_ptr() as usize - i.as_bytes().as_ptr() as usize;
-    Span::single_char(offset as u32)
+pub fn input_to_offset(i: Input) -> u32 {
+    i.len() as u32
 }
 
 /// Builds and returns our custom Error struct directly.
 pub fn build_error(input: Input, kind: ParserErrorKind) -> Error {
     Error {
-        parser_errors: vec![ParserError { span: input_to_span(input), kind }],
+        parser_errors: vec![ParserError { offset: input_to_offset(input), kind }],
         contexts: vec![],
     }
 }
@@ -77,7 +81,7 @@ where
 {
     map_nom_err(parser, move |fail_input| ParserErrorKind::Expected {
         expected: expected_msg.as_ref().to_string(),
-        found: get_found_token(fail_input),
+        found: fail_input.to_string(), // get_found_token(fail_input),
     })
 }
 
@@ -114,7 +118,7 @@ impl<'a> ParseError<Input<'a>> for Error {
         //     kind, input
         // );
         let err = ParserError {
-            span: input_to_span(input),
+            offset: input_to_offset(input),
             // Create a generic message from the nom ErrorKind.
             kind: ParserErrorKind::Message(format!("nom primitive failed: {:?}", kind)),
         };
@@ -139,11 +143,8 @@ impl<'a> ContextError<Input<'a>> for Error {
     }
 }
 
-impl From<ParserError> for CustomDiagnostic {
-    fn from(value: ParserError) -> Self {
-        // TODO(totel): Get proper location
-        let location = Location::dummy();
-
+impl From<ParserErrorWithLocation> for CustomDiagnostic {
+    fn from(value: ParserErrorWithLocation) -> Self {
         let primary_message = match value.kind {
             ParserErrorKind::Expected { expected, found } => {
                 format!("Expected {} but found {}", expected, found)
@@ -156,6 +157,6 @@ impl From<ParserError> for CustomDiagnostic {
             ParserErrorKind::Message(msg) => msg,
         };
 
-        CustomDiagnostic::simple_error(primary_message, String::new(), location)
+        CustomDiagnostic::simple_error(primary_message, String::new(), value.location)
     }
 }

@@ -235,7 +235,7 @@ fn modified_monomorphize(
                         &globals,
                         &monomorphizer.finished_functions,
                     )
-                    .map_err(|e| MonomorphizationErrorBundle::ParserErrors(e.parser_errors))?;
+                    .map_err(|e| MonomorphizationErrorBundle::ParserErrors(e.0))?;
 
                     // Step 2: Type-infer the parsed attribute expression.
                     let typed_attribute = match parsed_attribute {

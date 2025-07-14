@@ -18,11 +18,13 @@ use num_bigint::{BigInt, BigUint, Sign};
 use std::collections::BTreeMap;
 
 pub mod errors;
-use errors::{Error, ParserErrorKind, build_error, expect, map_nom_err};
+use errors::{
+    Error, ParserError, ParserErrorKind, ParserErrorWithLocation, build_error, expect, map_nom_err,
+};
 
 use crate::{
     Attribute,
-    ast::{BinaryOp, ExprF, Literal, OffsetExpr, Quantifier, UnaryOp, Variable},
+    ast::{BinaryOp, ExprF, Identifier, Literal, OffsetExpr, Quantifier, UnaryOp, Variable},
     span_expr,
 };
 
@@ -68,7 +70,7 @@ pub fn parse_attribute<'a>(
     _function: &'a mast::Function,
     _global_constants: &'a BTreeMap<mast::GlobalId, (String, mast::Type, mast::Expression)>,
     _functions: &'a BTreeMap<mast::FuncId, mast::Function>,
-) -> Result<Attribute, Error> {
+) -> Result<Attribute, (Vec<ParserErrorWithLocation>, Vec<String>)> {
     // NOTE: #['...]
     //       ^^^^^^^ - received `Location`
     //          ^^^  - relevant stuff
@@ -78,29 +80,43 @@ pub fn parse_attribute<'a>(
         ..location
     };
 
+    let locate_parser_error = |parser_error: ParserError| ParserErrorWithLocation {
+        location: build_location(
+            location,
+            annotation.len() as u32,
+            parser_error.offset,
+            parser_error.offset + 1,
+        ),
+        kind: parser_error.kind.clone(),
+    };
+
+    let convert_nom_error = |nom_err: Error| -> (Vec<ParserErrorWithLocation>, Vec<String>) {
+        (nom_err.parser_errors.into_iter().map(locate_parser_error).collect(), nom_err.contexts)
+    };
+
     let (input, ident) = match expect("attribute name", parse_identifier)(annotation) {
         Ok(result) => result,
         Err(nom_err) => {
-            return match nom_err {
-                NomErr::Error(e) | NomErr::Failure(e) => Err(e),
-                NomErr::Incomplete(_) => Err(build_error(
+            return Err(convert_nom_error(match nom_err {
+                NomErr::Error(e) | NomErr::Failure(e) => e,
+                NomErr::Incomplete(_) => build_error(
                     annotation,
                     ParserErrorKind::Message("Incomplete input".to_string()),
-                )),
-            };
+                ),
+            }));
         }
     };
 
     match ident {
         "ghost" => {
             if !input.is_empty() {
-                return Err(build_error(
+                return Err(convert_nom_error(build_error(
                     input,
                     ParserErrorKind::Message(format!(
                         "Unexpected input after 'ghost' attribute: '{}'",
                         input
                     )),
-                ));
+                )));
             }
             Ok(Attribute::Ghost)
         }
@@ -114,13 +130,13 @@ pub fn parse_attribute<'a>(
             match expr_parser.parse(input) {
                 Ok((rest, expr)) => {
                     if !rest.is_empty() {
-                        return Err(build_error(
+                        return Err(convert_nom_error(build_error(
                             rest,
                             ParserErrorKind::Message(format!(
                                 "Unexpected trailing input: '{}'",
                                 rest
                             )),
-                        ));
+                        )));
                     }
                     let spanned_expr = span_expr(location, annotation.len() as u32, expr);
                     if ident == "ensures" {
@@ -130,17 +146,17 @@ pub fn parse_attribute<'a>(
                     }
                 }
                 Err(nom_err) => match nom_err {
-                    NomErr::Error(e) | NomErr::Failure(e) => Err(e),
-                    NomErr::Incomplete(_) => Err(build_error(
+                    NomErr::Error(e) | NomErr::Failure(e) => Err(convert_nom_error(e)),
+                    NomErr::Incomplete(_) => Err(convert_nom_error(build_error(
                         input,
                         ParserErrorKind::Message("Incomplete input".to_string()),
-                    )),
+                    ))),
                 },
             }
         }
         unknown => {
             let err_kind = ParserErrorKind::UnknownAttribute(unknown.to_string());
-            Err(build_error(annotation, err_kind))
+            Err(convert_nom_error(build_error(annotation, err_kind)))
         }
     }
 }
@@ -1071,7 +1087,7 @@ pub mod tests {
 
         let err = result.unwrap_err();
 
-        let first_error = err.parser_errors.get(0).expect("Should have one parser error");
+        let first_error = err.0.get(0).expect("Should have one parser error");
         assert!(matches!(&first_error.kind, ParserErrorKind::Expected { expected, found }
             if expected == "an identifier" && found.starts_with("'invalid")
         ));
@@ -1094,7 +1110,7 @@ pub mod tests {
 
         let err = result.unwrap_err();
 
-        let first_error = err.parser_errors.get(0).expect("Should have one parser error");
+        let first_error = err.0.get(0).expect("Should have one parser error");
         assert!(matches!(&first_error.kind, ParserErrorKind::UnknownAttribute(attr)
             if attr == "banica"
         ));

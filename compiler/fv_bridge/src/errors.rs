@@ -1,6 +1,6 @@
 use fm::FileId;
 use formal_verification::{
-    parse::errors::{self, ParserError, ParserErrorKind},
+    parse::errors::{self, ParserError, ParserErrorKind, ParserErrorWithLocation},
     typing::TypeInferenceError,
 };
 use noirc_driver::CompileError;
@@ -17,14 +17,14 @@ pub(crate) enum MonomorphizationErrorBundle {
     MonomorphizationError(MonomorphizationError),
     ResolverErrors(Vec<ResolverError>),
     TypeError(TypeCheckError),
-    ParserErrors(Vec<ParserError>),
+    ParserErrors(Vec<ParserErrorWithLocation>),
 }
 
 pub(crate) enum CompilationErrorBundle {
     CompileError(CompileError),
     ResolverErrors(Vec<ResolverError>),
     TypeError(TypeCheckError),
-    ParserErrors(Vec<ParserError>),
+    ParserErrors(Vec<ParserErrorWithLocation>),
 }
 
 impl From<TypeInferenceError> for MonomorphizationErrorBundle {
