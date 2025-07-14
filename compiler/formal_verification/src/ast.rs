@@ -1,5 +1,3 @@
-use std::ops::Try;
-
 use noirc_errors::Location;
 use noirc_frontend::monomorphization::ast::Type as NoirType;
 use num_bigint::BigInt;
