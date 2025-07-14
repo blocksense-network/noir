@@ -927,6 +927,13 @@ pub mod tests {
                         NoirType::Tuple(vec![NoirType::Bool, NoirType::Unit]),
                         Visibility::Public,
                     ),
+                    (
+                        LocalId(5),
+                        false,
+                        "pair".to_string(),
+                        NoirType::Tuple(vec![NoirType::Integer(Signedness::Unsigned, IntegerBitSize::Sixteen), NoirType::Field]),
+                        Visibility::Public,
+                    ),
                 ],
                 body: Expression::Block(vec![]),
                 return_type: NoirType::Integer(
