@@ -1,10 +1,10 @@
-use std::{convert::identity, fmt::Display};
+use std::fmt::Display;
 
 use crate::{
     MonomorphizationRequest, State,
     ast::{
-        AnnExpr, BinaryOp, ExprF, Literal, SpannedExpr, SpannedTypedExpr, UnaryOp, Variable, cata,
-        strip_ann, try_cata, try_contextual_cata,
+        AnnExpr, BinaryOp, ExprF, Literal, SpannedExpr, SpannedTypedExpr, UnaryOp, Variable,
+        try_cata, try_contextual_cata,
     },
 };
 use noirc_errors::Location;
