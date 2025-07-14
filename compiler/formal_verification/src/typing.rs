@@ -836,10 +836,6 @@ pub fn type_infer(
                     )
                 }
                 ExprF::Tuple { exprs } => {
-                    // TODO: support not-yet-typed expressions in the tuple literals,
-                    //       later back-propagating the type inferrence through the projections
-                    //       into the tuple
-
                     // NOTE: if all sub-expressions are well-typed, produce a well-typed `Tuple`
                     //       otherwise, produce a `OptionalType::PartialTuple`
                     let t = exprs
