@@ -1,12 +1,10 @@
-use noirc_errors::{Location, Span};
+use noirc_errors::Location;
 use noirc_frontend::monomorphization::ast as mast;
-use nom::Finish;
 use std::{collections::BTreeMap, fmt::Debug};
-use vir::messages::Span as VirSpan;
 
 use crate::{
     ast::{OffsetExpr, SpannedExpr, cata},
-    parse::{errors::Error as ParseError, build_location, parse_expression, parse_identifier},
+    parse::build_location,
 };
 
 // NOTE: all types inside are not prefixed, to be used as `ast::OffsetExpr`

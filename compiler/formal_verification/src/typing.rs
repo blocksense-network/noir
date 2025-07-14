@@ -141,7 +141,10 @@ pub fn propagate_concrete_type(
     })
 }
 
-pub fn type_infer(state: &State, expr: SpannedExpr) -> Result<SpannedTypedExpr, TypeInferenceError> {
+pub fn type_infer(
+    state: &State,
+    expr: SpannedExpr,
+) -> Result<SpannedTypedExpr, TypeInferenceError> {
     // NOTE: predicate, always bool,
     //       assume subterms are `u32` (like `Noir` does)
     let default_literal_type = NoirType::Integer(Signedness::Unsigned, IntegerBitSize::ThirtyTwo);
@@ -153,8 +156,14 @@ pub fn type_infer(state: &State, expr: SpannedExpr) -> Result<SpannedTypedExpr, 
         vec![],
         &|mut quantifier_bound_variables, e| {
             if let ExprF::Quantified { variables, .. } = e.expr.as_ref() {
-                quantifier_bound_variables
-                    .extend(variables.iter().map(|Variable { name, .. }| name.clone()));
+                quantifier_bound_variables.extend(variables.iter().map(
+                    |Variable { path, name, .. }| {
+                        // NOTE: quantified variables should have no path
+                        debug_assert_eq!(path.len(), 0);
+
+                        name.clone()
+                    },
+                ));
             }
             quantifier_bound_variables
         },
@@ -169,7 +178,9 @@ pub fn type_infer(state: &State, expr: SpannedExpr) -> Result<SpannedTypedExpr, 
                         (exprf, None)
                     }
                 },
-                ExprF::Variable(Variable { name, id }) => {
+                ExprF::Variable(Variable { path, name, id }) => {
+                    // TODO: we do not support type inferrence of variables with paths
+                    debug_assert_eq!(path.len(), 0);
                     // NOTE: parsing should not yield `id`s
                     debug_assert_eq!(*id, None);
                     let (variable_ident, variable_id, variable_type): (
@@ -203,6 +214,7 @@ pub fn type_infer(state: &State, expr: SpannedExpr) -> Result<SpannedTypedExpr, 
 
                     (
                         ExprF::Variable(Variable {
+                            path: path.clone(),
                             name: variable_ident.to_string(),
                             id: variable_id,
                         }),
@@ -226,7 +238,23 @@ pub fn type_infer(state: &State, expr: SpannedExpr) -> Result<SpannedTypedExpr, 
 
                     (exprf, Some(return_type.clone()))
                 }
-                ExprF::Quantified { .. } => (exprf, Some(NoirType::Bool)),
+                ExprF::Quantified { variables, .. } => {
+                    variables.iter().map(|Variable { path, .. }| {
+                        if !path.is_empty() {
+                            Err(TypeInferenceError::NoirTypeError(
+                                // TODO(totel): better error?
+                                TypeCheckError::ParameterCountMismatch {
+                                    expected: 0,
+                                    found: path.len(),
+                                    location,
+                                },
+                            ))
+                        } else {
+                            Ok(())
+                        }
+                    }).collect::<Result<Vec<_>, _>>()?;
+                    (exprf, Some(NoirType::Bool))
+                }
                 ExprF::Parenthesised { expr } => (exprf.clone(), expr.ann.1.clone()),
                 ExprF::UnaryOp { op: _, expr } => (exprf.clone(), expr.ann.1.clone()),
                 ExprF::BinaryOp { op, expr_left, expr_right } => {

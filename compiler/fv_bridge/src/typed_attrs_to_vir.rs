@@ -87,7 +87,7 @@ pub(crate) fn ann_expr_to_vir_expr(ann_expr: SpannedTypedExpr, state: &State) ->
                 };
                 make_expr(exprx, ast_type_to_vir_type(&typ), span_msg)
             }
-            ExprF::Variable(Variable { name, id }) => {
+            ExprF::Variable(Variable { name, id, path: _ }) => {
                 let is_global = state.global_constants.iter().any(|(_, (gn, _, _))| *gn == name);
                 let span_msg = format!("Var {}", name);
 

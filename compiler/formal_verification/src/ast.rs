@@ -3,7 +3,6 @@ use std::fmt::{Debug, Display};
 use noirc_errors::Location;
 use noirc_frontend::monomorphization::ast::Type as NoirType;
 use num_bigint::BigInt;
-use serde::{Deserialize, Serialize};
 
 pub type Identifier = String;
 
@@ -132,6 +131,7 @@ impl BinaryOp {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Variable {
+    pub path: Vec<Identifier>,
     pub name: Identifier,
     pub id: Option<u32>,
 }
@@ -156,14 +156,12 @@ pub fn fmap<A, B>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> B) -> ExprF<B> {
         ExprF::Index { expr: indexee, index } => {
             ExprF::Index { expr: cata_fn(indexee), index: cata_fn(index) }
         }
-        ExprF::TupleAccess { expr, index } => {
-            ExprF::TupleAccess { expr: cata_fn(expr), index }
-        }
-        ExprF::Cast { expr, target } => {
-            ExprF::Cast { expr: cata_fn(expr), target }
-        }
+        ExprF::TupleAccess { expr, index } => ExprF::TupleAccess { expr: cata_fn(expr), index },
+        ExprF::Cast { expr, target } => ExprF::Cast { expr: cata_fn(expr), target },
         ExprF::Literal { value } => ExprF::Literal { value },
-        ExprF::Variable(Variable { name, id }) => ExprF::Variable(Variable { name, id }),
+        ExprF::Variable(Variable { path, name, id }) => {
+            ExprF::Variable(Variable { path, name, id })
+        }
     }
 }
 
@@ -184,14 +182,12 @@ fn try_fmap<A, B, E>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> Result<B, E>) -> Res
         ExprF::Index { expr: indexee, index } => {
             ExprF::Index { expr: cata_fn(indexee)?, index: cata_fn(index)? }
         }
-        ExprF::TupleAccess { expr, index } => {
-            ExprF::TupleAccess { expr: cata_fn(expr)?, index }
-        }
-        ExprF::Cast { expr, target } => {
-            ExprF::Cast { expr: cata_fn(expr)?, target }
-        }
+        ExprF::TupleAccess { expr, index } => ExprF::TupleAccess { expr: cata_fn(expr)?, index },
+        ExprF::Cast { expr, target } => ExprF::Cast { expr: cata_fn(expr)?, target },
         ExprF::Literal { value } => ExprF::Literal { value },
-        ExprF::Variable(Variable { name, id }) => ExprF::Variable(Variable { name, id }),
+        ExprF::Variable(Variable { path, name, id }) => {
+            ExprF::Variable(Variable { path, name, id })
+        }
     })
 }
 
@@ -252,9 +248,13 @@ pub fn try_cata_recoverable<A, B, E>(
 
 impl Display for Quantifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self {
-            Quantifier::Forall => "forall",
-            Quantifier::Exists => "exists",
-        } )
+        write!(
+            f,
+            "{}",
+            match self {
+                Quantifier::Forall => "forall",
+                Quantifier::Exists => "exists",
+            }
+        )
     }
 }

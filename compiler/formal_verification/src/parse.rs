@@ -24,7 +24,7 @@ use errors::{
 
 use crate::{
     Attribute,
-    ast::{BinaryOp, ExprF, Identifier, Literal, OffsetExpr, Quantifier, UnaryOp, Variable},
+    ast::{BinaryOp, ExprF, Literal, OffsetExpr, Quantifier, UnaryOp, Variable},
     span_expr,
 };
 
@@ -653,7 +653,7 @@ pub(crate) fn parse_quantifier_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetE
                 quantifier,
                 variables: variables
                     .into_iter()
-                    .map(|name| Variable { name: name.to_string(), id: None })
+                    .map(|name| Variable { path: vec![], name: name.to_string(), id: None })
                     .collect(),
                 expr,
             },
@@ -752,27 +752,44 @@ pub(crate) fn parse_sign<'a>(input: Input<'a>) -> PResult<'a, bool> {
 
 const FORBIDDEN_IDENTIFIERS: &[&str] = &["forall", "exists"];
 
-// TODO: parse module references `fv_std::SOMETHING`
 pub(crate) fn parse_var_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     let prev_offset = input.len();
 
-    let (input, ident) = parse_identifier(input)?;
+    // Wrapper of `parse_identifier` that denies some identifiers
+    let path_segment_parser = |input: Input<'a>| -> PResult<'a, &'a str> {
+        let (input, ident) = parse_identifier(input)?;
+
+        if FORBIDDEN_IDENTIFIERS.contains(&ident) {
+            return Err(NomErr::Error(build_error(
+                input,
+                ParserErrorKind::Message(format!(
+                    "The keyword `{}` cannot be used as an identifier",
+                    ident
+                )),
+            )));
+        }
+
+        Ok((input, ident))
+    };
+
+    let (input, all_path_segments) =
+        separated_list1(expect("'::'", tag("::")), path_segment_parser).parse(input)?;
 
     let after_offset = input.len();
 
-    if FORBIDDEN_IDENTIFIERS.contains(&ident) {
-        return Err(NomErr::Error(build_error(
-            input,
-            ParserErrorKind::InvalidIdentifier(ident.to_string()),
-        )));
-    }
+    let (&name, path) =
+        all_path_segments.split_last().expect("`separated_list1` should return a non-empty `Vec`");
 
     Ok((
         input,
         build_expr(
             prev_offset,
             after_offset,
-            ExprF::Variable(Variable { name: ident.to_string(), id: None }),
+            ExprF::Variable(Variable {
+                path: path.into_iter().map(|&s| s.to_string()).collect(),
+                name: name.to_string(),
+                id: None,
+            }),
         ),
     ))
 }
@@ -958,6 +975,13 @@ pub mod tests {
             "exists(|i| (((0 <= i) & (i < 20)) & (arr[i] > 100)))",
             // "exists(|i| ((((0 <= i) & (i < 20)) & arr[i]) > 100))",
         );
+    }
+
+    #[test]
+    fn test_identifier_with_path() {
+        let expr = parse("f(alo::da::kek + !2 ^ bani::c::a.0)").unwrap();
+        dbg!(&expr);
+        assert_eq!(expr.0, "");
     }
 
     #[test]
