@@ -6,7 +6,7 @@ use vir::messages::Span as VirSpan;
 
 use crate::{
     ast::{OffsetExpr, SpannedExpr, cata},
-    parse::{Error as ParseError, build_location, parse_expression_expr, parse_identifier},
+    parse::{Error as ParseError, build_location, parse_expression, parse_identifier},
 };
 
 // NOTE: all types inside are not prefixed, to be used as `ast::OffsetExpr`
@@ -62,7 +62,7 @@ pub fn parse_attribute<'a>(
     let (input, attribute_type) = parse_identifier(input).finish()?; //.map_err(|e| e.parser_errors)?;
 
     let parse_expr = || -> Result<SpannedExpr, ParseError> {
-        let (rest, expr) = parse_expression_expr(input).finish()?; //.map_err(|e| e.parser_errors)?;
+        let (rest, expr) = parse_expression(input).finish()?; //.map_err(|e| e.parser_errors)?;
         assert_eq!(rest, "");
         Ok(span_expr(location, annotation.len() as u32, expr))
     };
