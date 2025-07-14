@@ -151,11 +151,8 @@ pub fn parse_attribute<'a>(
 }
 
 pub(crate) fn parse_expression<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
-    alt((
-        //
-        parse_implication_expr,
-    ))
-    .parse(input)
+    // NOTE: we start parsing from the highest precedence operator
+    parse_implication_expr(input)
 }
 
 pub(crate) fn parse_implication_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
