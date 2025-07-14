@@ -109,34 +109,40 @@ where
 }
 
 impl<'a> ParseError<Input<'a>> for Error {
-    /// This function is called by nom's primitives when they fail.
-    /// It should create a generic error that can be enriched later by other combinators.
     fn from_error_kind(input: Input<'a>, kind: ErrorKind) -> Self {
+        // TODO: it'd be best in the future if we actually manage to suppress the builtin `nom`
+        //       errors at all levels, even under the `expect and `map_nom_err` calls
         // unreachable!(
         //     "We should wrap all errors and never have to convert from the built-in `nom` ones, still got a {:?} while parsing {:?} tho",
         //     kind, input
         // );
+
+        // NOTE: these errors should not matter, because of our usage of `expect` and `map_nom_err`
+        //       throughout the parser, ensuring that a primitive parser's error never sees the
+        //       light of day
         let err = ParserError {
             offset: input_to_offset(input),
-            // Create a generic message from the nom ErrorKind.
             kind: ParserErrorKind::Message(format!("nom primitive failed: {:?}", kind)),
         };
         Error { parser_errors: vec![err], contexts: vec![] }
     }
 
-    fn append(input: Input<'a>, kind: ErrorKind, mut other: Self) -> Self {
-        // // This is called when `alt` fails, for example. We can add to the error stack.
-        // let err = ParserError {
-        //     span: input_to_span(input),
-        //     kind: ParserErrorKind::Message(format!("nom append error: {:?}", kind)),
-        // };
-        // other.parser_errors.push(err);
+    fn append(_input: Input<'a>, _kind: ErrorKind, other: Self) -> Self {
+        // TODO: it'd be best to assert that this never happens either, check the `TODO` comment in
+        //       the `from_error_kind` function above
+        // unreachable!(
+        //     "We should wrap all errors and never have to convert from the built-in `nom` ones, still got a {:?} on top of {:?} while parsing {:?} tho",
+        //     kind, other, input
+        // );
+
+        // NOTE: This usually adds context of which primitive parsers were called before
+        //       encountering the `other` error
         other
     }
 }
 
 impl<'a> ContextError<Input<'a>> for Error {
-    fn add_context(input: Input<'a>, ctx: &'static str, mut other: Self) -> Self {
+    fn add_context(_input: Input<'a>, ctx: &'static str, mut other: Self) -> Self {
         other.contexts.push(ctx.to_string());
         other
     }
