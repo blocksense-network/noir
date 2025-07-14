@@ -946,8 +946,9 @@ pub mod tests {
                     Function {
                         id: FuncId(0),
                         name: "banica".to_string(),
-                        // TODO: not type-checking parameters, yet
-                        //       might need to do some manual dispatching
+                        // NOTE: no tests are calling this function (yet)
+                        //       it's only used in the `parse.rs` tests,
+                        //       so it's fine being argument-less
                         parameters: vec![],
                         body: Expression::Block(vec![]),
                         return_type: NoirType::Field,
