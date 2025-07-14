@@ -569,7 +569,7 @@ pub fn type_infer(
                             expr: Box::new(ExprF::Tuple { exprs: right_exprs }),
                             ann: (
                                 expr_right.ann.0,
-                                OptionalType::Well(NoirType::Tuple(new_exprs_types.clone())),
+                                OptionalType::Well(NoirType::Tuple(new_exprs_types)),
                             ),
                         };
 
