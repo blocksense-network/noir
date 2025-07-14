@@ -621,7 +621,7 @@ pub(crate) fn parse_parenthesised_or_tuple_expr<'a>(input: Input<'a>) -> PResult
 
     // NOTE: Both parenthesised and tuple expressions have a starting `(`
     let (input, (exprs, trailing_comma)) = delimited(
-        expect("(", tag("(")),
+        pair(expect("(", tag("(")), multispace),
         // NOTE: Inside, we have a list of 0 or more expressions separated by commas...
         pair(
             separated_list0(
@@ -631,7 +631,7 @@ pub(crate) fn parse_parenthesised_or_tuple_expr<'a>(input: Input<'a>) -> PResult
             // NOTE: ...with an optional trailing comma
             opt(delimited(multispace, tag(","), multispace)),
         ),
-        cut(expect(")", tag(")"))),
+        pair(multispace, cut(expect(")", tag(")")))),
     )
     .parse(input)?;
 
