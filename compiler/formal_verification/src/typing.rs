@@ -130,7 +130,7 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
         &|mut quantifier_bound_variables, e| {
             if let ExprF::Quantified { variables, .. } = e.expr.as_ref() {
                 quantifier_bound_variables
-                    .extend(variables.iter().map(|Variable { name, .. }| name.clone()) );
+                    .extend(variables.iter().map(|Variable { name, .. }| name.clone()));
             }
             quantifier_bound_variables
         },
@@ -148,31 +148,42 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                 ExprF::Variable(Variable { name, id }) => {
                     // NOTE: parsing should not yield `id`s
                     debug_assert_eq!(*id, None);
-                    let (variable_ident, variable_id, variable_type): (&str, Option<u32>, Option<NoirType>) =
-                        quantifier_bound_variables
-                            .iter()
-                            .find_map(|bound_variable| {
-                                // TODO: `id` not `None` (when we have a way to generate new `id`s)
-                                (bound_variable == name).then(|| (name.as_str(), None, None))
+                    let (variable_ident, variable_id, variable_type): (
+                        &str,
+                        Option<u32>,
+                        Option<NoirType>,
+                    ) = quantifier_bound_variables
+                        .iter()
+                        .find_map(|bound_variable| {
+                            // TODO: `id` not `None` (when we have a way to generate new `id`s)
+                            (bound_variable == name).then(|| (name.as_str(), None, None))
+                        })
+                        .or_else(|| {
+                            state.function.parameters.iter().find_map(|(id, _, par_name, t, _)| {
+                                (par_name == name)
+                                    .then(|| (name.as_str(), Some(id.0), Some(t.clone())))
                             })
-                            .or_else(|| {
-                                state.function.parameters.iter().find_map(|(id, _, par_name, t, _)| {
-                                    (par_name == name).then(|| (name.as_str(), Some(id.0), Some(t.clone())))
-                                })
+                        })
+                        .or_else(|| {
+                            (name == "result").then(|| {
+                                (
+                                    FUNC_RETURN_VAR_NAME,
+                                    None,
+                                    Some(state.function.return_type.clone()),
+                                )
                             })
-                            .or_else(|| {
-                                (name == "result").then(|| {
-                                    (FUNC_RETURN_VAR_NAME, None, Some(state.function.return_type.clone()))
-                                })
-                            })
-                            .ok_or(TypeInferenceError::TypeError {
-                                got: None,
-                                wanted: None,
-                                message: Some(format!("Undefined variable {}", name)),
-                            })?;
+                        })
+                        .ok_or(TypeInferenceError::TypeError {
+                            got: None,
+                            wanted: None,
+                            message: Some(format!("Undefined variable {}", name)),
+                        })?;
 
                     (
-                        ExprF::Variable(Variable { name: variable_ident.to_string(), id: variable_id }),
+                        ExprF::Variable(Variable {
+                            name: variable_ident.to_string(),
+                            id: variable_id,
+                        }),
                         variable_type,
                     )
                 }
@@ -217,7 +228,35 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                             let is_arith = op.is_arithmetic();
 
                             match (&expr_left.ann.1, &expr_right.ann.1) {
-                                (None, None) => (exprf, None),
+                                (None, None) => {
+                                    if is_arith {
+                                        (exprf, None)
+                                    } else {
+                                        // NOTE: predicate, always bool,
+                                        //       assume subterms are `u32` (like `Noir` does)
+                                        let default_literal_type = NoirType::Integer(
+                                            Signedness::Unsigned,
+                                            IntegerBitSize::ThirtyTwo,
+                                        );
+                                        let expr_left_inner = propagate_concrete_type(
+                                            expr_left.clone(),
+                                            default_literal_type.clone(),
+                                        )?;
+                                        let expr_right_inner = propagate_concrete_type(
+                                            expr_right.clone(),
+                                            default_literal_type.clone(),
+                                        )?;
+
+                                        (
+                                            ExprF::BinaryOp {
+                                                op: op.clone(),
+                                                expr_left: expr_left_inner,
+                                                expr_right: expr_right_inner,
+                                            },
+                                            Some(NoirType::Bool),
+                                        )
+                                    }
+                                }
                                 (None, Some(t2)) => {
                                     let expr_left_inner =
                                         propagate_concrete_type(expr_left.clone(), t2.clone())?;
@@ -573,6 +612,24 @@ mod tests {
     #[test]
     fn test_tuple_access() {
         let attribute = "ensures(user.0 ==> true)";
+        let state = empty_state();
+        let attribute = parse_attribute(
+            attribute,
+            Location { span: Span::inclusive(0, attribute.len() as u32), file: Default::default() },
+            state.function,
+            state.global_constants,
+            state.functions,
+        )
+        .unwrap();
+        let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
+        let spanned_typed_expr = type_infer(state, spanned_expr).unwrap();
+        dbg!(&spanned_typed_expr);
+        assert_eq!(spanned_typed_expr.ann.1, NoirType::Bool);
+    }
+
+    #[test]
+    fn test_tuple_access_combos() {
+        let attribute = "ensures(exists(|i| (0 <= i) & (i < 20) & xs[i] > 100))";
         let state = empty_state();
         let attribute = parse_attribute(
             attribute,
