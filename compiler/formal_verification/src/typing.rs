@@ -239,20 +239,23 @@ pub fn type_infer(
                     (exprf, Some(return_type.clone()))
                 }
                 ExprF::Quantified { variables, .. } => {
-                    variables.iter().map(|Variable { path, .. }| {
-                        if !path.is_empty() {
-                            Err(TypeInferenceError::NoirTypeError(
-                                // TODO(totel): better error?
-                                TypeCheckError::ParameterCountMismatch {
-                                    expected: 0,
-                                    found: path.len(),
-                                    location,
-                                },
-                            ))
-                        } else {
-                            Ok(())
-                        }
-                    }).collect::<Result<Vec<_>, _>>()?;
+                    variables
+                        .iter()
+                        .map(|Variable { path, .. }| {
+                            if !path.is_empty() {
+                                Err(TypeInferenceError::NoirTypeError(
+                                    // TODO(totel): better error?
+                                    TypeCheckError::ParameterCountMismatch {
+                                        expected: 0,
+                                        found: path.len(),
+                                        location,
+                                    },
+                                ))
+                            } else {
+                                Ok(())
+                            }
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
                     (exprf, Some(NoirType::Bool))
                 }
                 ExprF::Parenthesised { expr } => (exprf.clone(), expr.ann.1.clone()),
