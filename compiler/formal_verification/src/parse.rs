@@ -277,7 +277,7 @@ pub(crate) fn parse_xor_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
         let (next_input, remainder) = opt(context(
             "xor",
             pair(
-                delimited(multispace, expect("'|'", tag("|").map(|_| BinaryOp::Or)), multispace),
+                delimited(multispace, expect("'^'", tag("^").map(|_| BinaryOp::Xor)), multispace),
                 cut(parse_comparison_expr),
             ),
         ))
