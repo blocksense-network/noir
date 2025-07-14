@@ -200,7 +200,14 @@ impl SpannedPartiallyTypedExpr {
                     inner_expr.unify_with_type(target_type.clone())?;
                     self.ann.1 = OptionalType::Well(target_type);
                 }
-                _ => unreachable!(
+
+                ExprF::Literal { value: Literal::Bool(..) }
+                | ExprF::Quantified { .. }
+                | ExprF::FnCall { .. }
+                | ExprF::Index { .. }
+                | ExprF::Cast { .. }
+                | ExprF::Tuple { .. }
+                | ExprF::Array { .. } => unreachable!(
                     "ICE: Unexpected expression {:?} found with IntegerLiteral type",
                     self.expr
                 ),
