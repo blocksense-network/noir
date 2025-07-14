@@ -32,7 +32,6 @@ pub enum Attribute {
 #[derive(Debug, Clone)]
 pub struct MonomorphizationRequest {
     pub function_identifier: String,
-    // NOTE: `None` for untyped integer literals
     pub param_types: Vec<OptionalType>,
 }
 
