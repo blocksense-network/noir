@@ -64,6 +64,7 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
             ExprF::UnaryOp { op, expr } => {
                 let expr_type = match op {
                     UnaryOp::Not => {
+                        // TODO: can work with non-booleans
                         if expr.ann.1 != Some(NoirType::Bool) {
                             return Err(TypeInferenceError::TypeError {
                                 got: expr.ann.1.clone(),
@@ -80,6 +81,11 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
             }
             ExprF::BinaryOp { op, expr_left, expr_right } => match op {
                 BinaryOp::ArithmeticOp(_) | BinaryOp::PredicateOp(_) => {
+                    let is_arith = match op {
+                        BinaryOp::ArithmeticOp(_) => true,
+                        BinaryOp::PredicateOp(_) => false,
+                        _ => unreachable!(),
+                    };
                     match (&expr_left.ann.1, &expr_right.ann.1) {
                         (None, None) => (exprf, None),
                         (None, Some(t2)) => {
@@ -98,7 +104,7 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                     expr_left: expr_left_inner,
                                     expr_right: expr_right.clone(),
                                 },
-                                Some(t2.clone()),
+                                Some(if is_arith { t2.clone() } else { NoirType::Bool }),
                             )
                         }
                         (Some(t1), None) => {
@@ -117,7 +123,7 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                     expr_left: expr_left.clone(),
                                     expr_right: expr_right_inner,
                                 },
-                                Some(t1.clone()),
+                                Some(if is_arith { t1.clone() } else { NoirType::Bool }),
                             )
                         }
                         (Some(t1), Some(t2)) => {
@@ -127,11 +133,7 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                     wanted: Some(t1.clone()),
                                     message: Some(format!(
                                         "Different types of arguments to {} operation",
-                                        match op {
-                                            BinaryOp::ArithmeticOp(_) => "arithmetic",
-                                            BinaryOp::PredicateOp(_) => "predicate",
-                                            _ => "unknown",
-                                        }
+                                        if is_arith { "arithmetic" } else { "predicate" }
                                     )),
                                 });
                             }
@@ -142,12 +144,13 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                     expr_left: expr_left.clone(),
                                     expr_right: expr_right.clone(),
                                 },
-                                Some(t1.clone()),
+                                Some(if is_arith { t1.clone() } else { NoirType::Bool }),
                             )
                         }
                     }
                 }
                 BinaryOp::BooleanOp(_) => {
+                    // TODO: can work with non-booleans (except implication)
                     if expr_left.ann.1 != Some(NoirType::Bool) {
                         return Err(TypeInferenceError::TypeError {
                             got: expr_left.ann.1.clone(),
