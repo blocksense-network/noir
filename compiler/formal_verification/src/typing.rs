@@ -853,7 +853,29 @@ mod tests {
 
     #[test]
     fn test_cast() {
-        let annotation = "ensures((15 as i16 - 3 > 2) & ((result as Field - 6) as u64 == 1 + a as u64 >> kek as u8))";
+        let annotation = "ensures((15 as i16 - 3 > 2) & ((result as Field - 6) as u64 == 1 + a as u64 >> 4 as u8))";
+        let state = empty_state();
+        let attribute = parse_attribute(
+            annotation,
+            Location {
+                span: Span::inclusive(0, annotation.len() as u32),
+                file: Default::default(),
+            },
+            state.function,
+            state.global_constants,
+            state.functions,
+        )
+        .unwrap();
+
+        let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
+        let spanned_typed_expr = type_infer(state, spanned_expr).unwrap();
+        dbg!(&strip_ann(spanned_typed_expr));
+        // assert_eq!(spanned_typed_expr.ann.1, NoirType::Bool);
+    }
+
+    #[test]
+    fn test_double_cast() {
+        let annotation = "ensures(a == (a as i16) as i32)";
         let state = empty_state();
         let attribute = parse_attribute(
             annotation,
