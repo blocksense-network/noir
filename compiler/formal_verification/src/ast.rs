@@ -132,7 +132,7 @@ pub struct Variable {
 * cata stuff
 * */
 
-pub fn fmap<A, B>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> B) -> ExprF<B> {
+pub fn fmap<A, B>(expr: ExprF<A>, cata_fn: &impl Fn(A) -> B) -> ExprF<B> {
     match expr {
         ExprF::BinaryOp { op, expr_left, expr_right } => {
             ExprF::BinaryOp { op, expr_left: cata_fn(expr_left), expr_right: cata_fn(expr_right) }
@@ -161,7 +161,7 @@ pub fn fmap<A, B>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> B) -> ExprF<B> {
     }
 }
 
-fn try_fmap<A, B, E>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> Result<B, E>) -> Result<ExprF<B>, E> {
+fn try_fmap<A, B, E>(expr: ExprF<A>, cata_fn: &impl Fn(A) -> Result<B, E>) -> Result<ExprF<B>, E> {
     Ok(match expr {
         ExprF::BinaryOp { op, expr_left, expr_right } => {
             ExprF::BinaryOp { op, expr_left: cata_fn(expr_left)?, expr_right: cata_fn(expr_right)? }
@@ -193,8 +193,7 @@ fn try_fmap<A, B, E>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> Result<B, E>) -> Res
     })
 }
 
-// TODO: `impl` vs` `dyn` for `cata_fn`
-pub fn cata<A, B>(expr: AnnExpr<A>, algebra: &dyn Fn(A, ExprF<B>) -> B) -> B {
+pub fn cata<A, B>(expr: AnnExpr<A>, algebra: &impl Fn(A, ExprF<B>) -> B) -> B {
     let children_results = fmap(*expr.expr, &|child| cata(child, algebra));
 
     algebra(expr.ann, children_results)
@@ -202,7 +201,7 @@ pub fn cata<A, B>(expr: AnnExpr<A>, algebra: &dyn Fn(A, ExprF<B>) -> B) -> B {
 
 pub fn try_cata<A, B, E>(
     expr: AnnExpr<A>,
-    algebra: &dyn Fn(A, ExprF<B>) -> Result<B, E>,
+    algebra: &impl Fn(A, ExprF<B>) -> Result<B, E>,
 ) -> Result<B, E> {
     let children_results = try_fmap(*expr.expr, &|child| try_cata(child, algebra))?;
 
@@ -212,8 +211,8 @@ pub fn try_cata<A, B, E>(
 pub fn try_contextual_cata<A, B, C, E>(
     expr: AnnExpr<A>,
     initial_context: C,
-    update_context: &dyn Fn(C, &AnnExpr<A>) -> C,
-    algebra: &dyn Fn(A, C, ExprF<B>) -> Result<B, E>,
+    update_context: &impl Fn(C, &AnnExpr<A>) -> C,
+    algebra: &impl Fn(A, C, ExprF<B>) -> Result<B, E>,
 ) -> Result<B, E>
 where
     C: Clone,
@@ -221,8 +220,8 @@ where
     fn recurse<A, B, C, E>(
         expr: AnnExpr<A>,
         context: C,
-        update_context: &dyn Fn(C, &AnnExpr<A>) -> C,
-        algebra: &dyn Fn(A, C, ExprF<B>) -> Result<B, E>,
+        update_context: &impl Fn(C, &AnnExpr<A>) -> C,
+        algebra: &impl Fn(A, C, ExprF<B>) -> Result<B, E>,
     ) -> Result<B, E>
     where
         C: Clone,
@@ -241,7 +240,7 @@ where
 
 pub fn try_cata_recoverable<A, B, E>(
     expr: AnnExpr<A>,
-    algebra: &dyn Fn(A, Result<ExprF<B>, E>) -> Result<B, E>,
+    algebra: &impl Fn(A, Result<ExprF<B>, E>) -> Result<B, E>,
 ) -> Result<B, E> {
     let children_results = try_fmap(*expr.expr, &|child| try_cata_recoverable(child, algebra));
 
