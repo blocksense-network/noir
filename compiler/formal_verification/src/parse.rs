@@ -436,8 +436,8 @@ pub(crate) fn parse_multiplicative_expr<'a>(input: Input<'a>) -> PResult<'a, Off
 }
 
 pub(crate) enum Prefix {
+    Dereference,
     Not,
-    // Dereference,
 }
 
 pub(crate) fn parse_prefix_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
@@ -449,6 +449,7 @@ pub(crate) fn parse_prefix_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr>
         // TODO: real span
         let ann = inner_expr.ann;
         let expr_f = match prefix {
+            Prefix::Dereference => ExprF::UnaryOp { op: UnaryOp::Dereference, expr: inner_expr },
             Prefix::Not => ExprF::UnaryOp { op: UnaryOp::Not, expr: inner_expr },
         };
         OffsetExpr { ann, expr: Box::new(expr_f) }
@@ -460,6 +461,10 @@ pub(crate) fn parse_prefix_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr>
 pub(crate) fn parse_any_prefix<'a>(input: Input<'a>) -> PResult<'a, Prefix> {
     alt((
         //
+        context(
+            "dereference",
+            terminated(expect("'*'", tag("*")), multispace).map(|_| Prefix::Dereference),
+        ),
         context("not", terminated(expect("'!'", tag("!")), multispace).map(|_| Prefix::Not)),
     ))
     .parse(input)
@@ -853,6 +858,16 @@ pub mod tests {
                         false,
                         "xs".to_string(),
                         NoirType::Array(3, Box::new(NoirType::Field)),
+                        Visibility::Public,
+                    ),
+                    (
+                        LocalId(3),
+                        false,
+                        "rxs".to_string(),
+                        NoirType::Reference(
+                            Box::new(NoirType::Array(3, Box::new(NoirType::Field))),
+                            false,
+                        ),
                         Visibility::Public,
                     ),
                     (

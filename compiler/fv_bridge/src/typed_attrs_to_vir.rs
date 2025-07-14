@@ -65,7 +65,7 @@ pub(crate) fn convert_typed_attribute_to_vir_attribute(
 
 pub(crate) fn ann_expr_to_vir_expr(ann_expr: SpannedTypedExpr, state: &State) -> Expr {
     let mode = Mode::Spec;
-    cata(ann_expr, &|(loc, typ), expr| {
+    cata(ann_expr, &|(loc, typ), expr| -> Arc<SpannedTyped<ExprX>> {
         // Helper to construct a standard SpannedTyped expression.
         // It captures `loc` from the outer scope.
         let make_expr = |exprx: ExprX, vir_type: Typ, span_msg: String| -> Expr {
@@ -195,6 +195,10 @@ pub(crate) fn ann_expr_to_vir_expr(ann_expr: SpannedTypedExpr, state: &State) ->
                                 "BitNot expr".to_string(),
                             )
                         }
+                    }
+                    formal_verification::ast::UnaryOp::Dereference => {
+                        // TODO(totel): conversion of cast expressions
+                        todo!()
                     }
                 };
                 make_expr(exprx, ast_type_to_vir_type(&typ), span_msg)

@@ -53,6 +53,9 @@ pub enum Quantifier {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnaryOp {
+    // neither
+    Dereference,
+
     // Arithmetic and Boolean
     Not,
 }

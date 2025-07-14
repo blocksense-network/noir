@@ -2,7 +2,7 @@ use crate::{
     MonomorphizationRequest, State,
     ast::{
         BinaryOp, ExprF, Literal, SpannedExpr, SpannedOptionallyTypedExpr, SpannedTypedExpr,
-        Variable, strip_ann, try_cata, try_contextual_cata,
+        UnaryOp, Variable, strip_ann, try_cata, try_contextual_cata,
     },
 };
 use noirc_errors::Location;
@@ -259,7 +259,26 @@ pub fn type_infer(
                     (exprf, Some(NoirType::Bool))
                 }
                 ExprF::Parenthesised { expr } => (exprf.clone(), expr.ann.1.clone()),
-                ExprF::UnaryOp { op: _, expr } => (exprf.clone(), expr.ann.1.clone()),
+                ExprF::UnaryOp { op, expr } => {
+                    let t = match op {
+                        UnaryOp::Dereference => {
+                            match &expr.ann.1 {
+                                Some(NoirType::Reference(t, _)) => Some(*t.clone()),
+                                // TODO(totel): better error?
+                                Some(_) | None => {
+                                    return Err(TypeInferenceError::NoirTypeError(
+                                        TypeCheckError::UnconstrainedReferenceToConstrained {
+                                            location,
+                                        },
+                                    ));
+                                }
+                            }
+                        }
+                        UnaryOp::Not => expr.ann.1.clone(),
+                    };
+
+                    (exprf.clone(), t)
+                }
                 ExprF::BinaryOp { op, expr_left, expr_right } => {
                     match op {
                         BinaryOp::ShiftLeft | BinaryOp::ShiftRight => {
@@ -767,6 +786,24 @@ mod tests {
     #[test]
     fn test_index() {
         let attribute = "ensures(xs[1 + 1] > 5)";
+        let state = empty_state();
+        let attribute = parse_attribute(
+            attribute,
+            Location { span: Span::inclusive(0, attribute.len() as u32), file: Default::default() },
+            state.function,
+            state.global_constants,
+            state.functions,
+        )
+        .unwrap();
+        let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
+        let spanned_typed_expr = type_infer(&state, spanned_expr).unwrap();
+        dbg!(&spanned_typed_expr);
+        assert_eq!(spanned_typed_expr.ann.1, NoirType::Bool);
+    }
+
+    #[test]
+    fn test_dereference_index() {
+        let attribute = "ensures((*rxs)[1 + 1] > 5)";
         let state = empty_state();
         let attribute = parse_attribute(
             attribute,
