@@ -968,7 +968,7 @@ pub mod tests {
                 .into_iter()
                 .collect(),
             )),
-            min_local_id: Box::leak(Box::new(5)),
+            min_local_id: Box::leak(Box::new(6)),
         }
     }
 
