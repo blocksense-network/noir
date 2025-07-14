@@ -7,13 +7,25 @@ pub type Identifier = String;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ExprF<R> {
-    Literal { value: Literal },
-    Variable { name: Identifier },
-    FnCall { name: Identifier, args: Vec<R> },
-    Quantified { quantifier: Quantifier, name: Identifier, expr: R },
-    Parenthesised { expr: R },
-    UnaryOp { op: UnaryOp, expr: R },
     BinaryOp { op: BinaryOp, expr_left: R, expr_right: R },
+    UnaryOp { op: UnaryOp, expr: R },
+    Parenthesised { expr: R },
+    Quantified {
+        quantifier: Quantifier,
+        // TODO: ids
+        name: Identifier,
+        expr: R,
+    },
+    FnCall { name: Identifier, args: Vec<R> },
+    Index { expr: R, index: R },
+    TupleAccess { expr: R, index: u32 },
+    Literal { value: Literal },
+    Variable {
+        name: Identifier,
+        // TODO: ids
+        // LocalId from Noir
+        // local_id: u32,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -119,39 +131,50 @@ impl BinaryOp {
 
 pub fn fmap<A, B>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> B) -> ExprF<B> {
     match expr {
-        ExprF::Literal { value } => ExprF::Literal { value },
-        ExprF::Variable { name } => ExprF::Variable { name },
-        ExprF::FnCall { name, args } => {
-            let processed_args = args.into_iter().map(cata_fn).collect();
-            ExprF::FnCall { name, args: processed_args }
-        }
-        ExprF::Quantified { quantifier, name, expr } => {
-            ExprF::Quantified { quantifier, name, expr: cata_fn(expr) }
-        }
-        ExprF::Parenthesised { expr } => ExprF::Parenthesised { expr: cata_fn(expr) },
-        ExprF::UnaryOp { op, expr } => ExprF::UnaryOp { op, expr: cata_fn(expr) },
         ExprF::BinaryOp { op, expr_left, expr_right } => {
             ExprF::BinaryOp { op, expr_left: cata_fn(expr_left), expr_right: cata_fn(expr_right) }
         }
+        ExprF::UnaryOp { op, expr } => ExprF::UnaryOp { op, expr: cata_fn(expr) },
+        ExprF::Parenthesised { expr } => ExprF::Parenthesised { expr: cata_fn(expr) },
+        ExprF::Quantified { quantifier, name, expr } => {
+            ExprF::Quantified { quantifier, name, expr: cata_fn(expr) }
+        }
+        ExprF::FnCall { name, args } => {
+            ExprF::FnCall { name, args: args.into_iter().map(cata_fn).collect() }
+        }
+        ExprF::Index { expr: indexee, index } => {
+            ExprF::Index { expr: cata_fn(indexee), index: cata_fn(index) }
+        }
+        ExprF::TupleAccess { expr, index: member } => {
+            ExprF::TupleAccess { expr: cata_fn(expr), index: member }
+        }
+        ExprF::Literal { value } => ExprF::Literal { value },
+        ExprF::Variable { name } => ExprF::Variable { name },
     }
 }
 
 fn try_fmap<A, B, E>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> Result<B, E>) -> Result<ExprF<B>, E> {
     Ok(match expr {
-        ExprF::Literal { value } => ExprF::Literal { value },
-        ExprF::Variable { name } => ExprF::Variable { name },
+        ExprF::BinaryOp { op, expr_left, expr_right } => {
+            ExprF::BinaryOp { op, expr_left: cata_fn(expr_left)?, expr_right: cata_fn(expr_right)? }
+        }
+        ExprF::UnaryOp { op, expr } => ExprF::UnaryOp { op, expr: cata_fn(expr)? },
+        ExprF::Parenthesised { expr } => ExprF::Parenthesised { expr: cata_fn(expr)? },
+        ExprF::Quantified { quantifier, name, expr } => {
+            ExprF::Quantified { quantifier, name, expr: cata_fn(expr)? }
+        }
         ExprF::FnCall { name, args } => {
             let processed_args = args.into_iter().map(cata_fn).collect::<Result<Vec<_>, _>>()?;
             ExprF::FnCall { name, args: processed_args }
         }
-        ExprF::Quantified { quantifier, name, expr } => {
-            ExprF::Quantified { quantifier, name, expr: cata_fn(expr)? }
+        ExprF::Index { expr: indexee, index } => {
+            ExprF::Index { expr: cata_fn(indexee)?, index: cata_fn(index)? }
         }
-        ExprF::Parenthesised { expr } => ExprF::Parenthesised { expr: cata_fn(expr)? },
-        ExprF::UnaryOp { op, expr } => ExprF::UnaryOp { op, expr: cata_fn(expr)? },
-        ExprF::BinaryOp { op, expr_left, expr_right } => {
-            ExprF::BinaryOp { op, expr_left: cata_fn(expr_left)?, expr_right: cata_fn(expr_right)? }
+        ExprF::TupleAccess { expr, index: member } => {
+            ExprF::TupleAccess { expr: cata_fn(expr)?, index: member }
         }
+        ExprF::Literal { value } => ExprF::Literal { value },
+        ExprF::Variable { name } => ExprF::Variable { name },
     })
 }
 

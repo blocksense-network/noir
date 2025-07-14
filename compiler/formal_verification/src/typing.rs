@@ -20,14 +20,14 @@ pub enum TypeInferenceError {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum FitsIn {
+pub enum FitsIn {
     Yes,
     No {
         /// `None` means there is no possible `IntegerBitSize` that could contain us
         need: Option<NoirType>,
     },
 }
-fn bi_can_fit_in(bi: &BigInt, hole_size: &IntegerBitSize, hole_sign: &Signedness) -> FitsIn {
+pub fn bi_can_fit_in(bi: &BigInt, hole_size: &IntegerBitSize, hole_sign: &Signedness) -> FitsIn {
     let is_negative = match bi.sign() {
         num_bigint::Sign::Minus => true,
         num_bigint::Sign::Plus | num_bigint::Sign::NoSign => false,
@@ -75,6 +75,46 @@ fn bi_can_fit_in(bi: &BigInt, hole_size: &IntegerBitSize, hole_sign: &Signedness
     }
 
     return FitsIn::Yes;
+}
+
+pub fn propagate_concrete_type(
+    e: SpannedOptionallyTypedExpr,
+    t: NoirType,
+) -> Result<SpannedOptionallyTypedExpr, TypeInferenceError> {
+    let limits = match &t {
+        NoirType::Field => None,
+        NoirType::Integer(hole_sign, hole_size) => Some((hole_sign, hole_size)),
+        _ => todo!("Can only propagate integer types, {:#?}", t),
+    };
+
+    try_cata(e, &|(location, _type), expr| {
+        debug_assert!(_type == None);
+        // NOTE: only check limits for integer types
+        //       (assume that `NoirType::Field` can hold anything)
+        if let Some((hole_sign, hole_size)) = limits {
+            match expr {
+                ExprF::Literal { value: Literal::Int(ref bi) } => {
+                    let fits = bi_can_fit_in(bi, hole_size, hole_sign);
+                    match fits {
+                        FitsIn::Yes => {}
+                        FitsIn::No { need } => {
+                            return Err(TypeInferenceError::TypeError {
+                                got: need.clone(),
+                                wanted: Some(t.clone()),
+                                message: Some(format!(
+                                    "Integer literal {} cannot fit in {}, needs at least {:?} or larger",
+                                    bi, t, need,
+                                )),
+                            });
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        Ok(SpannedOptionallyTypedExpr { expr: Box::new(expr), ann: (location, Some(t.clone())) })
+    })
 }
 
 pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, TypeInferenceError> {
@@ -163,42 +203,6 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                         | BinaryOp::Xor => {
                             let is_arith = op.is_arithmetic();
 
-                            let propagate_concrete_type =
-                                |e: SpannedOptionallyTypedExpr, t: NoirType| {
-                                    let NoirType::Integer(hole_sign, hole_size) = &t else {
-                                        todo!("Can only propagate integer types");
-                                    };
-                                    try_cata(e, &|(location, _type), expr| {
-                                        debug_assert!(_type == None);
-                                        match expr {
-                                            ExprF::Literal { value: Literal::Int(ref bi) } => {
-                                                let fits = bi_can_fit_in(bi, hole_size, hole_sign);
-                                                match fits {
-                                                    FitsIn::Yes => {}
-                                                    FitsIn::No { need } => {
-                                                        return Err(
-                                                            TypeInferenceError::TypeError {
-                                                                got: need.clone(),
-                                                                wanted: Some(t.clone()),
-                                                                message: Some(format!(
-                                                                    "Integer literal {} cannot fit in {}, needs at least {:?} or larger",
-                                                                    bi, t, need,
-                                                                )),
-                                                            },
-                                                        );
-                                                    }
-                                                }
-                                            }
-                                            _ => {}
-                                        }
-
-                                        Ok(SpannedOptionallyTypedExpr {
-                                            expr: Box::new(expr),
-                                            ann: (location, Some(t.clone())),
-                                        })
-                                    })
-                                };
-
                             match (&expr_left.ann.1, &expr_right.ann.1) {
                                 (None, None) => (exprf, None),
                                 (None, Some(t2)) => {
@@ -275,6 +279,58 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                             (exprf, Some(NoirType::Bool))
                         }
                     }
+                }
+                ExprF::Index { expr, index } => {
+                    let mut index = index.clone();
+
+                    let Some(NoirType::Array(_, type_inner)) = &expr.ann.1 else {
+                        return Err(TypeInferenceError::TypeError {
+                            got: expr.ann.1.clone(),
+                            wanted: None,
+                            message: Some(format!("Can only index into arrays")),
+                        });
+                    };
+                    match &index.ann.1 {
+                        // Fine index
+                        Some(NoirType::Integer(Signedness::Unsigned, _)) => {}
+                        // Integer literal, try type inferring to `u32`
+                        None => {
+                            index = propagate_concrete_type(
+                                index,
+                                NoirType::Integer(Signedness::Unsigned, IntegerBitSize::ThirtyTwo),
+                            )?;
+                        }
+                        // Not fine index
+                        Some(_) => {
+                            return Err(TypeInferenceError::TypeError {
+                                got: index.ann.1.clone(),
+                                wanted: Some(NoirType::Integer(
+                                    Signedness::Unsigned,
+                                    IntegerBitSize::ThirtyTwo,
+                                )),
+                                message: Some(format!("Can only index using unsigned integers")),
+                            });
+                        }
+                    }
+
+                    (ExprF::Index { expr: expr.clone(), index }, Some(*type_inner.clone()))
+                }
+                ExprF::TupleAccess { expr, index } => {
+                    let Some(NoirType::Tuple(types)) = &expr.ann.1 else {
+                        panic!();
+                    };
+                    let type_inner =
+                        types.get(*index as usize).ok_or(TypeInferenceError::TypeError {
+                            got: None,
+                            wanted: None,
+                            message: Some(format!(
+                                "Cannot index tuple with {} elements with index {}",
+                                types.len(),
+                                index
+                            )),
+                        })?;
+
+                    (exprf.clone(), Some(type_inner.clone()))
                 }
             };
 
@@ -401,6 +457,8 @@ mod tests {
                     ExprF::Parenthesised { expr } => expr,
                     ExprF::UnaryOp { expr, .. } => expr,
                     ExprF::BinaryOp { expr_left, expr_right, .. } => expr_left && expr_right,
+                    ExprF::Index { expr, index } => expr && index,
+                    ExprF::TupleAccess { expr, .. } => expr,
 
                     // Non-recursive variants don't carry information
                     ExprF::Literal { value: Literal::Bool(_) } | ExprF::Variable { .. } => true,
@@ -437,6 +495,8 @@ mod tests {
                     ExprF::Parenthesised { expr } => expr,
                     ExprF::UnaryOp { expr, .. } => expr,
                     ExprF::BinaryOp { expr_left, expr_right, .. } => expr_left && expr_right,
+                    ExprF::Index { expr, index } => expr && index,
+                    ExprF::TupleAccess { expr, .. } => expr,
 
                     // Non-recursive variants don't carry information
                     ExprF::Literal { value: Literal::Bool(_) } | ExprF::Variable { .. } => true,
@@ -461,6 +521,8 @@ mod tests {
                     ExprF::Parenthesised { expr } => expr,
                     ExprF::UnaryOp { expr, .. } => expr,
                     ExprF::BinaryOp { expr_left, expr_right, .. } => expr_left && expr_right,
+                    ExprF::Index { expr, index } => expr && index,
+                    ExprF::TupleAccess { expr, .. } => expr,
 
                     // Non-recursive variants don't carry information
                     ExprF::Literal { .. } => true,
@@ -468,6 +530,42 @@ mod tests {
             }),
             "All bound variables have the correct inferred type"
         );
+    }
+
+    #[test]
+    fn test_index() {
+        let attribute = "ensures(xs[1 + 1] > 5)";
+        let state = empty_state();
+        let attribute = parse_attribute(
+            attribute,
+            Location { span: Span::inclusive(0, attribute.len() as u32), file: Default::default() },
+            state.function,
+            state.global_constants,
+            state.functions,
+        )
+        .unwrap();
+        let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
+        let spanned_typed_expr = type_infer(state, spanned_expr).unwrap();
+        dbg!(&spanned_typed_expr);
+        assert_eq!(spanned_typed_expr.ann.1, NoirType::Bool);
+    }
+
+    #[test]
+    fn test_tuple_access() {
+        let attribute = "ensures(user.0 ==> true)";
+        let state = empty_state();
+        let attribute = parse_attribute(
+            attribute,
+            Location { span: Span::inclusive(0, attribute.len() as u32), file: Default::default() },
+            state.function,
+            state.global_constants,
+            state.functions,
+        )
+        .unwrap();
+        let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
+        let spanned_typed_expr = type_infer(state, spanned_expr).unwrap();
+        dbg!(&spanned_typed_expr);
+        assert_eq!(spanned_typed_expr.ann.1, NoirType::Bool);
     }
 
     #[test]
