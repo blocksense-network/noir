@@ -1,18 +1,11 @@
 use noirc_errors::{Location, Span};
 use nom::{
-    Err, IResult, Parser,
-    branch::alt,
-    bytes::complete::{tag, take_while, take_while1},
-    character::complete::{digit1 as digit, multispace0 as multispace},
-    combinator::{cut, map, opt, recognize, value},
-    error::{ContextError, ErrorKind, ParseError, context},
-    multi::{many0, separated_list0},
-    sequence::{delimited, pair, preceded, terminated},
+    branch::alt, bytes::complete::{tag, take_while, take_while1}, character::complete::{digit1 as digit, multispace0 as multispace}, combinator::{cut, fail, map, opt, recognize, value}, error::{context, ContextError, ErrorKind, ParseError}, multi::{many0, separated_list0}, sequence::{delimited, pair, preceded, terminated}, Err, IResult, Parser
 };
 use num_bigint::{BigInt, BigUint, Sign};
 use std::fmt::Debug;
 
-use crate::ast::{BinaryOp, ExprF, Literal, OffsetExpr, Quantifier, UnaryOp};
+use crate::ast::{BinaryOp, ExprF, Identifier, Literal, OffsetExpr, Quantifier, UnaryOp};
 
 #[derive(Debug)]
 pub enum ParserError {
@@ -313,12 +306,12 @@ pub(crate) fn parse_additive_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExp
 
 pub(crate) fn parse_multiplicative_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     let (input, (first, remainder)) = pair(
-        parse_unary_expr,
+        parse_prefix_expr,
         context(
             "multiplicative",
             many0(pair(
                 delimited(multispace, alt((tag("*"), tag("/"), tag("%"))), multispace),
-                parse_unary_expr,
+                parse_prefix_expr,
             )),
         ),
     )
@@ -341,18 +334,79 @@ pub(crate) fn parse_multiplicative_expr<'a>(input: Input<'a>) -> PResult<'a, Off
     ))
 }
 
-pub(crate) fn parse_unary_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+pub(crate) fn parse_prefix_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     alt((
         context(
-            "unary",
-            map(preceded(terminated(tag("!"), multispace), parse_unary_expr), |expr| OffsetExpr {
+            "prefix",
+            map(preceded(terminated(tag("!"), multispace), parse_prefix_expr), |expr| OffsetExpr {
                 ann: expr.ann,
                 expr: Box::new(ExprF::UnaryOp { op: UnaryOp::Not, expr }),
             }),
         ),
-        parse_atom_expr,
+        parse_postfix_expr,
     ))
     .parse(input)
+}
+
+enum Postfix {
+    ArrayIndex(OffsetExpr),
+    TupleMember(BigInt),
+}
+
+pub(crate) fn parse_postfix_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+    let (input, base_expr) = parse_atom_expr(input)?;
+
+    let (input, suffixes) = many0(parse_any_suffix).parse(input)?;
+
+    let final_expr = suffixes.into_iter().try_fold(base_expr, |current_expr, suffix| {
+        // TODO: real span
+        let new_ann = current_expr.ann;
+
+        Ok(match suffix {
+            Postfix::ArrayIndex(index_expr) => {
+                let ann = build_offset_from_exprs(&current_expr, &index_expr);
+                OffsetExpr {
+                    ann,
+                    expr: Box::new(ExprF::Index { expr: current_expr, index: index_expr }),
+                }
+            }
+            Postfix::TupleMember(index) => {
+                OffsetExpr {
+                    ann: new_ann,
+                    expr: Box::new(ExprF::TupleAccess {
+                        expr: current_expr,
+                        index: index.try_into().map_err(|_| {
+                            nom::Err::Error(Error { parser_errors: vec![], contexts: vec![] })
+                        })?,
+                    }),
+                }
+            }
+        })
+    })?;
+
+    Ok((input, final_expr))
+}
+
+fn parse_any_suffix<'a>(input: Input<'a>) -> PResult<'a, Postfix> {
+    alt((
+        map(parse_index_suffix, Postfix::ArrayIndex),
+        map(parse_member_suffix, Postfix::TupleMember),
+    ))
+    .parse(input)
+}
+
+/// Parses an index suffix `[expr]` and returns just the inner expression.
+fn parse_index_suffix<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+    preceded(
+        multispace,
+        delimited(tag("["), cut(delimited(multispace, parse_expression, multispace)), tag("]")),
+    )
+    .parse(input)
+}
+
+/// Parses a member access `.field` and returns just the field identifier.
+fn parse_member_suffix<'a>(input: Input<'a>) -> PResult<'a, BigInt> {
+    preceded(pair(multispace, tag(".")), cut(parse_int)).parse(input)
 }
 
 pub(crate) fn parse_atom_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
@@ -363,7 +417,6 @@ pub(crate) fn parse_atom_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
         context("fn_call", parse_fn_call_expr),
         // context("member", parse_member_expr),
         // context("method_call", parse_method_call_expr),
-        // context("index", parse_index_expr),
         context("literal", parse_literal_expr),
         context("var", parse_var_expr),
     ))
@@ -562,6 +615,20 @@ pub mod tests {
                         NoirType::Bool,
                         Visibility::Public,
                     ),
+                    (
+                        LocalId(3),
+                        false,
+                        "xs".to_string(),
+                        NoirType::Array(3, Box::new(NoirType::Field)),
+                        Visibility::Public,
+                    ),
+                    (
+                        LocalId(3),
+                        false,
+                        "user".to_string(),
+                        NoirType::Tuple(vec![NoirType::Bool, NoirType::Unit]),
+                        Visibility::Public,
+                    ),
                 ],
                 body: Expression::Block(vec![]),
                 return_type: NoirType::Integer(
@@ -665,6 +732,27 @@ pub mod tests {
     #[test]
     fn test_quantifier() {
         let expr = parse("exists(|x| 1 + x)").unwrap();
+        dbg!(&expr);
+        assert_eq!(expr.0, "");
+    }
+
+    #[test]
+    fn test_index() {
+        let expr = parse("(tutmanik + 3)[12 < 3]").unwrap();
+        dbg!(&expr);
+        assert_eq!(expr.0, "");
+    }
+
+    #[test]
+    fn test_member() {
+        let expr = parse("ala.0.17").unwrap();
+        dbg!(&expr);
+        assert_eq!(expr.0, "");
+    }
+
+    #[test]
+    fn test_postfix() {
+        let expr = parse("5 + ala.126[nica].012[1[3]][2].15[da] / 5").unwrap();
         dbg!(&expr);
         assert_eq!(expr.0, "");
     }
