@@ -165,6 +165,13 @@ pub fn unify_expression_with_type(
                     }),
                 })
             }
+            ExprF::UnaryOp { op, expr } => {
+                let new_expr = unify_expression_with_type(expr, target_type.clone())?;
+                Ok(SpannedPartiallyTypedExpr {
+                    ann: (location, OptionalType::Well(target_type)),
+                    expr: Box::new(ExprF::UnaryOp { op, expr: new_expr })
+                })
+            }
             ExprF::TupleAccess { expr: inner_tuple_expr, index } => {
                 let ExprF::Tuple { exprs } = *inner_tuple_expr.expr else { unreachable!() };
 
@@ -1305,6 +1312,24 @@ mod tests {
     #[test]
     fn test_tuple_access_combos() {
         let attribute = "ensures(exists(|i| (0 <= i) & (i < 20) & xs[i] > 100))";
+        let state = empty_state();
+        let attribute = parse_attribute(
+            attribute,
+            Location { span: Span::inclusive(0, attribute.len() as u32), file: Default::default() },
+            state.function,
+            state.global_constants,
+            state.functions,
+        )
+        .unwrap();
+        let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
+        let spanned_typed_expr = type_infer(&state, spanned_expr).unwrap();
+        dbg!(&spanned_typed_expr);
+        assert_eq!(spanned_typed_expr.ann.1, NoirType::Bool);
+    }
+
+    #[test]
+    fn test_unary_op_literals() {
+        let attribute = "ensures(result as Field != !15)";
         let state = empty_state();
         let attribute = parse_attribute(
             attribute,
