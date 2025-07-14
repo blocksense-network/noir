@@ -329,6 +329,10 @@ pub(crate) fn ann_expr_to_vir_expr(ann_expr: SpannedTypedExpr, state: &State) ->
 
                 make_expr(vir_exprx, element_type, "Array indexing expression".to_string())
             }
+            ExprF::Cast { expr, target } => {
+                // TODO(totel): conversion of cast expressions
+                todo!()
+            },
         }
     })
 }

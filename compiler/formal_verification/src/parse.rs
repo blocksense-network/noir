@@ -1,10 +1,14 @@
 use noirc_errors::{Location, Span};
-use noirc_frontend::monomorphization::ast as mast;
+use noirc_frontend::{
+    ast::IntegerBitSize,
+    monomorphization::ast::{self as mast, Type as NoirType},
+    shared::Signedness,
+};
 use nom::{
     Err as NomErr, IResult, Parser,
     branch::alt,
     bytes::complete::{tag, take_while, take_while1},
-    character::complete::{digit1 as digit, multispace0 as multispace},
+    character::complete::{digit1 as digit, multispace0 as multispace, multispace1},
     combinator::{cut, map, opt, recognize, value},
     error::context,
     multi::{many0, separated_list0, separated_list1},
@@ -18,7 +22,7 @@ use errors::{Error, ParserErrorKind, build_error, expect, map_nom_err};
 
 use crate::{
     Attribute,
-    ast::{BinaryOp, ExprF, Literal, OffsetExpr, Quantifier, UnaryOp, Variable},
+    ast::{BinaryOp, ExprF, Identifier, Literal, OffsetExpr, Quantifier, UnaryOp, Variable},
     span_expr,
 };
 
@@ -440,6 +444,13 @@ pub(crate) fn parse_prefix_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr>
 pub(crate) enum Postfix {
     ArrayIndex(OffsetExpr),
     TupleMember(BigInt),
+    Cast(CastTargetType),
+}
+
+pub(crate) enum CastTargetType {
+    Field,
+    Integer(Signedness, IntegerBitSize),
+    Bool,
 }
 
 pub(crate) fn parse_postfix_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
@@ -468,6 +479,19 @@ pub(crate) fn parse_postfix_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr
                     })?,
                 }),
             },
+            Postfix::Cast(ident) => OffsetExpr {
+                ann: new_ann,
+                expr: Box::new(ExprF::Cast {
+                    expr: current_expr,
+                    target: match ident {
+                        CastTargetType::Field => NoirType::Field,
+                        CastTargetType::Integer(signedness, integer_bit_size) => {
+                            NoirType::Integer(signedness, integer_bit_size)
+                        }
+                        CastTargetType::Bool => NoirType::Bool,
+                    },
+                }),
+            },
         })
     })?;
 
@@ -478,6 +502,7 @@ pub(crate) fn parse_any_suffix<'a>(input: Input<'a>) -> PResult<'a, Postfix> {
     alt((
         map(parse_index_suffix, Postfix::ArrayIndex),
         map(parse_member_suffix, Postfix::TupleMember),
+        map(parse_cast_suffix, Postfix::Cast),
     ))
     .parse(input)
 }
@@ -497,6 +522,49 @@ pub(crate) fn parse_index_suffix<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr
 pub(crate) fn parse_member_suffix<'a>(input: Input<'a>) -> PResult<'a, BigInt> {
     preceded(pair(multispace, expect("'.' for tuple access".to_string(), tag("."))), cut(parse_int))
         .parse(input)
+}
+
+pub(crate) fn parse_cast_suffix<'a>(input: Input<'a>) -> PResult<'a, CastTargetType> {
+    let (input, type_ident) =
+        preceded(delimited(multispace1, tag("as"), multispace1), cut(parse_identifier))
+            .parse(input)?;
+
+    if type_ident == "Field" {
+        return Ok((input, CastTargetType::Field));
+    }
+
+    if type_ident == "bool" {
+        return Ok((input, CastTargetType::Bool));
+    }
+
+    if let Some((signedness @ ("i" | "u"), size)) = type_ident.split_at_checked(1) {
+        return Ok((
+            input,
+            CastTargetType::Integer(
+                match signedness {
+                    "i" => Signedness::Signed,
+                    "u" => Signedness::Unsigned,
+                    _ => unreachable!(),
+                },
+                match size {
+                    "1" => IntegerBitSize::One,
+                    "8" => IntegerBitSize::Eight,
+                    "16" => IntegerBitSize::Sixteen,
+                    "32" => IntegerBitSize::ThirtyTwo,
+                    "64" => IntegerBitSize::SixtyFour,
+                    "128" => IntegerBitSize::HundredTwentyEight,
+                    _ => {
+                        return Err(NomErr::Error(build_error(
+                            size,
+                            ParserErrorKind::InvalidIntegerLiteral,
+                        )));
+                    }
+                },
+            ),
+        ));
+    }
+
+    Err(NomErr::Error(build_error(type_ident, ParserErrorKind::InvalidIntegerLiteral)))
 }
 
 fn trace<'a, P, O: Debug>(
@@ -540,13 +608,9 @@ pub(crate) fn parse_atom_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
 
 pub(crate) fn parse_parenthesised_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     delimited(
-        multispace,
-        delimited(
-            expect("'('".to_string(), tag("(")),
-            parse_expression,
-            expect("')'".to_string(), tag(")")),
-        ),
-        multispace,
+        expect("'('".to_string(), tag("(")),
+        parse_expression,
+        expect("')'".to_string(), tag(")")),
     )
     .parse(input)
 }
@@ -971,6 +1035,26 @@ pub mod tests {
     }
 
     #[test]
+    fn test_cast() {
+        let annotation = "ensures((15 as i16 - 3 > 2) & ((result as Field - 6) as u64 == 1 + a as u64 >> kek as u8))";
+        let state = empty_state();
+        let attribute = parse_attribute(
+            annotation,
+            Location {
+                span: Span::inclusive(0, annotation.len() as u32),
+                file: Default::default(),
+            },
+            state.function,
+            state.global_constants,
+            state.functions,
+        )
+        .unwrap();
+
+        let Attribute::Ensures(expr) = attribute else { panic!() };
+        dbg!(strip_ann(expr));
+    }
+
+    #[test]
     fn test_parse_failure_identifier() {
         let annotation = "ensures(5 > 'invalid)";
         let state = empty_state();
@@ -1027,7 +1111,6 @@ pub mod tests {
             "requires(forall(|i x > 5))",
             "requires(exists |j| x < 4)",
             "requires(exists())",
-
             // Invalid annotation
             "ensures(result > 5",
             "ensures result > 5)",

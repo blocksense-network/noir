@@ -92,12 +92,18 @@ pub fn propagate_concrete_type(
     };
 
     try_cata(e, &|(location, _type), expr| {
-        debug_assert!(_type == None);
-        // NOTE: only check limits for integer types
-        //       (assume that `NoirType::Field` can hold anything)
-        if let Some((hole_sign, hole_size)) = limits {
-            match expr {
-                ExprF::Literal { value: Literal::Int(ref bi) } => {
+        match expr {
+            ExprF::Literal { value: Literal::Int(ref bi) } => {
+                debug_assert!(
+                    _type == None,
+                    "Trying to smash type {:?} into {:?} which already has type {:?}",
+                    t,
+                    bi,
+                    _type
+                );
+                // NOTE: only check limits for integer types
+                //       (assume that `NoirType::Field` can hold anything)
+                if let Some((hole_sign, hole_size)) = limits {
                     let fits = bi_can_fit_in(bi, hole_size, hole_sign);
                     match fits {
                         FitsIn::Yes => {}
@@ -113,8 +119,8 @@ pub fn propagate_concrete_type(
                         }
                     }
                 }
-                _ => {}
             }
+            _ => {}
         }
 
         Ok(SpannedOptionallyTypedExpr { expr: Box::new(expr), ann: (location, Some(t.clone())) })
@@ -220,9 +226,9 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                             let shift_amount_type =
                                 NoirType::Integer(Signedness::Unsigned, IntegerBitSize::Eight);
 
-                            match expr_right.ann.1 {
+                            match &expr_right.ann.1 {
                                 // Fine shift amount, only `u8` is allowed in `Noir`
-                                Some(ref t) if *t == shift_amount_type => {},
+                                Some(t) if *t == shift_amount_type => {}
                                 // Integer literal, try type inferring to `u8`
                                 None => {
                                     expr_right =
@@ -238,7 +244,7 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                 }
                             }
 
-                            match expr_left.ann.1 {
+                            match &expr_left.ann.1 {
                                 // Fine shiftee
                                 Some(NoirType::Integer(Signedness::Unsigned, _)) => {}
                                 // Integer literal, try type inferring to u32
@@ -260,7 +266,9 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                 }
                             }
 
-                            (ExprF::BinaryOp { op: op.clone(), expr_left, expr_right }, None)
+                            let t = expr_left.ann.1.clone();
+
+                            (ExprF::BinaryOp { op: op.clone(), expr_left, expr_right }, t)
                         }
                         BinaryOp::Mul
                         | BinaryOp::Div
@@ -448,6 +456,34 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
 
                     (exprf.clone(), Some(type_inner.clone()))
                 }
+                ExprF::Cast { expr, target } => {
+                    let mut expr = expr.clone();
+
+                    // Non-booleans cannot cast to bool
+                    if matches!(target, NoirType::Bool) && !matches!(expr.ann.1, Some(NoirType::Bool)) {
+                        return Err(TypeInferenceError::TypeError {
+                            got: None,
+                            wanted: Some(NoirType::Bool),
+                            message: Some(format!("Only booleans can we cast to bool",)),
+                        });
+                    }
+
+                    // Non-numberics cannot cast to numeric types
+                    if is_numeric(target) && let Some(ref t) = expr.ann.1 && !is_numeric(t) {
+                        return Err(TypeInferenceError::TypeError {
+                            got: Some(t.clone()),
+                            wanted: None,
+                            message: Some(format!("Only numeric expressions can we cast to numeric types",)),
+                        });
+                    }
+
+                    // Try to type infer integer literals as the target type
+                    if matches!(expr.ann.1, None) {
+                        expr = propagate_concrete_type(expr, target.clone())?;
+                    }
+
+                    (ExprF::Cast { expr, target: target.clone() }, Some(target.clone()))
+                }
             };
 
             Ok(SpannedOptionallyTypedExpr { ann: (location, exprf_type), expr: Box::new(exprf) })
@@ -457,7 +493,7 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
     let fully_typed_expr: SpannedTypedExpr =
         try_cata(sote, &|(location, otype), exprf| match otype {
             Some(t) => Ok(SpannedTypedExpr { ann: (location, t), expr: Box::new(exprf) }),
-            None => Err(()),
+            None => Err(format!("Expr {:?} still has no type", exprf)),
         })
         .expect("Typing should have either succeeded or have resulted in an expected error");
 
@@ -581,6 +617,7 @@ mod tests {
                     ExprF::BinaryOp { expr_left, expr_right, .. } => expr_left && expr_right,
                     ExprF::Index { expr, index } => expr && index,
                     ExprF::TupleAccess { expr, .. } => expr,
+                    ExprF::Cast { expr, .. } => expr,
 
                     // Non-recursive variants don't carry information
                     ExprF::Literal { value: Literal::Bool(_) } | ExprF::Variable(_) => true,
@@ -619,6 +656,7 @@ mod tests {
                     ExprF::BinaryOp { expr_left, expr_right, .. } => expr_left && expr_right,
                     ExprF::Index { expr, index } => expr && index,
                     ExprF::TupleAccess { expr, .. } => expr,
+                    ExprF::Cast { expr, .. } => expr,
 
                     // Non-recursive variants don't carry information
                     ExprF::Literal { value: Literal::Bool(_) } | ExprF::Variable(_) => true,
@@ -645,6 +683,7 @@ mod tests {
                     ExprF::BinaryOp { expr_left, expr_right, .. } => expr_left && expr_right,
                     ExprF::Index { expr, index } => expr && index,
                     ExprF::TupleAccess { expr, .. } => expr,
+                    ExprF::Cast { expr, .. } => expr,
 
                     // Non-recursive variants don't carry information
                     ExprF::Literal { .. } => true,
@@ -756,6 +795,28 @@ mod tests {
         let spanned_typed_expr = type_infer(state, spanned_expr).unwrap();
         dbg!(&spanned_typed_expr);
         assert_eq!(spanned_typed_expr.ann.1, NoirType::Bool);
+    }
+
+    #[test]
+    fn test_cast() {
+        let annotation = "ensures((15 as i16 - 3 > 2) & ((result as Field - 6) as u64 == 1 + a as u64 >> kek as u8))";
+        let state = empty_state();
+        let attribute = parse_attribute(
+            annotation,
+            Location {
+                span: Span::inclusive(0, annotation.len() as u32),
+                file: Default::default(),
+            },
+            state.function,
+            state.global_constants,
+            state.functions,
+        )
+        .unwrap();
+
+        let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
+        let spanned_typed_expr = type_infer(state, spanned_expr).unwrap();
+        dbg!(&strip_ann(spanned_typed_expr));
+        // assert_eq!(spanned_typed_expr.ann.1, NoirType::Bool);
     }
 
     #[test]

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 pub type Identifier = String;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExprF<R> {
     BinaryOp { op: BinaryOp, expr_left: R, expr_right: R },
     UnaryOp { op: UnaryOp, expr: R },
@@ -16,11 +16,12 @@ pub enum ExprF<R> {
     FnCall { name: Identifier, args: Vec<R> },
     Index { expr: R, index: R },
     TupleAccess { expr: R, index: u32 },
+    Cast { expr: R, target: NoirType },
     Literal { value: Literal },
     Variable(Variable),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AnnExpr<A> {
     pub ann: A,
     pub expr: Box<ExprF<AnnExpr<A>>>,
@@ -31,7 +32,7 @@ pub type SpannedTypedExpr = AnnExpr<(Location, NoirType)>;
 pub type SpannedExpr = AnnExpr<Location>;
 pub type OffsetExpr = AnnExpr<(u32, u32)>;
 
-#[derive(Clone, derive_more::Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, derive_more::Debug, PartialEq, Eq)]
 #[debug("{_0:?}")]
 pub struct RawExpr(pub Box<ExprF<RawExpr>>);
 
@@ -39,25 +40,25 @@ pub fn strip_ann<T>(expr: AnnExpr<T>) -> RawExpr {
     cata(expr, &|_, expr| RawExpr(Box::new(expr)))
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Literal {
     Bool(bool),
     Int(BigInt),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Quantifier {
     Forall,
     Exists,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnaryOp {
     // Arithmetic and Boolean
     Not,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BinaryOp {
     // pure Arithmetic (data -> data)
     Mul,
@@ -129,7 +130,7 @@ impl BinaryOp {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Variable {
     pub name: Identifier,
     pub id: Option<u32>,
@@ -155,8 +156,11 @@ pub fn fmap<A, B>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> B) -> ExprF<B> {
         ExprF::Index { expr: indexee, index } => {
             ExprF::Index { expr: cata_fn(indexee), index: cata_fn(index) }
         }
-        ExprF::TupleAccess { expr, index: member } => {
-            ExprF::TupleAccess { expr: cata_fn(expr), index: member }
+        ExprF::TupleAccess { expr, index } => {
+            ExprF::TupleAccess { expr: cata_fn(expr), index }
+        }
+        ExprF::Cast { expr, target } => {
+            ExprF::Cast { expr: cata_fn(expr), target }
         }
         ExprF::Literal { value } => ExprF::Literal { value },
         ExprF::Variable(Variable { name, id }) => ExprF::Variable(Variable { name, id }),
@@ -180,8 +184,11 @@ fn try_fmap<A, B, E>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> Result<B, E>) -> Res
         ExprF::Index { expr: indexee, index } => {
             ExprF::Index { expr: cata_fn(indexee)?, index: cata_fn(index)? }
         }
-        ExprF::TupleAccess { expr, index: member } => {
-            ExprF::TupleAccess { expr: cata_fn(expr)?, index: member }
+        ExprF::TupleAccess { expr, index } => {
+            ExprF::TupleAccess { expr: cata_fn(expr)?, index }
+        }
+        ExprF::Cast { expr, target } => {
+            ExprF::Cast { expr: cata_fn(expr)?, target }
         }
         ExprF::Literal { value } => ExprF::Literal { value },
         ExprF::Variable(Variable { name, id }) => ExprF::Variable(Variable { name, id }),
