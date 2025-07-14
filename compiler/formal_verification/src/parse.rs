@@ -638,8 +638,6 @@ pub(crate) fn parse_parenthesised_or_tuple_expr<'a>(input: Input<'a>) -> PResult
         // - `()` -> 0 expressions
         // - `(1,)` -> 1 expression with a trailing comma
         // - `(1, 2)` -> 2 expressions
-        // TODO:
-        // empty tuple vs unit?
         build_expr(prev_offset, after_offset, ExprF::Tuple { exprs })
     };
 
