@@ -103,8 +103,8 @@ pub fn propagate_concrete_type(
                         FitsIn::Yes => {}
                         FitsIn::No { need } => {
                             return Err(TypeInferenceError::TypeError {
-                                got: need.clone(),
-                                wanted: Some(t.clone()),
+                                got: Some(t.clone()),
+                                wanted: need.clone(),
                                 message: Some(format!(
                                     "Integer literal {} cannot fit in {}, needs at least {:?} or larger",
                                     bi, t, need,
@@ -126,7 +126,7 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
     //       assume subterms are `u32` (like `Noir` does)
     let default_literal_type = NoirType::Integer(Signedness::Unsigned, IntegerBitSize::ThirtyTwo);
 
-    let is_numeric  = |t: &NoirType| matches!(t, NoirType::Integer(_, _) | NoirType::Field);
+    let is_numeric = |t: &NoirType| matches!(t, NoirType::Integer(_, _) | NoirType::Field);
 
     let sote: SpannedOptionallyTypedExpr = try_contextual_cata(
         expr,
@@ -243,26 +243,24 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                 Some(NoirType::Integer(Signedness::Unsigned, _)) => {}
                                 // Integer literal, try type inferring to u32
                                 None => {
-                                    expr_left = propagate_concrete_type(expr_left, default_literal_type.clone())?;
+                                    expr_left = propagate_concrete_type(
+                                        expr_left,
+                                        default_literal_type.clone(),
+                                    )?;
                                 }
                                 // Not fine shiftee
                                 Some(_) => {
                                     return Err(TypeInferenceError::TypeError {
                                         got: expr_left.ann.1,
                                         wanted: None,
-                                        message: Some(format!("Can only bit shift unsigned integers")),
+                                        message: Some(format!(
+                                            "Can only bit shift unsigned integers"
+                                        )),
                                     });
                                 }
                             }
 
-                            (
-                                ExprF::BinaryOp {
-                                    op: op.clone(),
-                                    expr_left,
-                                    expr_right,
-                                },
-                                None,
-                            )
+                            (ExprF::BinaryOp { op: op.clone(), expr_left, expr_right }, None)
                         }
                         BinaryOp::Mul
                         | BinaryOp::Div
@@ -305,6 +303,17 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                     }
                                 }
                                 (None, Some(t2)) => {
+                                    // NOTE: `1 & true`
+                                    if is_arith && !is_numeric(t2) {
+                                        return Err(TypeInferenceError::TypeError {
+                                            got: Some(t2.clone()),
+                                            wanted: None,
+                                            message: Some(format!(
+                                                "Cannot mix untyped integers and non-numeric arguments for arithmetic+boolean operators"
+                                            )),
+                                        });
+                                    }
+
                                     let expr_left_inner =
                                         propagate_concrete_type(expr_left.clone(), t2.clone())?;
 
@@ -318,6 +327,17 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                     )
                                 }
                                 (Some(t1), None) => {
+                                    // NOTE: `true & 1`
+                                    if is_arith && !is_numeric(t1) {
+                                        return Err(TypeInferenceError::TypeError {
+                                            got: Some(t1.clone()),
+                                            wanted: None,
+                                            message: Some(format!(
+                                                "Cannot mix untyped integers and non-numeric arguments for arithmetic+boolean operators"
+                                            )),
+                                        });
+                                    }
+
                                     let expr_right_inner =
                                         propagate_concrete_type(expr_right.clone(), t1.clone())?;
 
@@ -650,6 +670,56 @@ mod tests {
         let spanned_typed_expr = type_infer(state, spanned_expr).unwrap();
         dbg!(&spanned_typed_expr);
         assert_eq!(spanned_typed_expr.ann.1, NoirType::Bool);
+    }
+
+    #[test]
+    fn test_operators_mixed_types() {
+        let attribute = "ensures(1 + true)";
+        let state = empty_state();
+        let attribute = parse_attribute(
+            attribute,
+            Location { span: Span::inclusive(0, attribute.len() as u32), file: Default::default() },
+            state.function,
+            state.global_constants,
+            state.functions,
+        )
+        .unwrap();
+        let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
+        let type_inference_error = type_infer(state, spanned_expr).unwrap_err();
+        let TypeInferenceError::TypeError { got, wanted, message } = type_inference_error else {
+            panic!()
+        };
+        dbg!(&got, &wanted, &message);
+
+        // NOTE: untyped integer literal (same for quantifier variables) force the other argument
+        //       to also be numeric
+        assert_eq!(got, Some(NoirType::Bool));
+        assert_eq!(wanted, None);
+        assert!(message.unwrap().contains("mix untyped integers and non-numeric"));
+    }
+
+    #[test]
+    fn test_bitshift() {
+        let attribute = "ensures(1 << 256)";
+        let state = empty_state();
+        let attribute = parse_attribute(
+            attribute,
+            Location { span: Span::inclusive(0, attribute.len() as u32), file: Default::default() },
+            state.function,
+            state.global_constants,
+            state.functions,
+        )
+        .unwrap();
+        let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
+        let type_inference_error = type_infer(state, spanned_expr).unwrap_err();
+        let TypeInferenceError::TypeError { got, wanted, message } = type_inference_error else {
+            panic!()
+        };
+        dbg!(&got, &wanted, &message);
+        assert_eq!(got, Some(NoirType::Integer(Signedness::Unsigned, IntegerBitSize::Eight)));
+        // NOTE: minimal size that fits `256`
+        assert_eq!(wanted, Some(NoirType::Integer(Signedness::Unsigned, IntegerBitSize::Sixteen)));
+        assert_eq!(message, Some("Integer literal 256 cannot fit in u8, needs at least Some(Integer(Unsigned, Sixteen)) or larger".to_string()));
     }
 
     #[test]
