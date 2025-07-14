@@ -258,17 +258,15 @@ pub(crate) fn parse_shift_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> 
     if let Ok((input, (op, expr_right))) = pair(
         context(
             "comparison",
-            delimited(multispace, alt((tag("<="), tag(">="), tag("<"), tag(">"))), multispace),
+            delimited(multispace, alt((tag("<<"), tag(">>"))), multispace),
         ),
         parse_additive_expr,
     )
     .parse(input)
     {
         let op_kind = match op {
-            "<" => BinaryOp::Lt,
-            "<=" => BinaryOp::Le,
-            ">" => BinaryOp::Gt,
-            ">=" => BinaryOp::Ge,
+            "<<" => BinaryOp::ShiftLeft,
+            ">>" => BinaryOp::ShiftRight,
             _ => unreachable!(),
         };
         expr_left = OffsetExpr {
@@ -819,5 +817,22 @@ pub mod tests {
         .unwrap();
 
         assert!(matches!(attribute, Attribute::Ghost));
+    }
+
+    #[test]
+    fn test_bitshift() {
+        let annotation = "ensures(result == x >> y)";
+        let state = empty_state();
+        let attribute = parse_attribute(
+            annotation,
+            Location {
+                span: Span::inclusive(0, annotation.len() as u32),
+                file: Default::default(),
+            },
+            state.function,
+            state.global_constants,
+            state.functions,
+        )
+        .unwrap();
     }
 }
