@@ -72,7 +72,6 @@ pub fn get_found_token(input: Input) -> String {
 
 /// A specialized version of `map_nom_err` for the common "Expected" error.
 pub fn expect<'a, P, O>(
-    // TODO: maybe `Into<String>` or similar?
     expected_msg: impl AsRef<str>,
     parser: P,
 ) -> impl FnMut(Input<'a>) -> IResult<Input<'a>, O, Error>
@@ -81,7 +80,7 @@ where
 {
     map_nom_err(parser, move |fail_input| ParserErrorKind::Expected {
         expected: expected_msg.as_ref().to_string(),
-        found: fail_input.to_string(), // get_found_token(fail_input),
+        found: fail_input.to_string(),
     })
 }
 
