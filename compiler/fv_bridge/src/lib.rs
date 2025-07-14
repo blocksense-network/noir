@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use fm::FileId;
 use formal_verification::ast::SpannedTypedExpr;
 use formal_verification::typing::type_infer;
-use formal_verification::{State, parse_attribute};
+use formal_verification::{State, parse::parse_attribute};
 use iter_extended::vecmap;
 use noirc_driver::{CompilationResult, CompileError, CompileOptions, check_crate};
 use noirc_errors::CustomDiagnostic;

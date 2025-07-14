@@ -124,6 +124,12 @@ pub fn propagate_concrete_type(
 }
 
 pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, TypeInferenceError> {
+    // NOTE: predicate, always bool,
+    //       assume subterms are `u32` (like `Noir` does)
+    let default_literal_type = NoirType::Integer(Signedness::Unsigned, IntegerBitSize::ThirtyTwo);
+
+    let is_numeric  = |t: &NoirType| matches!(t, NoirType::Integer(_, _) | NoirType::Field);
+
     let sote: SpannedOptionallyTypedExpr = try_contextual_cata(
         expr,
         vec![],
@@ -209,13 +215,62 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                 ExprF::UnaryOp { op: _, expr } => (exprf.clone(), expr.ann.1.clone()),
                 ExprF::BinaryOp { op, expr_left, expr_right } => {
                     match op {
+                        BinaryOp::ShiftLeft | BinaryOp::ShiftRight => {
+                            let mut expr_left = expr_left.clone();
+                            let mut expr_right = expr_right.clone();
+
+                            let shift_amount_type =
+                                NoirType::Integer(Signedness::Unsigned, IntegerBitSize::Eight);
+
+                            match expr_right.ann.1 {
+                                // Fine shift amount, only `u8` is allowed in `Noir`
+                                Some(ref t) if *t == shift_amount_type => {},
+                                // Integer literal, try type inferring to `u8`
+                                None => {
+                                    expr_right =
+                                        propagate_concrete_type(expr_right, shift_amount_type)?;
+                                }
+                                // Not fine shift amount
+                                Some(_) => {
+                                    return Err(TypeInferenceError::TypeError {
+                                        got: expr_right.ann.1,
+                                        wanted: Some(shift_amount_type),
+                                        message: Some(format!("Can only bit shift using `u8`")),
+                                    });
+                                }
+                            }
+
+                            match expr_left.ann.1 {
+                                // Fine shiftee
+                                Some(NoirType::Integer(Signedness::Unsigned, _)) => {}
+                                // Integer literal, try type inferring to u32
+                                None => {
+                                    expr_left = propagate_concrete_type(expr_left, default_literal_type.clone())?;
+                                }
+                                // Not fine shiftee
+                                Some(_) => {
+                                    return Err(TypeInferenceError::TypeError {
+                                        got: expr_left.ann.1,
+                                        wanted: None,
+                                        message: Some(format!("Can only bit shift unsigned integers")),
+                                    });
+                                }
+                            }
+
+                            (
+                                ExprF::BinaryOp {
+                                    op: op.clone(),
+                                    expr_left,
+                                    expr_right,
+                                },
+                                None,
+                            )
+                        }
                         BinaryOp::Mul
                         | BinaryOp::Div
                         | BinaryOp::Mod
                         | BinaryOp::Add
                         | BinaryOp::Sub
-                        | BinaryOp::ShiftLeft
-                        | BinaryOp::ShiftRight
                         | BinaryOp::Eq
                         | BinaryOp::Neq
                         | BinaryOp::Lt
@@ -232,12 +287,6 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                     if is_arith {
                                         (exprf, None)
                                     } else {
-                                        // NOTE: predicate, always bool,
-                                        //       assume subterms are `u32` (like `Noir` does)
-                                        let default_literal_type = NoirType::Integer(
-                                            Signedness::Unsigned,
-                                            IntegerBitSize::ThirtyTwo,
-                                        );
                                         let expr_left_inner = propagate_concrete_type(
                                             expr_left.clone(),
                                             default_literal_type.clone(),
@@ -347,10 +396,7 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                         Some(NoirType::Integer(Signedness::Unsigned, _)) => {}
                         // Integer literal, try type inferring to `u32`
                         None => {
-                            index = propagate_concrete_type(
-                                index,
-                                NoirType::Integer(Signedness::Unsigned, IntegerBitSize::ThirtyTwo),
-                            )?;
+                            index = propagate_concrete_type(index, default_literal_type.clone())?;
                         }
                         // Not fine index
                         Some(_) => {
@@ -415,8 +461,7 @@ mod tests {
     use crate::{
         Attribute,
         ast::{Literal, Variable},
-        parse::tests::*,
-        parse_attribute,
+        parse::{parse_attribute, tests::*},
     };
 
     #[test]
