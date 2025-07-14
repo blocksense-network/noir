@@ -137,12 +137,6 @@ impl SpannedPartiallyTypedExpr {
                         });
                     }
 
-                    eprintln!(
-                        "Setting the type of {:?} to {:?}",
-                        strip_ann(self.clone()),
-                        target_type
-                    );
-
                     self.ann.1 = OptionalType::Well(target_type);
                 }
                 // NOTE: quantified variable
