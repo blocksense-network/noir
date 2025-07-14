@@ -437,76 +437,57 @@ pub fn type_infer(
                             Literal(&'a mut SpannedPartiallyTypedExpr, OptionalType),
                             Variable(NoirType),
                         }
-                        let left_elements: Vec<TupleElement> =
-                            match (expr_left.expr.as_mut(), expr_left.ann.1.clone()) {
+                        fn tuple_elements_from_expr<'a>(
+                            expr: &'a mut ExprF<SpannedPartiallyTypedExpr>,
+                            ann: OptionalType,
+                            location: Location,
+                        ) -> Result<Vec<TupleElement<'a>>, TypeInferenceError>
+                        {
+                            match (expr, ann) {
                                 (
-                                    ExprF::Tuple { exprs: left_exprs },
-                                    OptionalType::Well(NoirType::Tuple(left_types)),
-                                ) => std::iter::zip(left_exprs, left_types)
+                                    ExprF::Tuple { exprs },
+                                    OptionalType::Well(NoirType::Tuple(types)),
+                                ) => Ok(std::iter::zip(exprs, types)
                                     .map(|(e, t)| TupleElement::Literal(e, OptionalType::Well(t)))
-                                    .collect(),
+                                    .collect()),
+
+                                (ExprF::Tuple { exprs }, OptionalType::PartialTuple(types)) => {
+                                    Ok(std::iter::zip(exprs, types)
+                                        .map(|(e, t)| TupleElement::Literal(e, t))
+                                        .collect())
+                                }
+
                                 (
-                                    ExprF::Tuple { exprs: left_exprs },
-                                    OptionalType::PartialTuple(left_types),
-                                ) => std::iter::zip(left_exprs, left_types)
-                                    .map(|(e, t)| TupleElement::Literal(e, t))
-                                    .collect(),
-                                (
-                                    ExprF::Variable(_left_var),
-                                    OptionalType::Well(NoirType::Tuple(left_types)),
-                                ) => left_types.into_iter().map(TupleElement::Variable).collect(),
-                                (
-                                    ExprF::Variable(_left_var),
-                                    OptionalType::PartialTuple(_left_types),
-                                ) => {
+                                    ExprF::Variable(_),
+                                    OptionalType::Well(NoirType::Tuple(types)),
+                                ) => Ok(types.into_iter().map(TupleElement::Variable).collect()),
+
+                                (ExprF::Variable(_), OptionalType::PartialTuple(_)) => {
+                                    // Unreachable because if we have a variable of type tuple we
+                                    // would always know its type.
                                     unreachable!()
                                 }
-                                _ => {
-                                    // TODO(totel): better error?
-                                    return Err(TypeInferenceError::NoirTypeError(
-                                        TypeCheckError::TupleMismatch {
-                                            location,
-                                            tuple_types: vec![],
-                                            actual_count: 0,
-                                        },
-                                    ));
-                                }
-                            };
-                        let right_elements: Vec<TupleElement> =
-                            match (expr_right.expr.as_mut(), expr_right.ann.1.clone()) {
-                                (
-                                    ExprF::Tuple { exprs: right_exprs },
-                                    OptionalType::Well(NoirType::Tuple(right_types)),
-                                ) => std::iter::zip(right_exprs, right_types)
-                                    .map(|(e, t)| TupleElement::Literal(e, OptionalType::Well(t)))
-                                    .collect(),
-                                (
-                                    ExprF::Tuple { exprs: right_exprs },
-                                    OptionalType::PartialTuple(right_types),
-                                ) => std::iter::zip(right_exprs, right_types)
-                                    .map(|(e, t)| TupleElement::Literal(e, t))
-                                    .collect(),
-                                (
-                                    ExprF::Variable(_right_var),
-                                    OptionalType::Well(NoirType::Tuple(right_types)),
-                                ) => right_types.into_iter().map(TupleElement::Variable).collect(),
-                                (
-                                    ExprF::Variable(_right_var),
-                                    OptionalType::PartialTuple(_right_types),
-                                ) => {
-                                    unreachable!()
-                                }
-                                _ => {
-                                    // TODO(totel): better error?
-                                    return Err(TypeInferenceError::NoirTypeError(
-                                        TypeCheckError::TupleMismatch {
-                                            location,
-                                            tuple_types: vec![],
-                                            actual_count: 0,
-                                        },
-                                    ));
-                                }
-                            };
+
+                                _ => Err(TypeInferenceError::NoirTypeError(
+                                    TypeCheckError::TupleMismatch {
+                                        location,
+                                        tuple_types: vec![],
+                                        actual_count: 0,
+                                    },
+                                )),
+                            }
+                        }
+
+                        let left_elements: Vec<TupleElement> = tuple_elements_from_expr(
+                            expr_left.expr.as_mut(),
+                            expr_left.ann.1.clone(),
+                            location,
+                        )?;
+                        let right_elements: Vec<TupleElement> = tuple_elements_from_expr(
+                            expr_right.expr.as_mut(),
+                            expr_right.ann.1.clone(),
+                            location,
+                        )?;
 
                         if left_elements.len() != right_elements.len() {
                             // TODO(totel): better error?
