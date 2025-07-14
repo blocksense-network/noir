@@ -441,18 +441,20 @@ pub(crate) enum Prefix {
 }
 
 pub(crate) fn parse_prefix_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+    let prev_offset = input.len();
+
     let (input, prefixes) = context("prefix", many0(parse_any_prefix)).parse(input)?;
 
     let (input, base_expr) = parse_postfix_expr(input)?;
 
+    let after_offset = input.len();
+
     let final_expr = prefixes.into_iter().rev().fold(base_expr, |inner_expr, prefix| {
-        // TODO: real span
-        let ann = inner_expr.ann;
         let expr_f = match prefix {
             Prefix::Dereference => ExprF::UnaryOp { op: UnaryOp::Dereference, expr: inner_expr },
             Prefix::Not => ExprF::UnaryOp { op: UnaryOp::Not, expr: inner_expr },
         };
-        OffsetExpr { ann, expr: Box::new(expr_f) }
+        build_expr(prev_offset, after_offset, expr_f)
     });
 
     Ok((input, final_expr))
@@ -483,6 +485,8 @@ pub(crate) enum CastTargetType {
 }
 
 pub(crate) fn parse_postfix_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+    let prev_offset = input.len();
+
     let (mut input, mut expr_base) = parse_atom_expr(input)?;
 
     loop {
@@ -490,39 +494,38 @@ pub(crate) fn parse_postfix_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr
         let (next_input, suffix) = cut(opt(parse_any_suffix)).parse(input)?;
 
         if let Some(s) = suffix {
+            let after_offset = next_input.len();
+
             expr_base = match s {
-                Postfix::ArrayIndex(index_expr) => {
-                    let ann = build_offset_from_exprs(&expr_base, &index_expr);
-                    OffsetExpr {
-                        ann,
-                        expr: Box::new(ExprF::Index { expr: expr_base, index: index_expr }),
-                    }
-                }
+                Postfix::ArrayIndex(index_expr) => build_expr(
+                    prev_offset,
+                    after_offset,
+                    ExprF::Index { expr: expr_base, index: index_expr },
+                ),
                 Postfix::TupleMember(index) => {
                     let index_u32 = index.try_into().map_err(|_| {
                         NomErr::Error(build_error(input, ParserErrorKind::InvalidTupleIndex))
                     })?;
-                    let ann = (expr_base.ann.0, (input.len() - next_input.len()) as u32); // Approximate span
-                    OffsetExpr {
-                        ann,
-                        expr: Box::new(ExprF::TupleAccess { expr: expr_base, index: index_u32 }),
-                    }
+                    build_expr(
+                        prev_offset,
+                        after_offset,
+                        ExprF::TupleAccess { expr: expr_base, index: index_u32 },
+                    )
                 }
-                Postfix::Cast(target_type) => {
-                    let ann = (expr_base.ann.0, (input.len() - next_input.len()) as u32); // Approximate span
-                    OffsetExpr {
-                        ann,
-                        expr: Box::new(ExprF::Cast {
-                            expr: expr_base,
-                            target: match target_type {
-                                CastTargetType::Field => NoirType::Field,
-                                CastTargetType::Integer(s, b) => NoirType::Integer(s, b),
-                                CastTargetType::Bool => NoirType::Bool,
-                            },
-                        }),
-                    }
-                }
+                Postfix::Cast(target_type) => build_expr(
+                    prev_offset,
+                    after_offset,
+                    ExprF::Cast {
+                        expr: expr_base,
+                        target: match target_type {
+                            CastTargetType::Field => NoirType::Field,
+                            CastTargetType::Integer(s, b) => NoirType::Integer(s, b),
+                            CastTargetType::Bool => NoirType::Bool,
+                        },
+                    },
+                ),
             };
+
             input = next_input;
         } else {
             return Ok((input, expr_base));
@@ -933,7 +936,10 @@ pub mod tests {
                         LocalId(5),
                         false,
                         "pair".to_string(),
-                        NoirType::Tuple(vec![NoirType::Integer(Signedness::Unsigned, IntegerBitSize::Sixteen), NoirType::Field]),
+                        NoirType::Tuple(vec![
+                            NoirType::Integer(Signedness::Unsigned, IntegerBitSize::Sixteen),
+                            NoirType::Field,
+                        ]),
                         Visibility::Public,
                     ),
                 ],
@@ -1122,6 +1128,13 @@ pub mod tests {
     #[test]
     fn test_array() {
         let expr = parse("[1, kek, true][2]").unwrap();
+        dbg!(&expr);
+        assert_eq!(expr.0, "");
+    }
+
+    #[test]
+    fn test_quantifier_span() {
+        let expr = parse("forall(|x| bool == x)").unwrap();
         dbg!(&expr);
         assert_eq!(expr.0, "");
     }
