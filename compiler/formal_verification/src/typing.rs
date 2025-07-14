@@ -5,6 +5,7 @@ use crate::{
         UnaryOp, Variable, cata, strip_ann, try_cata, try_contextual_cata,
     },
 };
+use noirc_errors::Location;
 use noirc_frontend::{
     ast::IntegerBitSize,
     monomorphization::{FUNC_RETURN_VAR_NAME, ast::Type as NoirType},
@@ -16,7 +17,7 @@ use num_traits::{One, Zero};
 #[derive(Debug, Clone)]
 pub enum TypeInferenceError {
     MonomorphizationRequest(MonomorphizationRequest),
-    TypeError { got: Option<NoirType>, wanted: Option<NoirType>, message: Option<String> },
+    TypeError { got: Option<NoirType>, wanted: Option<NoirType>, location: Location, message: Option<String> },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -115,6 +116,7 @@ pub fn propagate_concrete_type(
                                     "Integer literal {} cannot fit in {}, needs at least {:?} or larger",
                                     bi, t, need,
                                 )),
+                                location,
                             });
                         }
                     }
@@ -187,6 +189,7 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                             got: None,
                             wanted: None,
                             message: Some(format!("Undefined variable {}", name)),
+                            location,
                         })?;
 
                     (
@@ -236,10 +239,12 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                 }
                                 // Not fine shift amount
                                 Some(_) => {
+
                                     return Err(TypeInferenceError::TypeError {
                                         got: expr_right.ann.1,
                                         wanted: Some(shift_amount_type),
                                         message: Some(format!("Can only bit shift using `u8`")),
+                                        location,
                                     });
                                 }
                             }
@@ -262,6 +267,7 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                         message: Some(format!(
                                             "Can only bit shift unsigned integers"
                                         )),
+                                        location,
                                     });
                                 }
                             }
@@ -319,6 +325,7 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                             message: Some(format!(
                                                 "Cannot mix untyped integers and non-numeric arguments for arithmetic+boolean operators"
                                             )),
+                                            location,
                                         });
                                     }
 
@@ -343,6 +350,7 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                             message: Some(format!(
                                                 "Cannot mix untyped integers and non-numeric arguments for arithmetic+boolean operators"
                                             )),
+                                            location,
                                         });
                                     }
 
@@ -367,6 +375,7 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                                 "Different types of arguments to {} operation",
                                                 if is_arith { "arithmetic" } else { "predicate" }
                                             )),
+                                            location,
                                         });
                                     }
 
@@ -391,6 +400,7 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                     message: Some(
                                         "Boolean operations work on boolean arguments".to_string(),
                                     ),
+                                    location,
                                 });
                             }
                             if expr_right.ann.1 != Some(NoirType::Bool) {
@@ -400,6 +410,7 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                     message: Some(
                                         "Boolean operations work on boolean arguments".to_string(),
                                     ),
+                                    location,
                                 });
                             }
 
@@ -415,6 +426,7 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                             got: expr.ann.1.clone(),
                             wanted: None,
                             message: Some(format!("Can only index into arrays")),
+                            location,
                         });
                     };
                     match &index.ann.1 {
@@ -433,6 +445,7 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                     IntegerBitSize::ThirtyTwo,
                                 )),
                                 message: Some(format!("Can only index using unsigned integers")),
+                                location,
                             });
                         }
                     }
@@ -452,6 +465,7 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                 types.len(),
                                 index
                             )),
+                            location,
                         })?;
 
                     (exprf.clone(), Some(type_inner.clone()))
@@ -465,6 +479,7 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                             got: None,
                             wanted: Some(NoirType::Bool),
                             message: Some(format!("Only booleans can we cast to bool",)),
+                            location,
                         });
                     }
 
@@ -474,6 +489,7 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                             got: Some(t.clone()),
                             wanted: None,
                             message: Some(format!("Only numeric expressions can we cast to numeric types",)),
+                            location,
                         });
                     }
 
@@ -725,7 +741,7 @@ mod tests {
         .unwrap();
         let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
         let type_inference_error = type_infer(state, spanned_expr).unwrap_err();
-        let TypeInferenceError::TypeError { got, wanted, message } = type_inference_error else {
+        let TypeInferenceError::TypeError { got, wanted, message, location } = type_inference_error else {
             panic!()
         };
         dbg!(&got, &wanted, &message);
@@ -751,7 +767,7 @@ mod tests {
         .unwrap();
         let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
         let type_inference_error = type_infer(state, spanned_expr).unwrap_err();
-        let TypeInferenceError::TypeError { got, wanted, message } = type_inference_error else {
+        let TypeInferenceError::TypeError { got, wanted, message, location } = type_inference_error else {
             panic!()
         };
         dbg!(&got, &wanted, &message);
