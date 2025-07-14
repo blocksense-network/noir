@@ -1,8 +1,10 @@
+use std::fmt::Display;
+
 use crate::{
     MonomorphizationRequest, State,
     ast::{
-        BinaryOp, ExprF, Literal, SpannedExpr, SpannedOptionallyTypedExpr, SpannedTypedExpr,
-        UnaryOp, Variable, strip_ann, try_cata, try_contextual_cata,
+        AnnExpr, BinaryOp, ExprF, Literal, SpannedExpr, SpannedTypedExpr, UnaryOp, Variable,
+        strip_ann, try_cata, try_contextual_cata,
     },
 };
 use noirc_errors::Location;
@@ -14,6 +16,25 @@ use noirc_frontend::{
 };
 use num_bigint::{BigInt, BigUint};
 use num_traits::{One, Zero};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OptionalType {
+    /// Well-typed
+    Well(NoirType),
+    /// Untyped (yet) integer literal or quantified variable
+    IntegerLiteral,
+}
+
+impl Display for OptionalType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OptionalType::Well(t) => write!(f, "{t}"),
+            OptionalType::IntegerLiteral => write!(f, "Integer literal"),
+        }
+    }
+}
+
+pub type SpannedPartiallyTypedExpr = AnnExpr<(Location, OptionalType)>;
 
 #[derive(Debug, Clone)]
 pub enum TypeInferenceError {
@@ -92,9 +113,9 @@ pub fn bi_can_fit_in(bi: &BigInt, hole_size: &IntegerBitSize, hole_sign: &Signed
 // WARN: will (possibly) incorrectly propagate types in tuple literals
 //       `(1000, 5, 1000).1 == (5 as u8)`
 pub fn propagate_concrete_type(
-    e: SpannedOptionallyTypedExpr,
+    e: SpannedPartiallyTypedExpr,
     t: NoirType,
-) -> Result<SpannedOptionallyTypedExpr, TypeInferenceError> {
+) -> Result<SpannedPartiallyTypedExpr, TypeInferenceError> {
     let limits = match &t {
         NoirType::Field => None,
         NoirType::Integer(hole_sign, hole_size) => Some((hole_sign, hole_size)),
@@ -109,7 +130,7 @@ pub fn propagate_concrete_type(
         match expr {
             ExprF::Literal { value: Literal::Int(ref bi) } => {
                 debug_assert!(
-                    _type == None,
+                    _type == OptionalType::IntegerLiteral,
                     "Trying to smash type {:?} into {:?} which already has type {:?}",
                     t,
                     bi,
@@ -139,7 +160,10 @@ pub fn propagate_concrete_type(
             _ => {}
         }
 
-        Ok(SpannedOptionallyTypedExpr { expr: Box::new(expr), ann: (location, Some(t.clone())) })
+        Ok(SpannedPartiallyTypedExpr {
+            expr: Box::new(expr),
+            ann: (location, OptionalType::Well(t.clone())),
+        })
     })
 }
 
@@ -153,7 +177,7 @@ pub fn type_infer(
 
     let is_numeric = |t: &NoirType| matches!(t, NoirType::Integer(_, _) | NoirType::Field);
 
-    let sote: SpannedOptionallyTypedExpr = try_contextual_cata(
+    let sote: SpannedPartiallyTypedExpr = try_contextual_cata(
         expr,
         vec![],
         &|mut quantifier_bound_variables, e| {
@@ -172,12 +196,12 @@ pub fn type_infer(
         &|location, quantifier_bound_variables, exprf| {
             let (exprf, exprf_type) = match &exprf {
                 ExprF::Literal { value } => match value {
-                    Literal::Bool(_) => (exprf, Some(NoirType::Bool)),
+                    Literal::Bool(_) => (exprf, OptionalType::Well(NoirType::Bool)),
                     Literal::Int(_) => {
-                        // NOTE: `None` signifies that this has to be inferred up the chain, will gain
-                        //       a concrete type when it gets matched (in an arithmetic or predicate)
-                        //       operation with a variable with a real (integer) type
-                        (exprf, None)
+                        // NOTE: `OptionalType::IntegerLiteral` signifies that this has to be inferred up the chain,
+                        //        will gain a concrete type when it gets matched in an (arithmetic or predicate) operation
+                        //        with a variable with a real (integer) type
+                        (exprf, OptionalType::IntegerLiteral)
                     }
                 },
                 ExprF::Variable(Variable { path, name, id }) => {
@@ -188,17 +212,19 @@ pub fn type_infer(
                     let (variable_ident, variable_id, variable_type): (
                         &str,
                         Option<u32>,
-                        Option<NoirType>,
+                        OptionalType,
                     ) = quantifier_bound_variables
                         .iter()
                         .find_map(|bound_variable| {
                             // TODO: `id` not `None` (when we have a way to generate new `id`s)
-                            (bound_variable == name).then(|| (name.as_str(), None, None))
+                            (bound_variable == name)
+                                .then(|| (name.as_str(), None, OptionalType::IntegerLiteral))
                         })
                         .or_else(|| {
                             state.function.parameters.iter().find_map(|(id, _, par_name, t, _)| {
-                                (par_name == name)
-                                    .then(|| (name.as_str(), Some(id.0), Some(t.clone())))
+                                (par_name == name).then(|| {
+                                    (name.as_str(), Some(id.0), OptionalType::Well(t.clone()))
+                                })
                             })
                         })
                         .or_else(|| {
@@ -206,7 +232,7 @@ pub fn type_infer(
                                 (
                                     FUNC_RETURN_VAR_NAME,
                                     None,
-                                    Some(state.function.return_type.clone()),
+                                    OptionalType::Well(state.function.return_type.clone()),
                                 )
                             })
                         })
@@ -233,12 +259,12 @@ pub fn type_infer(
                                 function_identifier: name.clone(),
                                 param_types: args
                                     .iter()
-                                    .map(|arg: &SpannedOptionallyTypedExpr| arg.ann.1.clone())
+                                    .map(|arg: &SpannedPartiallyTypedExpr| arg.ann.1.clone())
                                     .collect(),
                             },
                         ))?;
 
-                    (exprf, Some(return_type.clone()))
+                    (exprf, OptionalType::Well(return_type.clone()))
                 }
                 ExprF::Quantified { variables, .. } => {
                     variables
@@ -258,16 +284,18 @@ pub fn type_infer(
                             }
                         })
                         .collect::<Result<Vec<_>, _>>()?;
-                    (exprf, Some(NoirType::Bool))
+                    (exprf, OptionalType::Well(NoirType::Bool))
                 }
                 ExprF::Parenthesised { expr } => (exprf.clone(), expr.ann.1.clone()),
                 ExprF::UnaryOp { op, expr } => {
                     let t = match op {
                         UnaryOp::Dereference => {
                             match &expr.ann.1 {
-                                Some(NoirType::Reference(t, _)) => Some(*t.clone()),
+                                OptionalType::Well(NoirType::Reference(t, _)) => {
+                                    OptionalType::Well(*t.clone())
+                                }
                                 // TODO(totel): better error?
-                                Some(_) | None => {
+                                OptionalType::Well(_) | OptionalType::IntegerLiteral => {
                                     return Err(TypeInferenceError::NoirTypeError(
                                         TypeCheckError::UnconstrainedReferenceToConstrained {
                                             location,
@@ -292,14 +320,14 @@ pub fn type_infer(
 
                             match &expr_right.ann.1 {
                                 // Fine shift amount, only `u8` is allowed in `Noir`
-                                Some(t) if *t == shift_amount_type => {}
+                                OptionalType::Well(t) if *t == shift_amount_type => {}
                                 // Integer literal, try type inferring to `u8`
-                                None => {
+                                OptionalType::IntegerLiteral => {
                                     expr_right =
                                         propagate_concrete_type(expr_right, shift_amount_type)?;
                                 }
                                 // Not fine shift amount
-                                Some(_) => {
+                                OptionalType::Well(_) => {
                                     return Err(TypeInferenceError::NoirTypeError(
                                         TypeCheckError::InvalidShiftSize { location },
                                     ));
@@ -308,16 +336,16 @@ pub fn type_infer(
 
                             match &expr_left.ann.1 {
                                 // Fine shiftee
-                                Some(NoirType::Integer(_, _)) => {}
+                                OptionalType::Well(NoirType::Integer(_, _)) => {}
                                 // Integer literal, try type inferring to u32
-                                None => {
+                                OptionalType::IntegerLiteral => {
                                     expr_left = propagate_concrete_type(
                                         expr_left,
                                         default_literal_type.clone(),
                                     )?;
                                 }
                                 // Not fine shiftee
-                                Some(expr_left_typ) => {
+                                OptionalType::Well(expr_left_typ) => {
                                     return Err(TypeInferenceError::NoirTypeError(
                                         TypeCheckError::TypeMismatch {
                                             expr_typ: expr_left_typ.to_string(),
@@ -349,9 +377,9 @@ pub fn type_infer(
                             let is_arith = op.is_arithmetic();
 
                             match (&expr_left.ann.1, &expr_right.ann.1) {
-                                (None, None) => {
+                                (OptionalType::IntegerLiteral, OptionalType::IntegerLiteral) => {
                                     if is_arith {
-                                        (exprf, None)
+                                        (exprf, OptionalType::IntegerLiteral)
                                     } else {
                                         let expr_left_inner = propagate_concrete_type(
                                             expr_left.clone(),
@@ -368,11 +396,11 @@ pub fn type_infer(
                                                 expr_left: expr_left_inner,
                                                 expr_right: expr_right_inner,
                                             },
-                                            Some(NoirType::Bool),
+                                            OptionalType::Well(NoirType::Bool),
                                         )
                                     }
                                 }
-                                (None, Some(t2)) => {
+                                (OptionalType::IntegerLiteral, OptionalType::Well(t2)) => {
                                     // NOTE: `1 & true`
                                     if is_arith && !is_numeric(t2) {
                                         return Err(TypeInferenceError::NoirTypeError(
@@ -393,10 +421,14 @@ pub fn type_infer(
                                             expr_left: expr_left_inner,
                                             expr_right: expr_right.clone(),
                                         },
-                                        Some(if is_arith { t2.clone() } else { NoirType::Bool }),
+                                        OptionalType::Well(if is_arith {
+                                            t2.clone()
+                                        } else {
+                                            NoirType::Bool
+                                        }),
                                     )
                                 }
-                                (Some(t1), None) => {
+                                (OptionalType::Well(t1), OptionalType::IntegerLiteral) => {
                                     // NOTE: `true & 1`
                                     if is_arith && !is_numeric(t1) {
                                         return Err(TypeInferenceError::NoirTypeError(
@@ -417,10 +449,14 @@ pub fn type_infer(
                                             expr_left: expr_left.clone(),
                                             expr_right: expr_right_inner,
                                         },
-                                        Some(if is_arith { t1.clone() } else { NoirType::Bool }),
+                                        OptionalType::Well(if is_arith {
+                                            t1.clone()
+                                        } else {
+                                            NoirType::Bool
+                                        }),
                                     )
                                 }
-                                (Some(t1), Some(t2)) => {
+                                (OptionalType::Well(t1), OptionalType::Well(t2)) => {
                                     if t1 != t2 {
                                         return Err(TypeInferenceError::NoirTypeError(
                                             TypeCheckError::TypeMismatch {
@@ -437,7 +473,11 @@ pub fn type_infer(
                                             expr_left: expr_left.clone(),
                                             expr_right: expr_right.clone(),
                                         },
-                                        Some(if is_arith { t1.clone() } else { NoirType::Bool }),
+                                        OptionalType::Well(if is_arith {
+                                            t1.clone()
+                                        } else {
+                                            NoirType::Bool
+                                        }),
                                     )
                                 }
                             }
@@ -445,51 +485,36 @@ pub fn type_infer(
 
                         // pure Boolean
                         BinaryOp::Implies => {
-                            if expr_left.ann.1 != Some(NoirType::Bool) {
+                            if expr_left.ann.1 != OptionalType::Well(NoirType::Bool) {
                                 return Err(TypeInferenceError::NoirTypeError(
                                     TypeCheckError::TypeMismatch {
-                                        expr_typ: expr_left
-                                            .ann
-                                            .1
-                                            .as_ref()
-                                            .map(|t| t.to_string())
-                                            .unwrap_or(String::new()),
+                                        expr_typ: expr_left.ann.1.to_string(),
                                         expected_typ: NoirType::Bool.to_string(),
                                         expr_location: location,
                                     },
                                 ));
                             }
-                            if expr_right.ann.1 != Some(NoirType::Bool) {
+                            if expr_right.ann.1 != OptionalType::Well(NoirType::Bool) {
                                 return Err(TypeInferenceError::NoirTypeError(
                                     TypeCheckError::TypeMismatch {
-                                        expr_typ: expr_right
-                                            .ann
-                                            .1
-                                            .as_ref()
-                                            .map(|t| t.to_string())
-                                            .unwrap_or(String::new()),
+                                        expr_typ: expr_right.ann.1.to_string(),
                                         expected_typ: NoirType::Bool.to_string(),
                                         expr_location: location,
                                     },
                                 ));
                             }
 
-                            (exprf, Some(NoirType::Bool))
+                            (exprf, OptionalType::Well(NoirType::Bool))
                         }
                     }
                 }
                 ExprF::Index { expr, index } => {
                     let mut index = index.clone();
 
-                    let Some(NoirType::Array(_, type_inner)) = &expr.ann.1 else {
+                    let OptionalType::Well(NoirType::Array(_, type_inner)) = &expr.ann.1 else {
                         return Err(TypeInferenceError::NoirTypeError(
                             TypeCheckError::TypeMismatch {
-                                expr_typ: expr
-                                    .ann
-                                    .1
-                                    .as_ref()
-                                    .map(|t| t.to_string())
-                                    .unwrap_or(String::new()),
+                                expr_typ: expr.ann.1.to_string(),
                                 expected_typ: String::from("Array type"),
                                 expr_location: location,
                             },
@@ -497,21 +522,16 @@ pub fn type_infer(
                     };
                     match &index.ann.1 {
                         // Fine index
-                        Some(NoirType::Integer(Signedness::Unsigned, _)) => {}
+                        OptionalType::Well(NoirType::Integer(Signedness::Unsigned, _)) => {}
                         // Integer literal, try type inferring to `u32`
-                        None => {
+                        OptionalType::IntegerLiteral => {
                             index = propagate_concrete_type(index, default_literal_type.clone())?;
                         }
                         // Not fine index
-                        Some(_) => {
+                        OptionalType::Well(_) => {
                             return Err(TypeInferenceError::NoirTypeError(
                                 TypeCheckError::TypeMismatch {
-                                    expr_typ: index
-                                        .ann
-                                        .1
-                                        .as_ref()
-                                        .map(|t| t.to_string())
-                                        .unwrap_or(String::new()),
+                                    expr_typ: index.ann.1.to_string(),
                                     expected_typ: String::from("Unsigned integer type"),
                                     expr_location: location,
                                 },
@@ -519,10 +539,13 @@ pub fn type_infer(
                         }
                     }
 
-                    (ExprF::Index { expr: expr.clone(), index }, Some(*type_inner.clone()))
+                    (
+                        ExprF::Index { expr: expr.clone(), index },
+                        OptionalType::Well(*type_inner.clone()),
+                    )
                 }
                 ExprF::TupleAccess { expr, index } => {
-                    let Some(NoirType::Tuple(types)) = &expr.ann.1 else {
+                    let OptionalType::Well(NoirType::Tuple(types)) = &expr.ann.1 else {
                         // TODO(totel): better error?
                         return Err(TypeInferenceError::NoirTypeError(
                             TypeCheckError::ResolverError(ResolverError::SelfReferentialType {
@@ -541,14 +564,14 @@ pub fn type_infer(
                         }),
                     )?;
 
-                    (exprf.clone(), Some(type_inner.clone()))
+                    (exprf.clone(), OptionalType::Well(type_inner.clone()))
                 }
                 ExprF::Cast { expr, target } => {
                     let mut expr = expr.clone();
 
                     // Non-booleans cannot cast to bool
                     if matches!(target, NoirType::Bool)
-                        && !matches!(expr.ann.1, Some(NoirType::Bool))
+                        && !matches!(expr.ann.1, OptionalType::Well(NoirType::Bool))
                     {
                         return Err(TypeInferenceError::NoirTypeError(
                             TypeCheckError::CannotCastNumericToBool {
@@ -561,7 +584,7 @@ pub fn type_infer(
 
                     // Non-numerics cannot cast to numeric types
                     if is_numeric(target)
-                        && let Some(ref t) = expr.ann.1
+                        && let OptionalType::Well(ref t) = expr.ann.1
                         && !is_numeric(t)
                         && !matches!(t, NoirType::Bool)
                     {
@@ -575,11 +598,14 @@ pub fn type_infer(
                     }
 
                     // Try to type infer integer literals as the target type
-                    if matches!(expr.ann.1, None) {
+                    if matches!(expr.ann.1, OptionalType::IntegerLiteral) {
                         expr = propagate_concrete_type(expr, target.clone())?;
                     }
 
-                    (ExprF::Cast { expr, target: target.clone() }, Some(target.clone()))
+                    (
+                        ExprF::Cast { expr, target: target.clone() },
+                        OptionalType::Well(target.clone()),
+                    )
                 }
                 ExprF::Tuple { exprs } => {
                     // TODO: support not-yet-typed expressions in the tuple literals,
@@ -587,10 +613,14 @@ pub fn type_infer(
                     //       into the tuple
                     (
                         exprf.clone(),
-                        Some(NoirType::Tuple(
+                        OptionalType::Well(NoirType::Tuple(
                             exprs
                                 .iter()
                                 .map(|e| e.ann.1.clone())
+                                .map(|ot| match ot {
+                                    OptionalType::Well(t) => Some(t),
+                                    OptionalType::IntegerLiteral => None,
+                                })
                                 .collect::<Option<Vec<_>>>()
                                 .ok_or(TypeInferenceError::NoirTypeError(
                                     TypeCheckError::TypeAnnotationsNeededForFieldAccess {
@@ -621,25 +651,28 @@ pub fn type_infer(
 
                             (
                                 exprf.clone(),
-                                first
-                                    .ann
-                                    .1
-                                    .clone()
-                                    .map(|t| NoirType::Array(exprs.len() as u32, Box::new(t))),
+                                match first.ann.1 {
+                                    OptionalType::Well(ref t) => OptionalType::Well(
+                                        NoirType::Array(exprs.len() as u32, Box::new(t.clone())),
+                                    ),
+                                    OptionalType::IntegerLiteral => OptionalType::IntegerLiteral,
+                                },
                             )
                         }
                     }
                 }
             };
 
-            Ok(SpannedOptionallyTypedExpr { ann: (location, exprf_type), expr: Box::new(exprf) })
+            Ok(SpannedPartiallyTypedExpr { ann: (location, exprf_type), expr: Box::new(exprf) })
         },
     )?;
 
     let fully_typed_expr: SpannedTypedExpr =
         try_cata(sote, &|(location, otype), exprf| match otype {
-            Some(t) => Ok(SpannedTypedExpr { ann: (location, t), expr: Box::new(exprf) }),
-            None => Err(format!("Expr {:?} still has no type", exprf)),
+            OptionalType::Well(t) => {
+                Ok(SpannedTypedExpr { ann: (location, t), expr: Box::new(exprf) })
+            }
+            OptionalType::IntegerLiteral => Err(format!("Expr {:?} still has no type", exprf)),
         })
         .expect("Typing should have either succeeded or have resulted in an expected error");
 
@@ -1091,7 +1124,10 @@ mod tests {
         assert_eq!(function_identifier, "f");
         assert_eq!(
             param_types,
-            vec![Some(NoirType::Integer(Signedness::Signed, IntegerBitSize::ThirtyTwo))]
+            vec![OptionalType::Well(NoirType::Integer(
+                Signedness::Signed,
+                IntegerBitSize::ThirtyTwo
+            ))]
         );
     }
 }

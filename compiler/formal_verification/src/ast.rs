@@ -28,7 +28,6 @@ pub struct AnnExpr<A> {
     pub expr: Box<ExprF<AnnExpr<A>>>,
 }
 
-pub type SpannedOptionallyTypedExpr = AnnExpr<(Location, Option<NoirType>)>;
 pub type SpannedTypedExpr = AnnExpr<(Location, NoirType)>;
 pub type SpannedExpr = AnnExpr<Location>;
 pub type OffsetExpr = AnnExpr<(u32, u32)>;

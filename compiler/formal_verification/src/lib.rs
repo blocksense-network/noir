@@ -1,5 +1,6 @@
 use noirc_errors::Location;
 use noirc_frontend::monomorphization::ast as mast;
+use typing::OptionalType;
 use std::{collections::BTreeMap, fmt::Debug};
 
 use crate::{
@@ -31,7 +32,7 @@ pub enum Attribute {
 pub struct MonomorphizationRequest {
     pub function_identifier: String,
     // NOTE: `None` for untyped integer literals
-    pub param_types: Vec<Option<mast::Type>>,
+    pub param_types: Vec<OptionalType>,
 }
 
 fn span_expr(annotation_location: Location, full_length: u32, expr: OffsetExpr) -> SpannedExpr {
