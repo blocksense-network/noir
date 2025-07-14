@@ -1,0 +1,6 @@
+[package]
+name = "fv_std"
+type = "lib"
+authors = [""]
+
+[dependencies]
