@@ -61,7 +61,7 @@ pub fn parse_attribute<'a>(
     let input = annotation;
     let (input, attribute_type) = parse_identifier(input).finish()?; //.map_err(|e| e.parser_errors)?;
 
-    let get_expr = || -> Result<SpannedExpr, ParseError> {
+    let parse_expr = || -> Result<SpannedExpr, ParseError> {
         let (rest, expr) = parse_expression_expr(input).finish()?; //.map_err(|e| e.parser_errors)?;
         assert_eq!(rest, "");
         Ok(span_expr(location, annotation.len() as u32, expr))
@@ -69,14 +69,17 @@ pub fn parse_attribute<'a>(
 
     Ok(match attribute_type {
         "ghost" => Attribute::Ghost,
-        "ensures" => Attribute::Ensures(get_expr()?),
-        "requires" => Attribute::Requires(get_expr()?),
+        "ensures" => Attribute::Ensures(parse_expr()?),
+        "requires" => Attribute::Requires(parse_expr()?),
         _ => {
             // return Err(vec![ResolverError::VariableNotDeclared {
             //     name: attribute_type.to_string(),
             //     location,
             // }]);
-            return Err(ParseError { parser_errors: vec![] });
+            return Err(ParseError {
+                parser_errors: vec![],
+                contexts: vec![],
+            });
         }
     })
 }

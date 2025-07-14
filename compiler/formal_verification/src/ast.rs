@@ -10,6 +10,7 @@ pub enum ExprF<R> {
     Literal { value: Literal },
     Variable { name: Identifier },
     FnCall { name: Identifier, args: Vec<R> },
+    Quantified { quantifier: Quantifier, name: Identifier, expr: R },
     Parenthesised { expr: R },
     UnaryOp { op: UnaryOp, expr: R },
     BinaryOp { op: BinaryOp, expr_left: R, expr_right: R },
@@ -33,44 +34,87 @@ pub enum Literal {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Quantifier {
+    Forall,
+    Exists,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum UnaryOp {
+    // Arithmetic and Boolean
     Not,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum ArithmeticOp {
+pub enum BinaryOp {
+    // pure Arithmetic (data -> data)
     Mul,
     Div,
     Mod,
     Add,
     Sub,
-}
+    ShiftLeft,
+    ShiftRight,
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum PredicateOp {
+    // pure Predicates (data -> bool)
     Eq,
     Neq,
     Lt,
     Le,
     Gt,
     Ge,
-}
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum BooleanOp {
+    // pure Boolean (bool -> bool)
+    Implies,
+
+    // Arithmentic and Boolean
     And,
     Or,
-    Implies,
+    Xor,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum BinaryOp {
-    // Arithmetic (data -> data)
-    ArithmeticOp(ArithmeticOp),
-    // Predicates (data -> bool)
-    PredicateOp(PredicateOp),
-    // Boolean (bool -> bool)
-    BooleanOp(BooleanOp),
+impl BinaryOp {
+    pub fn is_arithmetic(&self) -> bool {
+        matches!(
+            self,
+            // pure
+            BinaryOp::Mul
+                | BinaryOp::Div
+                | BinaryOp::Mod
+                | BinaryOp::Add
+                | BinaryOp::Sub
+                | BinaryOp::ShiftLeft
+                | BinaryOp::ShiftRight
+            // generic
+                | BinaryOp::And
+                | BinaryOp::Or
+                | BinaryOp::Xor
+        )
+    }
+
+    pub fn is_predicate(&self) -> bool {
+        matches!(
+            self,
+            BinaryOp::Eq
+                | BinaryOp::Neq
+                | BinaryOp::Lt
+                | BinaryOp::Le
+                | BinaryOp::Gt
+                | BinaryOp::Ge
+        )
+    }
+
+    pub fn is_boolean(&self) -> bool {
+        matches!(
+            self,
+            // pure
+            BinaryOp::Implies
+            // generic
+                | BinaryOp::And
+                | BinaryOp::Or
+                | BinaryOp::Xor
+        )
+    }
 }
 
 pub fn fmap<A, B>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> B) -> ExprF<B> {
@@ -80,6 +124,9 @@ pub fn fmap<A, B>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> B) -> ExprF<B> {
         ExprF::FnCall { name, args } => {
             let processed_args = args.into_iter().map(cata_fn).collect();
             ExprF::FnCall { name, args: processed_args }
+        }
+        ExprF::Quantified { quantifier, name, expr } => {
+            ExprF::Quantified { quantifier, name, expr: cata_fn(expr) }
         }
         ExprF::Parenthesised { expr } => ExprF::Parenthesised { expr: cata_fn(expr) },
         ExprF::UnaryOp { op, expr } => ExprF::UnaryOp { op, expr: cata_fn(expr) },
@@ -96,6 +143,9 @@ fn try_fmap<A, B, E>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> Result<B, E>) -> Res
         ExprF::FnCall { name, args } => {
             let processed_args = args.into_iter().map(cata_fn).collect::<Result<Vec<_>, _>>()?;
             ExprF::FnCall { name, args: processed_args }
+        }
+        ExprF::Quantified { quantifier, name, expr } => {
+            ExprF::Quantified { quantifier, name, expr: cata_fn(expr)? }
         }
         ExprF::Parenthesised { expr } => ExprF::Parenthesised { expr: cata_fn(expr)? },
         ExprF::UnaryOp { op, expr } => ExprF::UnaryOp { op, expr: cata_fn(expr)? },
@@ -119,6 +169,36 @@ pub fn try_cata<A, B, E>(
     let children_results = try_fmap(*expr.expr, &|child| try_cata(child, algebra))?;
 
     algebra(expr.ann, children_results)
+}
+
+pub fn try_contextual_cata<A, B, C, E>(
+    expr: AnnExpr<A>,
+    initial_context: C,
+    update_context: &dyn Fn(C, &AnnExpr<A>) -> C,
+    algebra: &dyn Fn(A, C, ExprF<B>) -> Result<B, E>,
+) -> Result<B, E>
+where
+    C: Clone,
+{
+    fn recurse<A, B, C, E>(
+        expr: AnnExpr<A>,
+        context: C,
+        update_context: &dyn Fn(C, &AnnExpr<A>) -> C,
+        algebra: &dyn Fn(A, C, ExprF<B>) -> Result<B, E>,
+    ) -> Result<B, E>
+    where
+        C: Clone,
+    {
+        let children_context = update_context(context.clone(), &expr);
+
+        let children_results = try_fmap(*expr.expr, &|child_expr| {
+            recurse(child_expr, children_context.clone(), update_context, algebra)
+        })?;
+
+        algebra(expr.ann, context, children_results)
+    }
+
+    recurse(expr, initial_context, update_context, algebra)
 }
 
 pub fn try_cata_recoverable<A, B, E>(
