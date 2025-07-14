@@ -993,7 +993,6 @@ pub mod tests {
     fn test_bool_true() {
         let (input, expr) = parse("true").unwrap();
         assert_eq!(input, "");
-        // assert!(matches!(*expr.1.typ, TypX::Bool));
         assert!(matches!(*expr.expr, ExprF::Literal { value: Literal::Bool(true) }));
     }
 
@@ -1002,7 +1001,6 @@ pub mod tests {
         let chislo = "1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890";
         let (input, expr) = parse(chislo).unwrap();
         assert_eq!(input, "");
-        // assert!(matches!(*expr.1.typ, TypX::Int(IntRange::Int)));
         let ExprF::Literal { value: Literal::Int(ref bi) } = *expr.expr else { panic!() };
         assert_eq!(bi.to_str_radix(10), chislo);
     }
@@ -1012,7 +1010,6 @@ pub mod tests {
         let identche = "Banica_123_";
         let (input, expr) = parse(identche).unwrap();
         assert_eq!(input, "");
-        // assert!(matches!(*expr.1.typ, TypX::Bool));
         let ExprF::Variable(Variable { name: input, .. }) = *expr.expr else { panic!() };
         assert_eq!(&input, identche);
     }
