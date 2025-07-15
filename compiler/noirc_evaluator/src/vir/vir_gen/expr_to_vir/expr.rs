@@ -193,7 +193,7 @@ fn ast_literal_to_vir_expr(
         }
         Literal::Slice(array_literal) => todo!(),
         Literal::Integer(signed_field, ast_type, location) => {
-            let exprx = numeric_const_to_vir_exprx(signed_field);
+            let exprx = numeric_const_to_vir_exprx(signed_field, ast_type);
             SpannedTyped::new(
                 &build_span_no_id(format!("Integer literal"), Some(*location)),
                 &ast_type_to_vir_type(ast_type),
@@ -228,11 +228,21 @@ fn ast_literal_to_vir_expr(
     expr
 }
 
-fn numeric_const_to_vir_exprx(signed_field: &SignedField) -> ExprX {
+fn numeric_const_to_vir_exprx(signed_field: &SignedField, ast_type: &Type) -> ExprX {
     // If we have a negative Field const we want to wrap it around the finite field modulus
-    let const_big_uint: BigUint = signed_field.to_field_element().into_repr().into();
-    // All Fields after wrapping are positive numbers
-    let big_int_sign = num_bigint::Sign::Plus;
+    let (const_big_uint, big_int_sign): (BigUint, _) = {
+        match ast_type {
+            Type::Field => {
+                // All Fields after wrapping are positive numbers
+                (signed_field.to_field_element().into_repr().into(), num_bigint::Sign::Plus)
+            }
+            Type::Integer(..) => match signed_field.is_negative() {
+                false => (signed_field.absolute_value().into_repr().into(), num_bigint::Sign::Plus),
+                true => (signed_field.absolute_value().into_repr().into(), num_bigint::Sign::Minus),
+            },
+            _ => unreachable!(), // Integers can be only of type Field or Integer
+        }
+    };
     let const_big_int: BigInt = BigInt::from_biguint(big_int_sign, const_big_uint.clone());
 
     ExprX::Const(Constant::Int(const_big_int))
@@ -515,7 +525,6 @@ fn ast_call_to_vir_expr(
     mode: Mode,
     globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
 ) -> Expr {
-
     // Special logic for handling the function `assume` from our Noir FV STD crate
     if let Expression::Ident(func_ident) = &*call_expr.func {
         if func_ident.name == "assume" {
