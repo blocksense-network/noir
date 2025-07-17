@@ -1,0 +1,9 @@
+[package]
+name = "fv_integer_sum"
+type = "bin"
+authors = [""]
+compiler_version = ">=0.34.0"
+
+[dependencies]
+fv_std = { path = "../../../fv_std" }
+
