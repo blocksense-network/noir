@@ -7,6 +7,7 @@ use vir::ast::VarIdent;
 pub mod expr;
 pub mod params;
 pub mod types;
+pub mod std_functions;
 
 pub fn ast_var_into_var_ident(name: String, id: u32) -> VarIdent {
     VarIdent(

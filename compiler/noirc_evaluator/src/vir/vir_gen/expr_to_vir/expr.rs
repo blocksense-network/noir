@@ -4,6 +4,7 @@ use crate::vir::vir_gen::{
     build_span, build_span_no_id,
     expr_to_vir::{
         expression_location,
+        std_functions::handle_fv_std_call,
         types::{
             ast_const_to_vir_type_const, ast_type_to_vir_type, build_tuple_type,
             get_binary_op_type, get_bit_not_bitwidth, get_collection_type_len, is_inner_type_array,
@@ -43,11 +44,6 @@ use vir::{
     },
     def::Spanned,
 };
-
-/// The function `assume()` from `fv_std_lib`
-static ASSUME: &str = "assume";
-/// The function `old()` from `fv_std_lib`
-static OLD: &str = "old";
 
 pub fn func_body_to_vir_expr(
     function: &Function,
@@ -575,67 +571,6 @@ fn ast_call_to_vir_expr(
     )
 }
 
-/// Handles function calls from the `fv_std` library and converts them to special VIR expressions.
-fn handle_fv_std_call(
-    call_expr: &Call,
-    _mode: Mode, // Reserved for future use with additional `fv_std` functions
-    globals: &BTreeMap<GlobalId, (String, Type, Expression)>,
-) -> Option<Expr> {
-    let ident = match &*call_expr.func {
-        Expression::Ident(ident) => ident,
-        _ => return None,
-    };
-
-    match ident.name.as_str() {
-        // Special logic for handling the function `assume` from our Noir `fv_std` library
-        s if s == ASSUME => {
-            let condition_expr = ast_expr_to_vir_expr(&call_expr.arguments[0], Mode::Spec, globals);
-
-            let exprx = ExprX::AssertAssume { is_assume: true, expr: condition_expr };
-
-            let assume_expr = SpannedTyped::new(
-                &build_span_no_id(
-                    format!("Assume {} is true", call_expr.arguments[0]),
-                    Some(call_expr.location),
-                ),
-                &make_unit_vir_type(),
-                exprx,
-            );
-
-            Some(wrap_with_ghost_block(assume_expr, Some(call_expr.location)))
-        }
-
-        // Special logic for handling the function `old` from our Noir `fv_std` library
-        s if s == OLD => {
-            assert!(
-                call_expr.arguments.len() == 1,
-                "Expected function `old` from `noir_fv_std` to have exactly one argument"
-            );
-
-            if let Expression::Ident(var_ident) = &call_expr.arguments[0] {
-                let ident_id = ast_definition_to_id(&var_ident.definition)
-                    .expect("Definition doesn't have an id");
-                let vir_ident = ast_ident_to_vir_var_ident(var_ident, ident_id);
-
-                let exprx = ExprX::VarAt(vir_ident, vir::ast::VarAt::Pre);
-
-                Some(SpannedTyped::new(
-                    &build_span_no_id(
-                        format!("old({})", call_expr.arguments[0]),
-                        Some(call_expr.location),
-                    ),
-                    &ast_type_to_vir_type(&call_expr.return_type),
-                    exprx,
-                ))
-            } else {
-                None
-            }
-        }
-
-        _ => None,
-    }
-}
-
 fn ast_constrain_to_vir_expr(
     assert_body_expr: &Expression,
     location: Option<Location>,
@@ -655,7 +590,7 @@ fn ast_constrain_to_vir_expr(
     wrap_with_ghost_block(assert_expr, location)
 }
 
-fn wrap_with_ghost_block(expr: Expr, location: Option<Location>) -> Expr {
+pub fn wrap_with_ghost_block(expr: Expr, location: Option<Location>) -> Expr {
     let block_wrap = SpannedTyped::new(
         &build_span_no_id("A wrapper block for assert expression".to_string(), location),
         &make_unit_vir_type(),
@@ -1087,7 +1022,7 @@ fn ast_lvalue_ident_to_vir_expr(ident: &Ident) -> Expr {
     )
 }
 
-fn ast_ident_to_vir_var_ident(ident: &Ident, ident_id: u32) -> VarIdent {
+pub fn ast_ident_to_vir_var_ident(ident: &Ident, ident_id: u32) -> VarIdent {
     // Check if we encounter the special variable with name "%return" which we produce
     // during the Monomorphization of the AST. This is the "result" variable which
     // you can refer from `ensures` attributes. We define it as AirLocal because
@@ -1161,7 +1096,7 @@ fn get_lvalue_type(lvalue: &LValue) -> &Type {
     }
 }
 
-fn ast_definition_to_id(definition: &Definition) -> Option<u32> {
+pub fn ast_definition_to_id(definition: &Definition) -> Option<u32> {
     match definition {
         Definition::Local(local_id) => Some(local_id.0),
         Definition::Global(global_id) => Some(global_id.0),
