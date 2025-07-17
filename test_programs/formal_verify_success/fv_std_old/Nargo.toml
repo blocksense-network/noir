@@ -1,0 +1,8 @@
+[package]
+name = "fv_std_old"
+type = "bin"
+authors = [""]
+compiler_version = ">=0.34.0"
+
+[dependencies]
+fv_std = { path = "../../../fv_std" }

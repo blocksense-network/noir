@@ -336,7 +336,19 @@ fn ast_unary_to_vir_expr(
                     ast_type_to_vir_type(ast_type),
                 )),
                 {
-                    let inner_expr = ast_expr_to_vir_expr(&unary_expr.rhs, mode, globals);
+                    let inner_expr = if let Expression::Ident(ident) = &*unary_expr.rhs {
+                        // Mutable reference to ident must be handled with ExprX::VarLoc
+                        SpannedTyped::new(
+                            &build_span(ident.id.0, format!("&mut {}", ident.name), ident.location),
+                            &ast_type_to_vir_type(&ident.typ),
+                            ExprX::VarLoc(ast_ident_to_vir_var_ident(
+                                &ident,
+                                ast_definition_to_id(&ident.definition).unwrap(),
+                            )),
+                        )
+                    } else {
+                        ast_expr_to_vir_expr(&unary_expr.rhs, mode, globals)
+                    };
                     if mutable {
                         ExprX::Loc(inner_expr)
                     } else {
@@ -621,7 +633,8 @@ fn ast_assign_to_vir_expr(
             globals,
         );
     }
-    let is_lvalue_mut = is_lvalue_mut(&assign_expr.lvalue);
+    let is_lvalue_mut = is_lvalue_mut(&assign_expr.lvalue)
+        || matches!(get_lvalue_ident(&assign_expr.lvalue).typ, Type::Reference(_, true));
     let lhs_expr = ast_lvalue_to_vir_expr(&assign_expr.lvalue, location, mode);
     let exprx = ExprX::Assign {
         init_not_mut: !is_lvalue_mut,
