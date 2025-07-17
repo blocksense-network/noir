@@ -25,7 +25,7 @@ pub fn ast_param_to_vir_param(
         name: ast_var_into_var_ident(parameter.2.clone(), parameter.0.0),
         typ: ast_type_to_vir_type(&parameter.3),
         mode,
-        is_mut: parameter.1,
+        is_mut: is_param_mut(&parameter.3),
         unwrapped_info: None, // Special unwrapping pattern which we don't support
     };
 
@@ -33,4 +33,8 @@ pub fn ast_param_to_vir_param(
         build_span_no_id(format!("Parameters of the function {}", function_name), Some(location)),
         paramx,
     )
+}
+
+fn is_param_mut(ast_type: &Type) -> bool {
+    matches!(ast_type, Type::Reference(_, true))
 }
