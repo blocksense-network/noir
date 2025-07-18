@@ -997,7 +997,7 @@ fn build_var_ident(name: String, id: u32) -> VarIdent {
     )
 }
 
-fn function_name_to_vir_fun(func_name: String) -> Fun {
+pub fn function_name_to_vir_fun(func_name: String) -> Fun {
     Arc::new(FunX {
         path: Arc::new(PathX { krate: None, segments: Arc::new(vec![Arc::new(func_name)]) }),
     })
