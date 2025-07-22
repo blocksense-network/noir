@@ -30,7 +30,7 @@ pub struct Error {
 pub type Input<'a> = &'a str;
 pub type PResult<'a, T> = IResult<Input<'a>, T, Error>;
 
-impl<'a, 'b> ParseError<Input<'a>> for Error {
+impl<'a> ParseError<Input<'a>> for Error {
     fn from_error_kind(input: Input<'a>, kind: ErrorKind) -> Self {
         Self {
             parser_errors: vec![ParserError::Oops],
@@ -77,11 +77,11 @@ pub(crate) fn build_offset_from_exprs(left: &OffsetExpr, right: &OffsetExpr) -> 
 // TODO: array indexing - ast_index_to_vir_expr
 // TODO: tuple indexing - ast_tuple_access_to_vir_expr
 
-pub(crate) fn parse_bool<'a, 'b>(input: Input<'a>) -> PResult<'a, bool> {
+pub(crate) fn parse_bool<'a>(input: Input<'a>) -> PResult<'a, bool> {
     alt((map(tag("true"), |_| true), map(tag("false"), |_| false))).parse(input)
 }
 
-pub(crate) fn parse_sign<'a, 'b>(input: Input<'a>) -> PResult<'a, bool> {
+pub(crate) fn parse_sign<'a>(input: Input<'a>) -> PResult<'a, bool> {
     let (input, opt_sign) = opt(alt((
         //
         value(false, tag(&b"-"[..])),
@@ -93,7 +93,7 @@ pub(crate) fn parse_sign<'a, 'b>(input: Input<'a>) -> PResult<'a, bool> {
     Ok((input, sign))
 }
 
-pub(crate) fn parse_int<'a, 'b>(input: Input<'a>) -> PResult<'a, BigInt> {
+pub(crate) fn parse_int<'a>(input: Input<'a>) -> PResult<'a, BigInt> {
     let (input, sign) = parse_sign(input)?;
     let (input, digits) = digit(input)?;
 
@@ -113,7 +113,7 @@ pub(crate) fn parse_int<'a, 'b>(input: Input<'a>) -> PResult<'a, BigInt> {
     Ok((input, bigint))
 }
 
-pub(crate) fn parse_constant_expr<'a, 'b>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+pub(crate) fn parse_constant_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     // eprintln!("trying constant: {}", input);
     let prev_offset = input.len();
     let (input, exprf) = alt((
@@ -131,7 +131,7 @@ pub(crate) fn parse_constant_expr<'a, 'b>(input: Input<'a>) -> PResult<'a, Offse
 
 // TODO: parse identifier expression
 // TODO: parse module references `fv_std::SOMETHING`
-pub(crate) fn parse_identifier<'a, 'b>(input: Input<'a>) -> PResult<'a, &'a str> {
+pub(crate) fn parse_identifier<'a>(input: Input<'a>) -> PResult<'a, &'a str> {
     fn is_valid_start(c: char) -> bool {
         c.is_ascii_alphabetic() || c == '_'
     }
@@ -151,7 +151,7 @@ pub(crate) fn parse_identifier<'a, 'b>(input: Input<'a>) -> PResult<'a, &'a str>
     Ok((input, name))
 }
 
-pub(crate) fn parse_var_expr<'a, 'b>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+pub(crate) fn parse_var_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     // eprintln!("trying var: {}", input);
     let prev_offset = input.len();
     let (input, ident) = parse_identifier(input).map_err(|_| {
@@ -172,7 +172,7 @@ pub(crate) fn parse_var_expr<'a, 'b>(input: Input<'a>) -> PResult<'a, OffsetExpr
     Ok((input, build_expr(prev_offset, after_offset, ExprF::Variable { name: ident.to_string() })))
 }
 
-pub(crate) fn parse_fn_call_expr<'a, 'b>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+pub(crate) fn parse_fn_call_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     // eprintln!("trying call: {}", input);
     let prev_offset = input.len();
     let (input, name) = parse_identifier(input)?;
@@ -195,7 +195,7 @@ pub(crate) fn parse_fn_call_expr<'a, 'b>(input: Input<'a>) -> PResult<'a, Offset
     ))
 }
 
-pub(crate) fn parse_additive_expr<'a, 'b>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+pub(crate) fn parse_additive_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     // eprintln!("trying additive: {}", input);
     let (input, (first, remainder)) = pair(
         parse_multiplicative_expr,
@@ -222,7 +222,7 @@ pub(crate) fn parse_additive_expr<'a, 'b>(input: Input<'a>) -> PResult<'a, Offse
     ))
 }
 
-pub(crate) fn parse_multiplicative_expr<'a, 'b>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+pub(crate) fn parse_multiplicative_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     // eprintln!("trying multiplicative: {}", input);
     let (input, (first, remainder)) = pair(
         parse_unary_expr,
@@ -250,7 +250,7 @@ pub(crate) fn parse_multiplicative_expr<'a, 'b>(input: Input<'a>) -> PResult<'a,
     ))
 }
 
-pub(crate) fn parse_expression_expr<'a, 'b>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+pub(crate) fn parse_expression_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     // eprintln!("trying expression: {}", input);
     // NOTE: Start parsing from the lowest precedence operator
     alt((
@@ -260,13 +260,13 @@ pub(crate) fn parse_expression_expr<'a, 'b>(input: Input<'a>) -> PResult<'a, Off
     .parse(input)
 }
 
-pub(crate) fn parse_parenthesised_expr<'a, 'b>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+pub(crate) fn parse_parenthesised_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     // eprintln!("trying parenthesised: {}", input);
     delimited(multispace, delimited(tag("("), parse_expression_expr, tag(")")), multispace)
         .parse(input)
 }
 
-pub(crate) fn parse_primary_expr<'a, 'b>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+pub(crate) fn parse_primary_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     // eprintln!("trying primary: {}", input);
     alt((
         //
@@ -278,7 +278,7 @@ pub(crate) fn parse_primary_expr<'a, 'b>(input: Input<'a>) -> PResult<'a, Offset
     .parse(input)
 }
 
-pub(crate) fn parse_unary_expr<'a, 'b>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+pub(crate) fn parse_unary_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     // eprintln!("trying unary: {}", input);
     alt((
         map(preceded(terminated(tag("!"), multispace), parse_unary_expr), |expr| OffsetExpr {
@@ -290,7 +290,7 @@ pub(crate) fn parse_unary_expr<'a, 'b>(input: Input<'a>) -> PResult<'a, OffsetEx
     .parse(input)
 }
 
-pub(crate) fn parse_comparison_expr<'a, 'b>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+pub(crate) fn parse_comparison_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     // eprintln!("trying comparison: {}", input);
     let (input, mut expr_left) = parse_additive_expr(input)?;
 
@@ -326,7 +326,7 @@ pub(crate) fn parse_comparison_expr<'a, 'b>(input: Input<'a>) -> PResult<'a, Off
     Ok((input, expr_left))
 }
 
-pub(crate) fn parse_logical_and_expr<'a, 'b>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+pub(crate) fn parse_logical_and_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     // eprintln!("trying and: {}", input);
     let (input, (first, remainder)) = pair(
         parse_comparison_expr,
@@ -347,7 +347,7 @@ pub(crate) fn parse_logical_and_expr<'a, 'b>(input: Input<'a>) -> PResult<'a, Of
     ))
 }
 
-pub(crate) fn parse_logical_or_expr<'a, 'b>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+pub(crate) fn parse_logical_or_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     // eprintln!("trying or: {}", input);
     let (input, (first, remainder)) = pair(
         parse_logical_and_expr,
@@ -368,7 +368,7 @@ pub(crate) fn parse_logical_or_expr<'a, 'b>(input: Input<'a>) -> PResult<'a, Off
     ))
 }
 
-pub(crate) fn parse_implication_expr<'a, 'b>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
+pub(crate) fn parse_implication_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     // eprintln!("trying implication: {}", input);
     let (input, (first, remainder)) = pair(
         parse_logical_or_expr,
@@ -465,7 +465,7 @@ pub mod tests {
         }
     }
 
-    pub fn parse<'a, 'b>(input: &'a str) -> PResult<'a, OffsetExpr> {
+    pub fn parse<'a>(input: &'a str) -> PResult<'a, OffsetExpr> {
         parse_expression_expr(input)
     }
 
