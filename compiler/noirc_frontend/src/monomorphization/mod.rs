@@ -12,8 +12,8 @@ use crate::NamedGeneric;
 use crate::ast::{FunctionKind, IntegerBitSize, ItemVisibility, UnaryOp};
 use crate::hir::comptime::InterpreterError;
 use crate::hir::type_check::{NoMatchingImplFoundError, TypeCheckError};
-use crate::node_interner::{ExprId, GlobalValue, ImplSearchErrorKind, TraitItemId};
 use crate::hir_def::function::ResolvedFvAttribute;
+use crate::node_interner::{ExprId, GlobalValue, ImplSearchErrorKind, TraitItemId};
 use crate::shared::{Signedness, Visibility};
 use crate::signed_field::SignedField;
 use crate::token::FmtStrFragment;
@@ -1892,7 +1892,7 @@ impl<'interner> Monomorphizer<'interner> {
         Expression::Literal(Literal::Slice(arr_literal))
     }
 
-    fn queue_function(
+    pub fn queue_function(
         &mut self,
         id: node_interner::FuncId,
         expr_id: node_interner::ExprId,

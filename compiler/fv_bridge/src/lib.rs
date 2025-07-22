@@ -11,6 +11,10 @@ use noirc_evaluator::{
     vir::{create_verus_vir_with_ready_annotations, vir_gen::BuildingKrateError},
 };
 use noirc_frontend::hir::resolution::errors::ResolverError;
+use noirc_frontend::hir_def::expr::{HirCallExpression, HirExpression, HirLiteral};
+use noirc_frontend::node_interner::{DefinitionKind, ExprId};
+use noirc_frontend::{Kind, TypeVariable};
+// use noirc_frontend::node_interner::FuncId;
 use noirc_frontend::{
     debug::DebugInstrumenter,
     graph::CrateId,
@@ -82,6 +86,8 @@ fn modified_compile_no_check(
     main_function: node_interner::FuncId,
 ) -> Result<KrateAndWarnings, CompileOrResolverError> {
     let force_unconstrained = options.force_brillig || options.minimal_ssa;
+
+    // println!("Node interner: {:#?}", context.def_interner);
 
     let (program, fv_annotations) = modified_monomorphize(
         main_function,
@@ -161,6 +167,85 @@ fn modified_monomorphize(
         undo_instantiation_bindings(impl_bindings);
         undo_instantiation_bindings(bindings);
     }
+    // ________________________My hack snippet___________________________________
+
+    let func_id = monomorphizer.interner.find_function("generic_func").unwrap();
+    let func_id_as_expr_id = monomorphizer.interner.function(&func_id).as_expr();
+
+    let pseudo_arg = monomorphizer.interner.push_expr_full(
+        HirExpression::Literal(HirLiteral::Bool(true)),
+        Location::dummy(),
+        noirc_frontend::Type::Bool,
+    );
+
+    let pseudo_call_expr = HirExpression::Call(HirCallExpression {
+        func: func_id_as_expr_id,
+        arguments: vec![pseudo_arg],
+        location: Location::dummy(),
+        is_macro_call: false,
+    });
+
+    let pseudo_call_expr_id = monomorphizer.interner.push_expr_full(
+        pseudo_call_expr,
+        Location::dummy(),
+        noirc_frontend::Type::Unit,
+    );
+
+    // panic!("{:#?}", noirc_frontend::Type::Bool.instantiate(&monomorphizer.interner));
+
+    // panic!("TEST: {:#?}", monomorphizer.interner.expression(&func_id_as_expr_id));
+    // let arg_type_var_id =
+    // monomorphizer.interner.function_meta(&func_id).direct_generics[0].type_var.id();
+
+    let mut typ_bindings = noirc_frontend::Type::Unit.instantiate(&monomorphizer.interner).1;
+    // let type_var_id = arg_type_var_id; // monomorphizer.interner.next_type_variable_id();
+
+    let parameter_index = 0;
+    let parameter_type =
+        &monomorphizer.interner.function_meta(&func_id).parameters.0[parameter_index].1;
+    let type_variable = if let noirc_frontend::Type::NamedGeneric(named_generic) = &parameter_type {
+        &named_generic.type_var
+    } else {
+        panic!("{}", parameter_type)
+    };
+    // THE LAST ARG IN THE FOLLOWING `.insert` IS THE IMPORTANT ONE
+    typ_bindings.insert(
+        type_variable.id(),
+        (type_variable.clone(), Kind::Normal, noirc_frontend::Type::Bool),
+    );
+
+    monomorphizer.interner.store_instantiation_bindings(pseudo_call_expr_id, typ_bindings);
+
+    monomorphizer.queue_function(
+        func_id,
+        pseudo_call_expr_id,
+        monomorphizer.interner.id_type(func_id_as_expr_id),
+        vec![],
+        None,
+    );
+
+    while !monomorphizer.queue.is_empty() {
+        let (next_fn_id, new_id, bindings, trait_method, is_unconstrained, location) =
+            monomorphizer.queue.pop_front().unwrap();
+        monomorphizer.locals.clear();
+
+        monomorphizer.in_unconstrained_function = is_unconstrained;
+
+        perform_instantiation_bindings(&bindings);
+        let interner = &monomorphizer.interner;
+        let impl_bindings = perform_impl_bindings(interner, trait_method, next_fn_id, location)
+            .map_err(MonomorphizationError::InterpreterError)
+            .map_err(MonomorphOrResolverError::MonomorphizationError)?;
+
+        monomorphizer
+            .function(next_fn_id, new_id, location)
+            .map_err(MonomorphOrResolverError::MonomorphizationError)?;
+        new_ids_to_old_ids.insert(new_id, next_fn_id);
+        undo_instantiation_bindings(impl_bindings);
+        undo_instantiation_bindings(bindings);
+    }
+
+    // ________________________End of hack snippet___________________________________
 
     let func_sigs = monomorphizer
         .finished_functions
@@ -241,3 +326,77 @@ pub struct KrateAndWarnings {
     pub warnings: Vec<SsaReport>,
     pub parse_annotations_errors: Vec<ParserError>,
 }
+
+// pub fn monomorphize_one_function() {
+//     let func_id = monomorphizer.interner.find_function("generic_func").unwrap();
+//     let func_id_as_expr_id = monomorphizer.interner.function(&func_id).as_expr();
+
+//     let pseudo_arg = monomorphizer.interner.push_expr_full(
+//         HirExpression::Literal(HirLiteral::Bool(true)),
+//         Location::dummy(),
+//         noirc_frontend::Type::Bool,
+//     );
+
+//     let pseudo_call_expr = HirExpression::Call(HirCallExpression {
+//         func: func_id_as_expr_id,
+//         arguments: vec![pseudo_arg],
+//         location: Location::dummy(),
+//         is_macro_call: false,
+//     });
+
+//     let pseudo_call_expr_id = monomorphizer.interner.push_expr_full(
+//         pseudo_call_expr,
+//         Location::dummy(),
+//         noirc_frontend::Type::Unit,
+//     );
+
+
+//     let mut typ_bindings = noirc_frontend::Type::Unit.instantiate(&monomorphizer.interner).1;
+
+//     let parameter_index = 0;
+//     let parameter_type =
+//         &monomorphizer.interner.function_meta(&func_id).parameters.0[parameter_index].1;
+//     let type_variable = if let noirc_frontend::Type::NamedGeneric(named_generic) = &parameter_type {
+//         &named_generic.type_var
+//     } else {
+//         panic!("{}", parameter_type)
+//     };
+//     // THE LAST ARG IN THE FOLLOWING `.insert` IS THE IMPORTANT ONE
+//     typ_bindings.insert(
+//         type_variable.id(),
+//         (type_variable.clone(), Kind::Normal, noirc_frontend::Type::Bool),
+//     );
+
+//     monomorphizer.interner.store_instantiation_bindings(pseudo_call_expr_id, typ_bindings);
+
+//     monomorphizer.queue_function(
+//         func_id,
+//         pseudo_call_expr_id,
+//         monomorphizer.interner.id_type(func_id_as_expr_id),
+//         vec![],
+//         None,
+//     );
+
+//     while !monomorphizer.queue.is_empty() {
+//         let (next_fn_id, new_id, bindings, trait_method, is_unconstrained, location) =
+//             monomorphizer.queue.pop_front().unwrap();
+//         monomorphizer.locals.clear();
+
+//         monomorphizer.in_unconstrained_function = is_unconstrained;
+
+//         perform_instantiation_bindings(&bindings);
+//         let interner = &monomorphizer.interner;
+//         let impl_bindings = perform_impl_bindings(interner, trait_method, next_fn_id, location)
+//             .map_err(MonomorphizationError::InterpreterError)
+//             .map_err(MonomorphOrResolverError::MonomorphizationError)?;
+
+//         monomorphizer
+//             .function(next_fn_id, new_id, location)
+//             .map_err(MonomorphOrResolverError::MonomorphizationError)?;
+//         new_ids_to_old_ids.insert(new_id, next_fn_id);
+//         undo_instantiation_bindings(impl_bindings);
+//         undo_instantiation_bindings(bindings);
+//     }
+
+//     todo!()
+// }
