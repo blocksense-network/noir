@@ -190,6 +190,7 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
 
 #[cfg(test)]
 mod tests {
+    use noirc_errors::{Location, Span};
     use noirc_frontend::ast::IntegerBitSize;
     use noirc_frontend::shared::Signedness;
     use std::convert::identity;
@@ -201,10 +202,10 @@ mod tests {
     #[test]
     fn test_whole_attribute() {
         let attribute = "ensures(result >= a + (16 / 2 % (7 * 4)))";
-        let state = empty_state(attribute.len() as u32);
+        let state = empty_state();
         let attribute = parse_attribute(
             attribute,
-            state.location,
+            Location { span: Span::inclusive(0, attribute.len() as u32), file: Default::default() },
             state.function,
             state.global_constants,
             state.functions,
@@ -235,10 +236,10 @@ mod tests {
     #[test]
     fn test_monomorphization_request() {
         let attribute = "ensures(f(result))";
-        let state = empty_state(attribute.len() as u32);
+        let state = empty_state();
         let attribute = parse_attribute(
             attribute,
-            state.location,
+            Location { span: Span::inclusive(0, attribute.len() as u32), file: Default::default() },
             state.function,
             state.global_constants,
             state.functions,
