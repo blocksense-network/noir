@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, HashMap};
 
 use fm::FileId;
-use formal_verification::parse::parse_attribute;
+use formal_verification::ast::SpannedTypedExpr;
+use formal_verification::typing::type_infer;
+use formal_verification::{State, parse_attribute};
 use iter_extended::vecmap;
 use noirc_driver::{CompilationResult, CompileError, CompileOptions, check_crate};
 use noirc_errors::{CustomDiagnostic, Location};
@@ -125,6 +127,12 @@ enum MonomorphOrResolverError {
     ResolverErrors(Vec<ResolverError>),
 }
 
+enum TypedAttribute {
+    Ghost,
+    Requires(SpannedTypedExpr),
+    Ensures(SpannedTypedExpr),
+}
+
 fn modified_monomorphize(
     main: node_interner::FuncId,
     interner: &mut NodeInterner,
@@ -181,39 +189,65 @@ fn modified_monomorphize(
     let fv_annotations: Vec<(FuncId, Vec<Attribute>)> = monomorphizer
         .finished_functions
         .iter()
+        // Find the original function ID for each new monomorphized function.
         .filter_map(|(new_func_id, function)| {
-            new_ids_to_old_ids.get(new_func_id).map(|old_id| (new_func_id, old_id, function))
+            new_ids_to_old_ids.get(new_func_id).map(|old_id| (*new_func_id, *old_id, function))
         })
         .map(|(new_func_id, old_id, function)| {
-            let tag_attributes: Vec<(&str, Location)> = monomorphizer
+            // Create the state once per function to avoid repeated lookups inside a loop.
+            let state = State {
+                function,
+                global_constants: &globals,
+                functions: &monomorphizer.finished_functions,
+            };
+
+            let attributes = monomorphizer
                 .interner
-                .function_attributes(old_id)
+                .function_attributes(&old_id)
                 .secondary
                 .iter()
-                .filter_map(|attribute| match &attribute.kind {
-                    SecondaryAttributeKind::Tag(annotation) => {
+                // Extract only the string-based 'tag' attributes for processing.
+                .filter_map(|attribute| {
+                    if let SecondaryAttributeKind::Tag(annotation) = &attribute.kind {
                         Some((annotation.as_str(), attribute.location))
+                    } else {
+                        None
                     }
-                    _ => None,
                 })
-                .collect();
+                .map(|(annotation_body, location)| {
+                    // Step 1: Parse the attribute string.
+                    let parsed_attribute = parse_attribute(
+                        annotation_body,
+                        location,
+                        function,
+                        &globals,
+                        &monomorphizer.finished_functions,
+                    )
+                    .map_err(|_| panic!() as MonomorphOrResolverError)?;
 
-            Ok((
-                new_func_id.clone(),
-                tag_attributes
-                    .into_iter()
-                    .map(|(annotation_body, location)| {
-                        parse_attribute(
-                            annotation_body,
-                            location,
-                            function,
-                            &globals,
-                            &monomorphizer.finished_functions,
-                        )
-                        .map_err(MonomorphOrResolverError::ResolverErrors)
-                    })
-                    .collect::<Result<Vec<_>, _>>()?,
-            ))
+                    // Step 2: Type-infer the parsed attribute expression.
+                    let typed_attribute = match parsed_attribute {
+                        formal_verification::Attribute::Ghost => TypedAttribute::Ghost,
+                        formal_verification::Attribute::Ensures(expr) => {
+                            // TODO(totel): Handle MonomorphRequest error type
+                            let typed_expr = type_infer(state.clone(), expr)
+                                .map_err(|_| panic!() as MonomorphOrResolverError)?;
+                            TypedAttribute::Ensures(typed_expr)
+                        }
+                        formal_verification::Attribute::Requires(expr) => {
+                            // TODO(totel): Handle MonomorphRequest error type
+                            let typed_expr = type_infer(state.clone(), expr)
+                                .map_err(|_| panic!() as MonomorphOrResolverError)?;
+                            TypedAttribute::Requires(typed_expr)
+                        }
+                    };
+
+                    // Step 3: Convert the typed attribute into its final representation.
+                    Ok(convert_typed_attribute_to_vir_attribute(typed_attribute, state.clone()))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok((new_func_id, attributes))
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -240,4 +274,11 @@ pub struct KrateAndWarnings {
     pub krate: Krate,
     pub warnings: Vec<SsaReport>,
     pub parse_annotations_errors: Vec<ParserError>,
+}
+
+fn convert_typed_attribute_to_vir_attribute(
+    typed_attribute: TypedAttribute,
+    state: State,
+) -> Attribute {
+    todo!()
 }

@@ -14,10 +14,8 @@ pub mod ast;
 pub mod parse;
 pub mod typing;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct State<'a> {
-    pub full_length: u32,
-    pub location: Location,
     pub function: &'a mast::Function,
     pub global_constants: &'a BTreeMap<mast::GlobalId, (String, mast::Type, mast::Expression)>,
     pub functions: &'a BTreeMap<mast::FuncId, mast::Function>,

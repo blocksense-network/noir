@@ -402,10 +402,8 @@ pub mod tests {
 
     use super::*;
 
-    pub fn empty_state(full_length: u32) -> State<'static> {
+    pub fn empty_state() -> State<'static> {
         State {
-            full_length,
-            location: Location { span: Span::inclusive(1000, 2000), file: Default::default() },
             function: Box::leak(Box::new(Function {
                 id: FuncId(4321),
                 name: "tutmanik".to_string(),
@@ -524,10 +522,10 @@ pub mod tests {
     #[test]
     fn test_ghost() {
         let annotation = "ghost";
-        let state = empty_state(annotation.len() as u32);
+        let state = empty_state();
         let attribute = parse_attribute(
             annotation,
-            state.location,
+            Location { span: Span::inclusive(0, annotation.len() as u32), file: Default::default() },
             state.function,
             state.global_constants,
             state.functions,
