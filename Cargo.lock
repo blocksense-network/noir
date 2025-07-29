@@ -2125,6 +2125,7 @@ dependencies = [
 name = "fv_bridge"
 version = "1.0.0-beta.7"
 dependencies = [
+ "acvm",
  "fm",
  "formal_verification",
  "iter-extended",
@@ -2132,6 +2133,8 @@ dependencies = [
  "noirc_errors",
  "noirc_evaluator",
  "noirc_frontend",
+ "num-bigint 0.4.6",
+ "num-traits",
  "serde",
  "vir",
 ]

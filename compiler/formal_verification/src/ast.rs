@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 
 use noirc_errors::Location;
 use noirc_frontend::monomorphization::ast::Type as NoirType;
@@ -241,4 +241,13 @@ pub fn try_cata_recoverable<A, B, E>(
     let children_results = try_fmap(*expr.expr, &|child| try_cata_recoverable(child, algebra));
 
     algebra(expr.ann, children_results)
+}
+
+impl Display for Quantifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            Quantifier::Forall => "forall",
+            Quantifier::Exists => "exists",
+        } )
+    }
 }

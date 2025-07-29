@@ -6,7 +6,7 @@ use formal_verification::typing::type_infer;
 use formal_verification::{State, parse_attribute};
 use iter_extended::vecmap;
 use noirc_driver::{CompilationResult, CompileError, CompileOptions, check_crate};
-use noirc_errors::{CustomDiagnostic, Location};
+use noirc_errors::CustomDiagnostic;
 use noirc_evaluator::vir::vir_gen::Attribute;
 use noirc_evaluator::{
     errors::{RuntimeError, SsaReport},
@@ -29,6 +29,10 @@ use noirc_frontend::{
     token::SecondaryAttributeKind,
 };
 use vir::ast::Krate;
+
+use crate::typed_attrs_to_vir::convert_typed_attribute_to_vir_attribute;
+
+pub mod typed_attrs_to_vir;
 
 pub fn compile_and_build_vir_krate(
     context: &mut Context,
@@ -223,7 +227,7 @@ fn modified_monomorphize(
                         &globals,
                         &monomorphizer.finished_functions,
                     )
-                    .map_err(|_| panic!() as MonomorphOrResolverError)?;
+                    .map_err(|x| panic!("{:#?}", x) as MonomorphOrResolverError)?;
 
                     // Step 2: Type-infer the parsed attribute expression.
                     let typed_attribute = match parsed_attribute {
@@ -231,19 +235,19 @@ fn modified_monomorphize(
                         formal_verification::Attribute::Ensures(expr) => {
                             // TODO(totel): Handle MonomorphRequest error type
                             let typed_expr = type_infer(state.clone(), expr)
-                                .map_err(|_| panic!() as MonomorphOrResolverError)?;
+                                .map_err(|x| panic!("{:#?}", x) as MonomorphOrResolverError)?;
                             TypedAttribute::Ensures(typed_expr)
                         }
                         formal_verification::Attribute::Requires(expr) => {
                             // TODO(totel): Handle MonomorphRequest error type
                             let typed_expr = type_infer(state.clone(), expr)
-                                .map_err(|_| panic!() as MonomorphOrResolverError)?;
+                                .map_err(|x| panic!("{:#?}", x) as MonomorphOrResolverError)?;
                             TypedAttribute::Requires(typed_expr)
                         }
                     };
 
                     // Step 3: Convert the typed attribute into its final representation.
-                    Ok(convert_typed_attribute_to_vir_attribute(typed_attribute, state.clone()))
+                    Ok(convert_typed_attribute_to_vir_attribute(typed_attribute, &state))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
@@ -274,11 +278,4 @@ pub struct KrateAndWarnings {
     pub krate: Krate,
     pub warnings: Vec<SsaReport>,
     pub parse_annotations_errors: Vec<ParserError>,
-}
-
-fn convert_typed_attribute_to_vir_attribute(
-    typed_attribute: TypedAttribute,
-    state: State,
-) -> Attribute {
-    todo!()
 }

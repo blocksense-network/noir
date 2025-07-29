@@ -229,7 +229,7 @@ fn ast_literal_to_vir_expr(
     expr
 }
 
-fn numeric_const_to_vir_exprx(signed_field: &SignedField, ast_type: &Type) -> ExprX {
+pub fn numeric_const_to_vir_exprx(signed_field: &SignedField, ast_type: &Type) -> ExprX {
     // If we have a negative Field const we want to wrap it around the finite field modulus
     let (const_big_uint, big_int_sign): (BigUint, _) = {
         match ast_type {
@@ -1121,7 +1121,7 @@ pub fn ast_definition_to_id(definition: &Definition) -> Option<u32> {
 /// For the Noir Field type we have to wrap all arithmetic instructions
 /// with a Euclidean modulo `p` operation where `p` is the modulus of
 /// the Noir Field.
-fn wrap_with_field_modulo(dividend: Expr, mode: Mode) -> Expr {
+pub fn wrap_with_field_modulo(dividend: Expr, mode: Mode) -> Expr {
     let expr_span = dividend.span.clone();
     let expr_type = dividend.typ.clone();
 
