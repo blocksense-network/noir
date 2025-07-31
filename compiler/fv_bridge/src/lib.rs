@@ -12,7 +12,6 @@ use noirc_evaluator::{
     errors::{RuntimeError, SsaReport},
     vir::{create_verus_vir_with_ready_annotations, vir_gen::BuildingKrateError},
 };
-use noirc_frontend::hir::resolution::errors::ResolverError;
 use noirc_frontend::{
     debug::DebugInstrumenter,
     graph::CrateId,
@@ -30,8 +29,10 @@ use noirc_frontend::{
 };
 use vir::ast::Krate;
 
+use crate::errors::{CompilationErrorBundle, MonomorphizationErrorBundle};
 use crate::typed_attrs_to_vir::convert_typed_attribute_to_vir_attribute;
 
+mod errors;
 pub mod typed_attrs_to_vir;
 
 pub fn compile_and_build_vir_krate(
@@ -59,9 +60,15 @@ fn modified_compile_main(
 
     let compiled_program =
         modified_compile_no_check(context, options, main).map_err(|error| match error {
-            CompileOrResolverError::CompileError(compile_error) => vec![compile_error.into()],
-            CompileOrResolverError::ResolverErrors(resolver_errors) => {
+            CompilationErrorBundle::CompileError(compile_error) => vec![compile_error.into()],
+            CompilationErrorBundle::ResolverErrors(resolver_errors) => {
                 resolver_errors.iter().map(Into::into).collect()
+            }
+            CompilationErrorBundle::TypeError(type_check_error) => {
+                vec![CustomDiagnostic::from(&type_check_error)]
+            }
+            CompilationErrorBundle::ParserErrors(parser_errors) => {
+                parser_errors.into_iter().map(CustomDiagnostic::from).collect()
             }
         })?;
 
@@ -76,17 +83,12 @@ fn modified_compile_main(
     Ok((compiled_program.krate, warnings))
 }
 
-pub enum CompileOrResolverError {
-    CompileError(CompileError),
-    ResolverErrors(Vec<ResolverError>),
-}
-
 // Something like the method `compile_no_check()`
 fn modified_compile_no_check(
     context: &mut Context,
     options: &CompileOptions,
     main_function: node_interner::FuncId,
-) -> Result<KrateAndWarnings, CompileOrResolverError> {
+) -> Result<KrateAndWarnings, CompilationErrorBundle> {
     let force_unconstrained = options.force_brillig || options.minimal_ssa;
 
     let (program, fv_annotations) = modified_monomorphize(
@@ -96,13 +98,19 @@ fn modified_compile_no_check(
         force_unconstrained,
     )
     .map_err(|e| match e {
-        MonomorphOrResolverError::MonomorphizationError(monomorphization_error) => {
-            CompileOrResolverError::CompileError(CompileError::MonomorphizationError(
+        MonomorphizationErrorBundle::MonomorphizationError(monomorphization_error) => {
+            CompilationErrorBundle::CompileError(CompileError::MonomorphizationError(
                 monomorphization_error,
             ))
         }
-        MonomorphOrResolverError::ResolverErrors(resolver_errors) => {
-            CompileOrResolverError::ResolverErrors(resolver_errors)
+        MonomorphizationErrorBundle::ResolverErrors(resolver_errors) => {
+            CompilationErrorBundle::ResolverErrors(resolver_errors)
+        }
+        MonomorphizationErrorBundle::TypeError(type_check_error) => {
+            CompilationErrorBundle::TypeError(type_check_error)
+        }
+        MonomorphizationErrorBundle::ParserErrors(parser_errors) => {
+            CompilationErrorBundle::ParserErrors(parser_errors)
         }
     })?;
 
@@ -119,16 +127,11 @@ fn modified_compile_no_check(
                 })
             })
             .map_err(|runtime_error| {
-                CompileOrResolverError::CompileError(CompileError::RuntimeError(runtime_error))
+                CompilationErrorBundle::CompileError(CompileError::RuntimeError(runtime_error))
             })?,
         warnings: vec![],
         parse_annotations_errors: vec![], // TODO(totel): Get the errors from `modified_monomorphize()`
     })
-}
-
-enum MonomorphOrResolverError {
-    MonomorphizationError(MonomorphizationError),
-    ResolverErrors(Vec<ResolverError>),
 }
 
 enum TypedAttribute {
@@ -142,14 +145,14 @@ fn modified_monomorphize(
     interner: &mut NodeInterner,
     debug_instrumenter: &DebugInstrumenter,
     force_unconstrained: bool,
-) -> Result<(Program, Vec<(FuncId, Vec<Attribute>)>), MonomorphOrResolverError> {
+) -> Result<(Program, Vec<(FuncId, Vec<Attribute>)>), MonomorphizationErrorBundle> {
     let debug_type_tracker = DebugTypeTracker::build_from_debug_instrumenter(debug_instrumenter);
     // TODO(totel): Monomorphizer is a `pub(crate)` struct
     let mut monomorphizer = Monomorphizer::new(interner, debug_type_tracker);
     monomorphizer.in_unconstrained_function = force_unconstrained;
     let function_sig = monomorphizer
         .compile_main(main)
-        .map_err(MonomorphOrResolverError::MonomorphizationError)?;
+        .map_err(MonomorphizationErrorBundle::MonomorphizationError)?;
     let mut new_ids_to_old_ids: HashMap<FuncId, node_interner::FuncId> = HashMap::new();
     new_ids_to_old_ids.insert(Program::main_id(), main);
 
@@ -164,11 +167,11 @@ fn modified_monomorphize(
         let interner = &monomorphizer.interner;
         let impl_bindings = perform_impl_bindings(interner, trait_method, next_fn_id, location)
             .map_err(MonomorphizationError::InterpreterError)
-            .map_err(MonomorphOrResolverError::MonomorphizationError)?;
+            .map_err(MonomorphizationErrorBundle::MonomorphizationError)?;
 
         monomorphizer
             .function(next_fn_id, new_id, location)
-            .map_err(MonomorphOrResolverError::MonomorphizationError)?;
+            .map_err(MonomorphizationErrorBundle::MonomorphizationError)?;
         new_ids_to_old_ids.insert(new_id, next_fn_id);
         undo_instantiation_bindings(impl_bindings);
         undo_instantiation_bindings(bindings);
@@ -227,7 +230,7 @@ fn modified_monomorphize(
                         &globals,
                         &monomorphizer.finished_functions,
                     )
-                    .map_err(|x| panic!("{:#?}", x) as MonomorphOrResolverError)?;
+                    .map_err(|e| MonomorphizationErrorBundle::ParserErrors(e.parser_errors))?;
 
                     // Step 2: Type-infer the parsed attribute expression.
                     let typed_attribute = match parsed_attribute {
@@ -235,23 +238,26 @@ fn modified_monomorphize(
                         formal_verification::Attribute::Ensures(expr) => {
                             // TODO(totel): Handle MonomorphRequest error type
                             let typed_expr = type_infer(state.clone(), expr)
-                                .map_err(|x| panic!("{:#?}", x) as MonomorphOrResolverError)?;
+                                .map_err(|e| MonomorphizationErrorBundle::from(e))?;
                             TypedAttribute::Ensures(typed_expr)
                         }
                         formal_verification::Attribute::Requires(expr) => {
                             // TODO(totel): Handle MonomorphRequest error type
                             let typed_expr = type_infer(state.clone(), expr)
-                                .map_err(|x| panic!("{:#?}", x) as MonomorphOrResolverError)?;
+                                .map_err(|e| MonomorphizationErrorBundle::from(e))?;
                             TypedAttribute::Requires(typed_expr)
                         }
                     };
 
                     // Step 3: Convert the typed attribute into its final representation.
-                    Ok(convert_typed_attribute_to_vir_attribute(typed_attribute, &state))
+                    Ok::<_, MonomorphizationErrorBundle>(convert_typed_attribute_to_vir_attribute(
+                        typed_attribute,
+                        &state,
+                    ))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
-            Ok((new_func_id, attributes))
+            Ok::<_, MonomorphizationErrorBundle>((new_func_id, attributes))
         })
         .collect::<Result<Vec<_>, _>>()?;
 

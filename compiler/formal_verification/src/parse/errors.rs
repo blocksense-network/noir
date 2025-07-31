@@ -1,4 +1,4 @@
-use noirc_errors::Span;
+use noirc_errors::{CustomDiagnostic, Location, Span};
 use nom::{
     Err as NomErr, IResult, Parser,
     error::{ContextError, ErrorKind, ParseError},
@@ -136,5 +136,26 @@ impl<'a> ContextError<Input<'a>> for Error {
     fn add_context(input: Input<'a>, ctx: &'static str, mut other: Self) -> Self {
         other.contexts.push(ctx.to_string());
         other
+    }
+}
+
+impl From<ParserError> for CustomDiagnostic {
+    fn from(value: ParserError) -> Self {
+        // TODO(totel): Get proper location
+        let location = Location::dummy();
+
+        let primary_message = match value.kind {
+            ParserErrorKind::Expected { expected, found } => {
+                format!("Expected {} but found {}", expected, found)
+            }
+            ParserErrorKind::InvalidQuantifier(q) => format!("Invalid quantifier {}", q),
+            ParserErrorKind::UnknownAttribute(attr) => format!("Unknown attribute {}", attr),
+            ParserErrorKind::InvalidIntegerLiteral => "Invalid integer literal".to_string(),
+            ParserErrorKind::InvalidTupleIndex => "Invalid tuple index".to_string(),
+            ParserErrorKind::InvalidIdentifier(identifier) => format!("Invalid identifier {}", identifier),
+            ParserErrorKind::Message(msg) => msg,
+        };
+
+        CustomDiagnostic::simple_error(primary_message, String::new(), location)
     }
 }
