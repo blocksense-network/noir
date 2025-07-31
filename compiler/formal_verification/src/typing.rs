@@ -2,12 +2,13 @@ use crate::{
     MonomorphizationRequest, State,
     ast::{
         BinaryOp, ExprF, Literal, SpannedExpr, SpannedOptionallyTypedExpr, SpannedTypedExpr,
-        UnaryOp, Variable, cata, strip_ann, try_cata, try_contextual_cata,
+        Variable, strip_ann, try_cata, try_contextual_cata,
     },
 };
 use noirc_errors::Location;
 use noirc_frontend::{
     ast::IntegerBitSize,
+    hir::{resolution::errors::ResolverError, type_check::TypeCheckError},
     monomorphization::{FUNC_RETURN_VAR_NAME, ast::Type as NoirType},
     shared::Signedness,
 };
@@ -17,7 +18,17 @@ use num_traits::{One, Zero};
 #[derive(Debug, Clone)]
 pub enum TypeInferenceError {
     MonomorphizationRequest(MonomorphizationRequest),
-    TypeError { got: Option<NoirType>, wanted: Option<NoirType>, location: Location, message: Option<String> },
+    // NOTE: We are converting IntegerLiteralDoesNotFit to TypeCheckError later
+    // We cannot do it during construction because we need a function
+    // located in a module which depends on us.
+    IntegerLiteralDoesNotFit {
+        literal: BigInt,
+        literal_type: NoirType,
+        fit_into: Option<NoirType>,
+        location: Location,
+        message: String,
+    },
+    NoirTypeError(TypeCheckError),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -109,13 +120,14 @@ pub fn propagate_concrete_type(
                     match fits {
                         FitsIn::Yes => {}
                         FitsIn::No { need } => {
-                            return Err(TypeInferenceError::TypeError {
-                                got: Some(t.clone()),
-                                wanted: need.clone(),
-                                message: Some(format!(
+                            return Err(TypeInferenceError::IntegerLiteralDoesNotFit {
+                                literal: bi.clone(),
+                                literal_type: t.clone(),
+                                fit_into: need.clone(),
+                                message: format!(
                                     "Integer literal {} cannot fit in {}, needs at least {:?} or larger",
                                     bi, t, need,
-                                )),
+                                ),
                                 location,
                             });
                         }
@@ -185,12 +197,9 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                 )
                             })
                         })
-                        .ok_or(TypeInferenceError::TypeError {
-                            got: None,
-                            wanted: None,
-                            message: Some(format!("Undefined variable {}", name)),
-                            location,
-                        })?;
+                        .ok_or(TypeInferenceError::NoirTypeError(TypeCheckError::ResolverError(
+                            ResolverError::VariableNotDeclared { name: name.to_string(), location },
+                        )))?;
 
                     (
                         ExprF::Variable(Variable {
@@ -239,19 +248,15 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                 }
                                 // Not fine shift amount
                                 Some(_) => {
-
-                                    return Err(TypeInferenceError::TypeError {
-                                        got: expr_right.ann.1,
-                                        wanted: Some(shift_amount_type),
-                                        message: Some(format!("Can only bit shift using `u8`")),
-                                        location,
-                                    });
+                                    return Err(TypeInferenceError::NoirTypeError(
+                                        TypeCheckError::InvalidShiftSize { location },
+                                    ));
                                 }
                             }
 
                             match &expr_left.ann.1 {
                                 // Fine shiftee
-                                Some(NoirType::Integer(Signedness::Unsigned, _)) => {}
+                                Some(NoirType::Integer(_, _)) => {}
                                 // Integer literal, try type inferring to u32
                                 None => {
                                     expr_left = propagate_concrete_type(
@@ -260,15 +265,14 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                     )?;
                                 }
                                 // Not fine shiftee
-                                Some(_) => {
-                                    return Err(TypeInferenceError::TypeError {
-                                        got: expr_left.ann.1,
-                                        wanted: None,
-                                        message: Some(format!(
-                                            "Can only bit shift unsigned integers"
-                                        )),
-                                        location,
-                                    });
+                                Some(expr_left_typ) => {
+                                    return Err(TypeInferenceError::NoirTypeError(
+                                        TypeCheckError::TypeMismatch {
+                                            expr_typ: expr_left_typ.to_string(),
+                                            expected_typ: String::from("Numeric type"),
+                                            expr_location: location,
+                                        },
+                                    ));
                                 }
                             }
 
@@ -319,14 +323,13 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                 (None, Some(t2)) => {
                                     // NOTE: `1 & true`
                                     if is_arith && !is_numeric(t2) {
-                                        return Err(TypeInferenceError::TypeError {
-                                            got: Some(t2.clone()),
-                                            wanted: None,
-                                            message: Some(format!(
-                                                "Cannot mix untyped integers and non-numeric arguments for arithmetic+boolean operators"
-                                            )),
-                                            location,
-                                        });
+                                        return Err(TypeInferenceError::NoirTypeError(
+                                            TypeCheckError::TypeMismatch {
+                                                expected_typ: "Numeric type".to_string(),
+                                                expr_typ: t2.to_string(),
+                                                expr_location: location,
+                                            },
+                                        ));
                                     }
 
                                     let expr_left_inner =
@@ -344,14 +347,13 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                 (Some(t1), None) => {
                                     // NOTE: `true & 1`
                                     if is_arith && !is_numeric(t1) {
-                                        return Err(TypeInferenceError::TypeError {
-                                            got: Some(t1.clone()),
-                                            wanted: None,
-                                            message: Some(format!(
-                                                "Cannot mix untyped integers and non-numeric arguments for arithmetic+boolean operators"
-                                            )),
-                                            location,
-                                        });
+                                        return Err(TypeInferenceError::NoirTypeError(
+                                            TypeCheckError::TypeMismatch {
+                                                expected_typ: "Numeric type".to_string(),
+                                                expr_typ: t1.to_string(),
+                                                expr_location: location,
+                                            },
+                                        ));
                                     }
 
                                     let expr_right_inner =
@@ -368,15 +370,13 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                                 }
                                 (Some(t1), Some(t2)) => {
                                     if t1 != t2 {
-                                        return Err(TypeInferenceError::TypeError {
-                                            got: Some(t2.clone()),
-                                            wanted: Some(t1.clone()),
-                                            message: Some(format!(
-                                                "Different types of arguments to {} operation",
-                                                if is_arith { "arithmetic" } else { "predicate" }
-                                            )),
-                                            location,
-                                        });
+                                        return Err(TypeInferenceError::NoirTypeError(
+                                            TypeCheckError::TypeMismatch {
+                                                expected_typ: t2.to_string(),
+                                                expr_typ: t1.to_string(),
+                                                expr_location: location,
+                                            },
+                                        ));
                                     }
 
                                     (
@@ -394,24 +394,32 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                         // pure Boolean
                         BinaryOp::Implies => {
                             if expr_left.ann.1 != Some(NoirType::Bool) {
-                                return Err(TypeInferenceError::TypeError {
-                                    got: expr_left.ann.1.clone(),
-                                    wanted: Some(NoirType::Bool),
-                                    message: Some(
-                                        "Boolean operations work on boolean arguments".to_string(),
-                                    ),
-                                    location,
-                                });
+                                return Err(TypeInferenceError::NoirTypeError(
+                                    TypeCheckError::TypeMismatch {
+                                        expr_typ: expr_left
+                                            .ann
+                                            .1
+                                            .as_ref()
+                                            .map(|t| t.to_string())
+                                            .unwrap_or(String::new()),
+                                        expected_typ: NoirType::Bool.to_string(),
+                                        expr_location: location,
+                                    },
+                                ));
                             }
                             if expr_right.ann.1 != Some(NoirType::Bool) {
-                                return Err(TypeInferenceError::TypeError {
-                                    got: expr_right.ann.1.clone(),
-                                    wanted: Some(NoirType::Bool),
-                                    message: Some(
-                                        "Boolean operations work on boolean arguments".to_string(),
-                                    ),
-                                    location,
-                                });
+                                return Err(TypeInferenceError::NoirTypeError(
+                                    TypeCheckError::TypeMismatch {
+                                        expr_typ: expr_right
+                                            .ann
+                                            .1
+                                            .as_ref()
+                                            .map(|t| t.to_string())
+                                            .unwrap_or(String::new()),
+                                        expected_typ: NoirType::Bool.to_string(),
+                                        expr_location: location,
+                                    },
+                                ));
                             }
 
                             (exprf, Some(NoirType::Bool))
@@ -422,12 +430,18 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                     let mut index = index.clone();
 
                     let Some(NoirType::Array(_, type_inner)) = &expr.ann.1 else {
-                        return Err(TypeInferenceError::TypeError {
-                            got: expr.ann.1.clone(),
-                            wanted: None,
-                            message: Some(format!("Can only index into arrays")),
-                            location,
-                        });
+                        return Err(TypeInferenceError::NoirTypeError(
+                            TypeCheckError::TypeMismatch {
+                                expr_typ: expr
+                                    .ann
+                                    .1
+                                    .as_ref()
+                                    .map(|t| t.to_string())
+                                    .unwrap_or(String::new()),
+                                expected_typ: String::from("Array type"),
+                                expr_location: location,
+                            },
+                        ));
                     };
                     match &index.ann.1 {
                         // Fine index
@@ -438,15 +452,18 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                         }
                         // Not fine index
                         Some(_) => {
-                            return Err(TypeInferenceError::TypeError {
-                                got: index.ann.1.clone(),
-                                wanted: Some(NoirType::Integer(
-                                    Signedness::Unsigned,
-                                    IntegerBitSize::ThirtyTwo,
-                                )),
-                                message: Some(format!("Can only index using unsigned integers")),
-                                location,
-                            });
+                            return Err(TypeInferenceError::NoirTypeError(
+                                TypeCheckError::TypeMismatch {
+                                    expr_typ: index
+                                        .ann
+                                        .1
+                                        .as_ref()
+                                        .map(|t| t.to_string())
+                                        .unwrap_or(String::new()),
+                                    expected_typ: String::from("Unsigned integer type"),
+                                    expr_location: location,
+                                },
+                            ));
                         }
                     }
 
@@ -456,17 +473,16 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                     let Some(NoirType::Tuple(types)) = &expr.ann.1 else {
                         panic!();
                     };
-                    let type_inner =
-                        types.get(*index as usize).ok_or(TypeInferenceError::TypeError {
-                            got: None,
-                            wanted: None,
-                            message: Some(format!(
-                                "Cannot index tuple with {} elements with index {}",
-                                types.len(),
-                                index
-                            )),
+                    let type_inner = types.get(*index as usize).ok_or(
+                        TypeInferenceError::NoirTypeError(TypeCheckError::TupleIndexOutOfBounds {
+                            index: *index as usize,
+                            // NOTE: We are converting to Type::Tuple of empty vec because
+                            // the inner types don't really matter for the error reporting
+                            lhs_type: noirc_frontend::Type::Tuple(vec![]),
+                            length: types.len(),
                             location,
-                        })?;
+                        }),
+                    )?;
 
                     (exprf.clone(), Some(type_inner.clone()))
                 }
@@ -474,23 +490,31 @@ pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, T
                     let mut expr = expr.clone();
 
                     // Non-booleans cannot cast to bool
-                    if matches!(target, NoirType::Bool) && !matches!(expr.ann.1, Some(NoirType::Bool)) {
-                        return Err(TypeInferenceError::TypeError {
-                            got: None,
-                            wanted: Some(NoirType::Bool),
-                            message: Some(format!("Only booleans can we cast to bool",)),
-                            location,
-                        });
+                    if matches!(target, NoirType::Bool)
+                        && !matches!(expr.ann.1, Some(NoirType::Bool))
+                    {
+                        return Err(TypeInferenceError::NoirTypeError(
+                            TypeCheckError::CannotCastNumericToBool {
+                                // NOTE: We are using a mock type, because we can't convert to wanted type
+                                typ: noirc_frontend::Type::FieldElement,
+                                location,
+                            },
+                        ));
                     }
 
-                    // Non-numberics cannot cast to numeric types
-                    if is_numeric(target) && let Some(ref t) = expr.ann.1 && !is_numeric(t) {
-                        return Err(TypeInferenceError::TypeError {
-                            got: Some(t.clone()),
-                            wanted: None,
-                            message: Some(format!("Only numeric expressions can we cast to numeric types",)),
-                            location,
-                        });
+                    // Non-numerics cannot cast to numeric types
+                    if is_numeric(target)
+                        && let Some(ref t) = expr.ann.1
+                        && !is_numeric(t)
+                        && !matches!(t, NoirType::Bool)
+                    {
+                        return Err(TypeInferenceError::NoirTypeError(
+                            TypeCheckError::TypeMismatch {
+                                expected_typ: String::from("Numeric or a boolean type"),
+                                expr_typ: t.to_string(),
+                                expr_location: location,
+                            },
+                        ));
                     }
 
                     // Try to type infer integer literals as the target type
@@ -530,7 +554,7 @@ mod tests {
 
     use crate::{
         Attribute,
-        ast::{Literal, Variable},
+        ast::{Literal, Variable, cata},
         parse::{parse_attribute, tests::*},
     };
 
@@ -741,16 +765,20 @@ mod tests {
         .unwrap();
         let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
         let type_inference_error = type_infer(state, spanned_expr).unwrap_err();
-        let TypeInferenceError::TypeError { got, wanted, message, location } = type_inference_error else {
+        let TypeInferenceError::NoirTypeError(TypeCheckError::TypeMismatch {
+            expected_typ,
+            expr_typ,
+            expr_location,
+        }) = type_inference_error
+        else {
             panic!()
         };
-        dbg!(&got, &wanted, &message);
+        dbg!(&expr_typ, &expected_typ, &expr_location);
 
         // NOTE: untyped integer literal (same for quantifier variables) force the other argument
         //       to also be numeric
-        assert_eq!(got, Some(NoirType::Bool));
-        assert_eq!(wanted, None);
-        assert!(message.unwrap().contains("mix untyped integers and non-numeric"));
+        assert_eq!(expr_typ, "bool");
+        assert_eq!(expected_typ, "Numeric type");
     }
 
     #[test]
@@ -767,14 +795,24 @@ mod tests {
         .unwrap();
         let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
         let type_inference_error = type_infer(state, spanned_expr).unwrap_err();
-        let TypeInferenceError::TypeError { got, wanted, message, location } = type_inference_error else {
+        let TypeInferenceError::IntegerLiteralDoesNotFit {
+            literal: _,
+            literal_type,
+            fit_into,
+            location: _,
+            message,
+        } = type_inference_error
+        else {
             panic!()
         };
-        dbg!(&got, &wanted, &message);
-        assert_eq!(got, Some(NoirType::Integer(Signedness::Unsigned, IntegerBitSize::Eight)));
+        dbg!(&literal_type, &fit_into, &message);
+        assert_eq!(literal_type, NoirType::Integer(Signedness::Unsigned, IntegerBitSize::Eight));
         // NOTE: minimal size that fits `256`
-        assert_eq!(wanted, Some(NoirType::Integer(Signedness::Unsigned, IntegerBitSize::Sixteen)));
-        assert_eq!(message, Some("Integer literal 256 cannot fit in u8, needs at least Some(Integer(Unsigned, Sixteen)) or larger".to_string()));
+        assert_eq!(
+            fit_into,
+            Some(NoirType::Integer(Signedness::Unsigned, IntegerBitSize::Sixteen))
+        );
+        assert_eq!(message, "Integer literal 256 cannot fit in u8, needs at least Some(Integer(Unsigned, Sixteen)) or larger".to_string());
     }
 
     #[test]
