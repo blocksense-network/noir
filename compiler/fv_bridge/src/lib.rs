@@ -200,6 +200,7 @@ fn modified_monomorphize(
     let fv_annotations: Vec<(FuncId, Vec<Attribute>)> = monomorphizer
         .finished_functions
         .iter()
+        .rev()
         // Find the original function ID for each new monomorphized function.
         .filter_map(|(new_func_id, function)| {
             new_ids_to_old_ids.get(new_func_id).map(|old_id| (*new_func_id, *old_id, function))
