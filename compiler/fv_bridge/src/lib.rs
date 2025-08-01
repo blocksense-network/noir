@@ -12,6 +12,7 @@ use noirc_evaluator::{
     errors::{RuntimeError, SsaReport},
     vir::{create_verus_vir_with_ready_annotations, vir_gen::BuildingKrateError},
 };
+use noirc_frontend::monomorphization::ast::LocalId;
 use noirc_frontend::{
     debug::DebugInstrumenter,
     graph::CrateId,
@@ -193,6 +194,9 @@ fn modified_monomorphize(
 
     let globals = monomorphizer.finished_globals.into_iter().collect::<BTreeMap<_, _>>();
 
+    let mut min_available_id: u32 =
+        monomorphizer.locals.values().map(|LocalId(id)| *id).max().unwrap_or_default() + 1;
+
     let fv_annotations: Vec<(FuncId, Vec<Attribute>)> = monomorphizer
         .finished_functions
         .iter()
@@ -206,6 +210,7 @@ fn modified_monomorphize(
                 function,
                 global_constants: &globals,
                 functions: &monomorphizer.finished_functions,
+                min_local_id: &mut min_available_id
             };
 
             let attributes = monomorphizer
@@ -237,13 +242,13 @@ fn modified_monomorphize(
                         formal_verification::Attribute::Ghost => TypedAttribute::Ghost,
                         formal_verification::Attribute::Ensures(expr) => {
                             // TODO(totel): Handle MonomorphRequest error type
-                            let typed_expr = type_infer(state.clone(), expr)
+                            let typed_expr = type_infer(&state, expr)
                                 .map_err(|e| MonomorphizationErrorBundle::from(e))?;
                             TypedAttribute::Ensures(typed_expr)
                         }
                         formal_verification::Attribute::Requires(expr) => {
                             // TODO(totel): Handle MonomorphRequest error type
-                            let typed_expr = type_infer(state.clone(), expr)
+                            let typed_expr = type_infer(&state, expr)
                                 .map_err(|e| MonomorphizationErrorBundle::from(e))?;
                             TypedAttribute::Requires(typed_expr)
                         }

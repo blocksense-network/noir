@@ -14,11 +14,12 @@ pub mod ast;
 pub mod parse;
 pub mod typing;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct State<'a> {
     pub function: &'a mast::Function,
     pub global_constants: &'a BTreeMap<mast::GlobalId, (String, mast::Type, mast::Expression)>,
     pub functions: &'a BTreeMap<mast::FuncId, mast::Function>,
+    pub min_local_id: &'a mut u32,
 }
 
 #[derive(Debug, Clone)]

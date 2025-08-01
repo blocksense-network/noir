@@ -141,7 +141,7 @@ pub fn propagate_concrete_type(
     })
 }
 
-pub fn type_infer(state: State, expr: SpannedExpr) -> Result<SpannedTypedExpr, TypeInferenceError> {
+pub fn type_infer(state: &State, expr: SpannedExpr) -> Result<SpannedTypedExpr, TypeInferenceError> {
     // NOTE: predicate, always bool,
     //       assume subterms are `u32` (like `Noir` does)
     let default_literal_type = NoirType::Integer(Signedness::Unsigned, IntegerBitSize::ThirtyTwo);
@@ -642,7 +642,7 @@ mod tests {
         )
         .unwrap();
         let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
-        let spanned_typed_expr = type_infer(state, spanned_expr).unwrap();
+        let spanned_typed_expr = type_infer(&state, spanned_expr).unwrap();
         assert!(
             cata(spanned_typed_expr, &|(_, expr_type), expr| {
                 match expr {
@@ -680,7 +680,7 @@ mod tests {
         )
         .unwrap();
         let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
-        let spanned_typed_expr = type_infer(state, spanned_expr).unwrap();
+        let spanned_typed_expr = type_infer(&state, spanned_expr).unwrap();
         assert!(
             cata(spanned_typed_expr.clone(), &|(_, expr_type), expr| {
                 match expr {
@@ -746,7 +746,7 @@ mod tests {
         )
         .unwrap();
         let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
-        let spanned_typed_expr = type_infer(state, spanned_expr).unwrap();
+        let spanned_typed_expr = type_infer(&state, spanned_expr).unwrap();
         dbg!(&spanned_typed_expr);
         assert_eq!(spanned_typed_expr.ann.1, NoirType::Bool);
     }
@@ -764,7 +764,7 @@ mod tests {
         )
         .unwrap();
         let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
-        let type_inference_error = type_infer(state, spanned_expr).unwrap_err();
+        let type_inference_error = type_infer(&state, spanned_expr).unwrap_err();
         let TypeInferenceError::NoirTypeError(TypeCheckError::TypeMismatch {
             expected_typ,
             expr_typ,
@@ -794,7 +794,7 @@ mod tests {
         )
         .unwrap();
         let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
-        let type_inference_error = type_infer(state, spanned_expr).unwrap_err();
+        let type_inference_error = type_infer(&state, spanned_expr).unwrap_err();
         let TypeInferenceError::IntegerLiteralDoesNotFit {
             literal: _,
             literal_type,
@@ -828,7 +828,7 @@ mod tests {
         )
         .unwrap();
         let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
-        let spanned_typed_expr = type_infer(state, spanned_expr).unwrap();
+        let spanned_typed_expr = type_infer(&state, spanned_expr).unwrap();
         dbg!(&spanned_typed_expr);
         assert_eq!(spanned_typed_expr.ann.1, NoirType::Bool);
     }
@@ -846,7 +846,7 @@ mod tests {
         )
         .unwrap();
         let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
-        let spanned_typed_expr = type_infer(state, spanned_expr).unwrap();
+        let spanned_typed_expr = type_infer(&state, spanned_expr).unwrap();
         dbg!(&spanned_typed_expr);
         assert_eq!(spanned_typed_expr.ann.1, NoirType::Bool);
     }
@@ -868,7 +868,7 @@ mod tests {
         .unwrap();
 
         let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
-        let spanned_typed_expr = type_infer(state, spanned_expr).unwrap();
+        let spanned_typed_expr = type_infer(&state, spanned_expr).unwrap();
         dbg!(&strip_ann(spanned_typed_expr));
         // assert_eq!(spanned_typed_expr.ann.1, NoirType::Bool);
     }
@@ -890,7 +890,7 @@ mod tests {
         .unwrap();
 
         let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
-        let spanned_typed_expr = type_infer(state, spanned_expr).unwrap();
+        let spanned_typed_expr = type_infer(&state, spanned_expr).unwrap();
         dbg!(&strip_ann(spanned_typed_expr));
         // assert_eq!(spanned_typed_expr.ann.1, NoirType::Bool);
     }
@@ -908,7 +908,7 @@ mod tests {
         )
         .unwrap();
         let Attribute::Ensures(spanned_expr) = attribute else { panic!() };
-        let type_inference_error = type_infer(state, spanned_expr).unwrap_err();
+        let type_inference_error = type_infer(&state, spanned_expr).unwrap_err();
         let TypeInferenceError::MonomorphizationRequest(MonomorphizationRequest {
             function_identifier,
             param_types,
