@@ -834,7 +834,7 @@ pub mod tests {
                         Visibility::Public,
                     ),
                     (
-                        LocalId(3),
+                        LocalId(4),
                         false,
                         "user".to_string(),
                         NoirType::Tuple(vec![NoirType::Bool, NoirType::Unit]),
@@ -874,6 +874,7 @@ pub mod tests {
                 .into_iter()
                 .collect(),
             )),
+            min_local_id: Box::leak(Box::new(5)),
         }
     }
 
