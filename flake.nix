@@ -47,7 +47,7 @@
         {
           legacyPackages.rustToolchain =
             with inputs'.fenix.packages;
-            with latest;
+            with stable;
             combine [
               cargo
               clippy
