@@ -12,6 +12,7 @@ use crate::{
 pub mod ast;
 pub mod parse;
 pub mod typing;
+pub mod type_conversion;
 
 #[derive(Debug)]
 pub struct State<'a> {

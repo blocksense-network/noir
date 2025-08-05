@@ -34,6 +34,15 @@ impl Display for OptionalType {
     }
 }
 
+impl OptionalType {
+    pub fn unwrap_or(self, or_arg: NoirType) -> NoirType {
+        match self {
+            OptionalType::Well(noir_typ) => noir_typ,
+            OptionalType::IntegerLiteral => or_arg,
+        }
+    }
+}
+
 pub type SpannedPartiallyTypedExpr = AnnExpr<(Location, OptionalType)>;
 
 #[derive(Debug, Clone)]
