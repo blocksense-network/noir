@@ -927,6 +927,13 @@ pub mod tests {
                         NoirType::Tuple(vec![NoirType::Bool, NoirType::Unit]),
                         Visibility::Public,
                     ),
+                    (
+                        LocalId(5),
+                        false,
+                        "pair".to_string(),
+                        NoirType::Tuple(vec![NoirType::Integer(Signedness::Unsigned, IntegerBitSize::Sixteen), NoirType::Field]),
+                        Visibility::Public,
+                    ),
                 ],
                 body: Expression::Block(vec![]),
                 return_type: NoirType::Integer(
@@ -976,12 +983,16 @@ pub mod tests {
         assert_eq!(expr.0, "");
         assert_eq!(expr_expected.0, "");
 
+        let expr_flat: OffsetExpr = cata(expr.1, &|ann, expr| match expr {
+            ExprF::Parenthesised { expr } => expr,
+            _ => OffsetExpr { ann, expr: Box::new(expr) },
+        });
         let expr_expected_flat: OffsetExpr = cata(expr_expected.1, &|ann, expr| match expr {
             ExprF::Parenthesised { expr } => expr,
             _ => OffsetExpr { ann, expr: Box::new(expr) },
         });
 
-        assert_eq!(strip_ann(expr.1), strip_ann(expr_expected_flat));
+        assert_eq!(strip_ann(expr_flat), strip_ann(expr_expected_flat));
     }
 
     #[test]
@@ -1038,7 +1049,6 @@ pub mod tests {
         test_precedence_equality(
             "exists(|i| (0 <= i) & (i < 20) & arr[i] > 100)",
             "exists(|i| (((0 <= i) & (i < 20)) & (arr[i] > 100)))",
-            // "exists(|i| ((((0 <= i) & (i < 20)) & arr[i]) > 100))",
         );
     }
 

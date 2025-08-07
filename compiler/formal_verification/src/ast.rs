@@ -90,46 +90,34 @@ pub enum BinaryOp {
 }
 
 impl BinaryOp {
+    /// An operator is "arithmetic" if it performs an arithmetic operation
+    /// (e.g., +, -, *) and returns a value of the same numeric type as its operands.
     pub fn is_arithmetic(&self) -> bool {
-        matches!(
-            self,
-            // pure
-            BinaryOp::Mul
-                | BinaryOp::Div
-                | BinaryOp::Mod
-                | BinaryOp::Add
-                | BinaryOp::Sub
-                | BinaryOp::ShiftLeft
-                | BinaryOp::ShiftRight
-            // generic
-                | BinaryOp::And
-                | BinaryOp::Or
-                | BinaryOp::Xor
-        )
+        matches!(self, Self::Add | Self::Sub | Self::Mul | Self::Div | Self::Mod)
     }
 
-    pub fn is_predicate(&self) -> bool {
-        matches!(
-            self,
-            BinaryOp::Eq
-                | BinaryOp::Neq
-                | BinaryOp::Lt
-                | BinaryOp::Le
-                | BinaryOp::Gt
-                | BinaryOp::Ge
-        )
+    /// An operator is "bitwise" if it performs a bitwise operation (e.g., &, |, ^).
+    /// In this language, these can operate on both integers and booleans.
+    pub fn is_bitwise(&self) -> bool {
+        matches!(self, Self::And | Self::Or | Self::Xor)
     }
 
-    pub fn is_boolean(&self) -> bool {
-        matches!(
-            self,
-            // pure
-            BinaryOp::Implies
-            // generic
-                | BinaryOp::And
-                | BinaryOp::Or
-                | BinaryOp::Xor
-        )
+    /// An operator is a "shift" if it performs a bit shift (e.g., <<, >>).
+    /// These have unique type rules, requiring a numeric type on the left
+    /// and a `u8` on the right.
+    pub fn is_shift(&self) -> bool {
+        matches!(self, Self::ShiftLeft | Self::ShiftRight)
+    }
+
+    /// An operator is a "comparison" if it compares two values and always returns a boolean.
+    pub fn is_comparison(&self) -> bool {
+        matches!(self, Self::Eq | Self::Neq | Self::Lt | Self::Le | Self::Gt | Self::Ge)
+    }
+
+    /// An operator is "logical" if its operands are expected to be booleans.
+    /// This includes `==>` and the bitwise operators when used in a boolean context.
+    pub fn is_logical(&self) -> bool {
+        matches!(self, Self::Implies | Self::And | Self::Or)
     }
 }
 
@@ -157,9 +145,7 @@ pub fn fmap<A, B>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> B) -> ExprF<B> {
         ExprF::FnCall { name, args } => {
             ExprF::FnCall { name, args: args.into_iter().map(cata_fn).collect() }
         }
-        ExprF::Index { expr, index } => {
-            ExprF::Index { expr: cata_fn(expr), index: cata_fn(index) }
-        }
+        ExprF::Index { expr, index } => ExprF::Index { expr: cata_fn(expr), index: cata_fn(index) },
         ExprF::TupleAccess { expr, index } => ExprF::TupleAccess { expr: cata_fn(expr), index },
         ExprF::Cast { expr, target } => ExprF::Cast { expr: cata_fn(expr), target },
         ExprF::Literal { value } => ExprF::Literal { value },
@@ -198,9 +184,9 @@ fn try_fmap<A, B, E>(expr: ExprF<A>, cata_fn: &dyn Fn(A) -> Result<B, E>) -> Res
         ExprF::Tuple { exprs } => {
             ExprF::Tuple { exprs: exprs.into_iter().map(cata_fn).collect::<Result<Vec<_>, _>>()? }
         }
-        ExprF::Array { exprs } => ExprF::Array {
-            exprs: exprs.into_iter().map(cata_fn).collect::<Result<Vec<_>, _>>()?,
-        },
+        ExprF::Array { exprs } => {
+            ExprF::Array { exprs: exprs.into_iter().map(cata_fn).collect::<Result<Vec<_>, _>>()? }
+        }
         ExprF::Variable(Variable { path, name, id }) => {
             ExprF::Variable(Variable { path, name, id })
         }
