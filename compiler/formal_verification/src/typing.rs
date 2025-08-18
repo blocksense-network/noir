@@ -377,10 +377,10 @@ pub fn type_infer(
                     variable_type
                 }
                 ExprF::FnCall { name, args } => {
-                    let return_type = state
+                    let func_object = state
                         .functions
                         .iter()
-                        .find_map(|(_, func)| (func.name == *name).then_some(&func.return_type))
+                        .find_map(|(_, func)| (func.name == *name).then_some(func))
                         .ok_or(TypeInferenceError::MonomorphizationRequest(
                             MonomorphizationRequest {
                                 function_identifier: name.clone(),
@@ -391,7 +391,14 @@ pub fn type_infer(
                             },
                         ))?;
 
-                    OptionalType::Well(return_type.clone())
+                    // Unify the function call arguments with their expected type
+                    for (arg, (_id, _mut, _name, typ, _visibility)) in
+                        args.iter_mut().zip(&func_object.parameters)
+                    {
+                        arg.unify_with_type(typ.clone())?;
+                    }
+
+                    OptionalType::Well(func_object.return_type.clone())
                 }
                 ExprF::Quantified { variables, .. } => {
                     variables
