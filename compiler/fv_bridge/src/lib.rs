@@ -5,7 +5,7 @@ use formal_verification::typing::{OptionalType, TypeInferenceError, type_infer};
 use formal_verification::{State, parse::parse_attribute};
 use iter_extended::vecmap;
 use noirc_driver::{CompilationResult, CompileError, CompileOptions, check_crate};
-use noirc_errors::CustomDiagnostic;
+use noirc_errors::{CustomDiagnostic, Span};
 use noirc_errors::Location;
 use noirc_evaluator::vir::vir_gen::Attribute;
 use noirc_evaluator::{
@@ -240,6 +240,14 @@ fn modified_monomorphize(
 
         for (annotation_body, location) in attribute_data {
             let function_for_parser = &monomorphizer.finished_functions[&new_func_id];
+            
+            // NOTE: #['...]
+            //       ^^^^^^^ - received `Location`
+            //          ^^^  - relevant stuff
+            let location = Location {
+                span: Span::inclusive(location.span.start() + 3, location.span.end() - 1),
+                ..location
+            };
 
             let parsed_attribute = parse_attribute(
                 &annotation_body,

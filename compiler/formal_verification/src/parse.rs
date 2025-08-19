@@ -66,26 +66,17 @@ pub(crate) fn build_offset_from_exprs(left: &OffsetExpr, right: &OffsetExpr) -> 
 
 pub fn parse_attribute<'a>(
     annotation: &'a str,
-    mut location: Location,
+    location: Location,
     _function: &'a mast::Function,
     _global_constants: &'a BTreeMap<mast::GlobalId, (String, mast::Type, mast::Expression)>,
     _functions: &'a BTreeMap<mast::FuncId, mast::Function>,
 ) -> Result<Attribute, (Vec<ParserErrorWithLocation>, Vec<String>)> {
-    // NOTE: #['...]
-    //       ^^^^^^^ - received `Location`
-    //          ^^^  - relevant stuff
-    // TODO: don't do this here
-    location = Location {
-        span: Span::inclusive(location.span.start() + 3, location.span.end() - 1),
-        ..location
-    };
-
     let locate_parser_error = |parser_error: ParserError| ParserErrorWithLocation {
         location: build_location(
             location,
             annotation.len() as u32,
             parser_error.offset,
-            parser_error.offset + 1,
+            parser_error.offset, // This span is inclusive
         ),
         kind: parser_error.kind.clone(),
     };
@@ -603,7 +594,6 @@ pub(crate) fn parse_cast_suffix<'a>(input: Input<'a>) -> PResult<'a, CastTargetT
 
     Err(NomErr::Error(build_error(type_ident, ParserErrorKind::InvalidIntegerLiteral)))
 }
-
 
 pub(crate) fn parse_atom_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr> {
     alt((
