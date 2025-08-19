@@ -14,10 +14,13 @@ use noirc_evaluator::vir::vir_gen::{
     },
 };
 use noirc_frontend::monomorphization::FUNC_RETURN_VAR_NAME;
-use vir::ast::{
-    AirQuant, BinaryOp as VirBinaryOp, BitwiseOp, Dt, FieldOpr, FunX, ImplPath, InequalityOp,
-    IntRange, PathX, Primitive, Quant, Typ, UnaryOpr, VarBinder, VarBinderX, VarIdent,
-    VarIdentDisambiguate, VariantCheck,
+use vir::{
+    ast::{
+        AirQuant, BinaryOp as VirBinaryOp, BitwiseOp, Dt, FieldOpr, FunX, ImplPath, InequalityOp,
+        IntRange, PathX, Primitive, Quant, Typ, UnaryOpr, VarBinder, VarBinderX, VarIdent,
+        VarIdentDisambiguate, VariantCheck,
+    },
+    ast_util::int_range_from_type,
 };
 use vir::{
     ast::{
@@ -333,18 +336,38 @@ pub(crate) fn ann_expr_to_vir_expr(ann_expr: SpannedTypedExpr, state: &State) ->
 
                 make_expr(vir_exprx, element_type, "Array indexing expression".to_string())
             }
-            ExprF::Cast { expr, target } => {
-                // TODO(totel): conversion of cast expressions
-                todo!()
-            },
+            ExprF::Cast { expr: castee, target } => {
+                let target_type = ast_type_to_vir_type(&target);
+                // The following unwrap is safe because the semantic analysis of
+                // the compiler should guarantee correctly typed expressions.
+                let target_int_range =
+                    int_range_from_type(&target_type).expect("Can not cast to a non integer type");
+
+                let exprx = ExprX::Unary(
+                    vir::ast::UnaryOp::Clip {
+                        range: target_int_range,
+                        truncate: false, // We are not truncating because Verus doesn't truncate casts
+                    },
+                    castee,
+                );
+
+                SpannedTyped::new(
+                    &build_span_no_id(
+                        format!("Cast expression to target type {}", target),
+                        Some(loc),
+                    ),
+                    &target_type,
+                    exprx,
+                )
+            }
             ExprF::Tuple { exprs } => {
                 // TODO(totel): conversion of tuple expressions
                 todo!()
-            },
+            }
             ExprF::Array { exprs } => {
                 // TODO(totel): conversion of array expressions
                 todo!()
-            },
+            }
         }
     })
 }
