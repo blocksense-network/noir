@@ -16,9 +16,9 @@ use noirc_evaluator::vir::vir_gen::{
 use noirc_frontend::monomorphization::FUNC_RETURN_VAR_NAME;
 use vir::{
     ast::{
-        AirQuant, BinaryOp as VirBinaryOp, BitwiseOp, Dt, FieldOpr, FunX, ImplPath, InequalityOp,
-        IntRange, PathX, Primitive, Quant, Typ, UnaryOpr, VarBinder, VarBinderX, VarIdent,
-        VarIdentDisambiguate, VariantCheck,
+        AirQuant, BinaryOp as VirBinaryOp, BinderX, BitwiseOp, Dt, FieldOpr, FunX, ImplPath,
+        InequalityOp, IntRange, PathX, Primitive, Quant, Typ, UnaryOpr, VarBinder, VarBinderX,
+        VarIdent, VarIdentDisambiguate, VariantCheck,
     },
     ast_util::int_range_from_type,
 };
@@ -361,12 +361,39 @@ pub(crate) fn ann_expr_to_vir_expr(ann_expr: SpannedTypedExpr, state: &State) ->
                 )
             }
             ExprF::Tuple { exprs } => {
-                // TODO(totel): conversion of tuple expressions
-                todo!()
+                let tuple_length = exprs.len();
+
+                let tuple_exprx = ExprX::Ctor(
+                    Dt::Tuple(tuple_length),
+                    Arc::new(format!("tuple%{tuple_length}")),
+                    Arc::new(
+                        exprs
+                            .into_iter()
+                            .enumerate()
+                            .map(|(index, tuple_expr)| {
+                                Arc::new(BinderX {
+                                    name: Arc::new(index.to_string()),
+                                    a: tuple_expr,
+                                })
+                            })
+                            .collect(),
+                    ),
+                    None,
+                );
+
+                SpannedTyped::new(
+                    &build_span_no_id(format!("Tuple constructor expression"), Some(loc)),
+                    &ast_type_to_vir_type(&typ),
+                    tuple_exprx,
+                )
             }
             ExprF::Array { exprs } => {
-                // TODO(totel): conversion of array expressions
-                todo!()
+                let exprx = ExprX::ArrayLiteral(Arc::new(exprs));
+                SpannedTyped::new(
+                    &build_span_no_id(format!("Array literal expression"), Some(loc)),
+                    &ast_type_to_vir_type(&typ),
+                    exprx,
+                )
             }
         }
     })
