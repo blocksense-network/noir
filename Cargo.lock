@@ -2136,6 +2136,7 @@ dependencies = [
  "num-bigint 0.4.6",
  "num-traits",
  "serde",
+ "thiserror 1.0.69",
  "vir",
 ]
 

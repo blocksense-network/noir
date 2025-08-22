@@ -139,8 +139,6 @@ pub(crate) fn ann_expr_to_vir_expr(ann_expr: SpannedTypedExpr, state: &State) ->
                 SpannedTyped::new(&span, &ast_type_to_vir_type(&typ), exprx)
             }
             ExprF::FnCall { name, args } => {
-                // TODO(totel): Special handling for `old` from the Noir `fv_std`
-
                 if let Some(expr) =
                     handle_fv_std_call_in_annotations(&name, &args, loc, &typ)
                 {
