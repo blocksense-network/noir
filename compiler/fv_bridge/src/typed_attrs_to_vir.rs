@@ -8,6 +8,7 @@ use noirc_evaluator::vir::vir_gen::{
     Attribute, build_span, build_span_no_id,
     expr_to_vir::{
         expr::{function_name_to_vir_fun, numeric_const_to_vir_exprx, wrap_with_field_modulo},
+        std_functions::handle_fv_std_call_in_annotations,
         types::{
             ast_const_to_vir_type_const, ast_type_to_vir_type, get_bit_not_bitwidth, is_type_field,
         },
@@ -139,6 +140,13 @@ pub(crate) fn ann_expr_to_vir_expr(ann_expr: SpannedTypedExpr, state: &State) ->
             }
             ExprF::FnCall { name, args } => {
                 // TODO(totel): Special handling for `old` from the Noir `fv_std`
+
+                if let Some(expr) =
+                    handle_fv_std_call_in_annotations(&name, &args, loc, &typ)
+                {
+                    return expr;
+                }
+
                 let exprx = ExprX::Call(
                     CallTarget::Fun(
                         CallTargetKind::Static,
@@ -200,8 +208,19 @@ pub(crate) fn ann_expr_to_vir_expr(ann_expr: SpannedTypedExpr, state: &State) ->
                         }
                     }
                     formal_verification::ast::UnaryOp::Dereference => {
-                        // TODO(totel): conversion of cast expressions
-                        todo!()
+                        // If we have Dereference(Expr), Verus treats them as if it is only Expr.
+                        // Also the expr type gets trimmed from the reference "decoration".
+                        // Therefore we will do the same and only change the type of the expression.
+                        let deref_expr = SpannedTyped::new(
+                            &build_span_no_id(
+                                format!("Dereference expression with type {}", typ),
+                                Some(loc),
+                            ),
+                            &ast_type_to_vir_type(&typ),
+                            expr.x.clone(), // Can not move out of Arc
+                        );
+
+                        return deref_expr;
                     }
                 };
                 make_expr(exprx, ast_type_to_vir_type(&typ), span_msg)
