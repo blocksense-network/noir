@@ -330,7 +330,9 @@ pub fn type_infer(
                     }
                 },
                 ExprF::Variable(Variable { path: _, name, id }) => {
-                    // NOTE: Ignoring paths since they're already stripped from the provided state
+                    // TODO(totel): Ignoring paths since they're already stripped from the provided state parameter
+                    // This has to be resolved by adding paths to the State which is passed to `type_infer`.
+                    // We then must compare the paths.
 
                     // NOTE: parsing should not yield `id`s
                     debug_assert_eq!(*id, None);
