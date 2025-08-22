@@ -329,9 +329,9 @@ pub fn type_infer(
                         OptionalType::IntegerLiteral
                     }
                 },
-                ExprF::Variable(Variable { path, name, id }) => {
-                    // TODO: we do not support type inferrence of variables with paths
-                    debug_assert_eq!(path.len(), 0);
+                ExprF::Variable(Variable { path: _, name, id }) => {
+                    // NOTE: Ignoring paths since they're already stripped from the provided state
+
                     // NOTE: parsing should not yield `id`s
                     debug_assert_eq!(*id, None);
                     let (variable_ident, variable_id, variable_type): (
@@ -351,6 +351,19 @@ pub fn type_infer(
                                     (name.as_str(), Some(id.0), OptionalType::Well(t.clone()))
                                 })
                             })
+                        })
+                        .or_else(|| {
+                            state.global_constants.iter().find_map(
+                                |(global_id, (global_name, t, _))| {
+                                    (global_name == name).then(|| {
+                                        (
+                                            name.as_str(),
+                                            Some(global_id.0),
+                                            OptionalType::Well(t.clone()),
+                                        )
+                                    })
+                                },
+                            )
                         })
                         .or_else(|| {
                             (name == "result").then(|| {
