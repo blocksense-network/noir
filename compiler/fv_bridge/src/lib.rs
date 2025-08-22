@@ -71,8 +71,8 @@ fn modified_compile_main(
     let compiled_program =
         modified_compile_no_check(context, options, main).map_err(|error| match error {
             CompilationErrorBundle::CompileError(compile_error) => vec![compile_error.into()],
-            CompilationErrorBundle::ResolverErrors(resolver_errors) => {
-                resolver_errors.iter().map(Into::into).collect()
+            CompilationErrorBundle::FvError(fv_monomorphization_error) => {
+                vec![fv_monomorphization_error.into()]
             }
             CompilationErrorBundle::TypeError(type_check_error) => {
                 vec![CustomDiagnostic::from(&type_check_error)]
@@ -113,8 +113,8 @@ fn modified_compile_no_check(
                 monomorphization_error,
             ))
         }
-        MonomorphizationErrorBundle::ResolverErrors(resolver_errors) => {
-            CompilationErrorBundle::ResolverErrors(resolver_errors)
+        MonomorphizationErrorBundle::FvError(fv_monomorphization_error) => {
+            CompilationErrorBundle::FvError(fv_monomorphization_error)
         }
         MonomorphizationErrorBundle::TypeError(type_check_error) => {
             CompilationErrorBundle::TypeError(type_check_error)
@@ -514,8 +514,12 @@ fn monomorphize_one_function(
             // A non-ghost function has been called in a FV annotation.
             // This isn't allowed and we have to produce an adequate error.
 
-            // TODO(totel): Better error
-            panic!("Non-ghost function was called in a FV annotation");
+            return Err(MonomorphizationErrorBundle::FvError(
+                errors::FvMonomorphizationError::ExecInSpecError {
+                    func_name: func_name.to_string(),
+                    location: monomorphizer.interner.function_meta(&func_id).location,
+                },
+            ));
         }
     }
 

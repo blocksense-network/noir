@@ -10,21 +10,42 @@ use noirc_frontend::{
     monomorphization::{ast::Type, errors::MonomorphizationError},
     parser::ParserError as NoirParserError,
 };
+use thiserror::Error;
 
 use crate::typed_attrs_to_vir::signed_field_from_bigint_wrapping;
 
 pub(crate) enum MonomorphizationErrorBundle {
     MonomorphizationError(MonomorphizationError),
-    ResolverErrors(Vec<ResolverError>),
+    FvError(FvMonomorphizationError),
     TypeError(TypeCheckError),
     ParserErrors(Vec<ParserErrorWithLocation>),
 }
 
 pub(crate) enum CompilationErrorBundle {
     CompileError(CompileError),
-    ResolverErrors(Vec<ResolverError>),
+    FvError(FvMonomorphizationError),
     TypeError(TypeCheckError),
     ParserErrors(Vec<ParserErrorWithLocation>),
+}
+
+#[derive(Error, Debug, Clone)]
+pub(crate) enum FvMonomorphizationError {
+    #[error("Non-ghost function {func_name} was called in FV annotation")]
+    ExecInSpecError { func_name: String, location: Location },
+}
+
+impl From<FvMonomorphizationError> for CustomDiagnostic {
+    fn from(value: FvMonomorphizationError) -> Self {
+        match value {
+            FvMonomorphizationError::ExecInSpecError { func_name, location } => {
+                CustomDiagnostic::simple_error(
+                    format!("Non-ghost function {func_name} was called in FV annotation"),
+                    String::new(),
+                    location,
+                )
+            }
+        }
+    }
 }
 
 impl From<TypeInferenceError> for MonomorphizationErrorBundle {
