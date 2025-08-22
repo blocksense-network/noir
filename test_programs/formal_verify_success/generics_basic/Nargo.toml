@@ -1,0 +1,6 @@
+[package]
+name = "generics_testing_ground"
+type = "bin"
+authors = [""]
+
+[dependencies]
