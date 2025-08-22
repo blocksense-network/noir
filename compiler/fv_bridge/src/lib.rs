@@ -527,7 +527,7 @@ fn monomorphize_one_function(
 }
 
 fn has_ghost_attribute(func_modifiers: &FunctionModifiers) -> bool {
-    func_modifiers.attributes.secondary.iter().find(|SecondaryAttribute { kind, location: _ }| {
+    func_modifiers.attributes.secondary.iter().any(|SecondaryAttribute { kind, location: _ }| {
         matches!(kind, SecondaryAttributeKind::Tag(tag) if tag == "ghost")
-    }).is_some()
+    })
 }
