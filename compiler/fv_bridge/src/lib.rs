@@ -5,9 +5,10 @@ use formal_verification::typing::{OptionalType, TypeInferenceError, type_infer};
 use formal_verification::{State, parse::parse_attribute};
 use iter_extended::vecmap;
 use noirc_driver::{CompilationResult, CompileError, CompileOptions, check_crate};
-use noirc_errors::{CustomDiagnostic, Span};
 use noirc_errors::Location;
+use noirc_errors::{CustomDiagnostic, Span};
 use noirc_evaluator::vir::vir_gen::Attribute;
+use noirc_evaluator::vir::vir_gen::expr_to_vir::std_functions::OLD;
 use noirc_evaluator::{
     errors::{RuntimeError, SsaReport},
     vir::{create_verus_vir_with_ready_annotations, vir_gen::BuildingKrateError},
@@ -16,7 +17,8 @@ use noirc_frontend::Kind;
 use noirc_frontend::hir_def::expr::HirCallExpression;
 use noirc_frontend::hir_def::expr::{HirExpression, HirLiteral};
 use noirc_frontend::monomorphization::ast::LocalId;
-use noirc_frontend::node_interner::ExprId;
+use noirc_frontend::node_interner::{ExprId, FunctionModifiers};
+use noirc_frontend::token::SecondaryAttribute;
 use noirc_frontend::{
     debug::DebugInstrumenter,
     graph::CrateId,
@@ -240,7 +242,7 @@ fn modified_monomorphize(
 
         for (annotation_body, location) in attribute_data {
             let function_for_parser = &monomorphizer.finished_functions[&new_func_id];
-            
+
             // NOTE: #['...]
             //       ^^^^^^^ - received `Location`
             //          ^^^  - relevant stuff
@@ -495,8 +497,33 @@ fn monomorphize_one_function(
         new_ids_to_old_ids.insert(new_id, next_fn_id);
         undo_instantiation_bindings(impl_bindings);
         undo_instantiation_bindings(bindings);
-        to_be_added_ghost_attribute.insert(new_id);
+
+        if has_ghost_attribute(monomorphizer.interner.function_modifiers(&func_id)) {
+            to_be_added_ghost_attribute.insert(new_id);
+        } else if func_name == OLD {
+            // Note: We don't want to monomorphize `fv_std::old` into
+            // a ghost function because we may get a verifier error for
+            // having a ghost function with a mut reference parameter type.
+
+            // The function call to `fv_std::old` gets converted to a special
+            // Verus expressions anyways. Therefore the function `old` is not
+            // being actually called anywhere in the code.
+
+            // Therefore we don't want to produce an error
+        } else {
+            // A non-ghost function has been called in a FV annotation.
+            // This isn't allowed and we have to produce an adequate error.
+
+            // TODO(totel): Better error
+            panic!("Non-ghost function was called in a FV annotation");
+        }
     }
 
     Ok(())
+}
+
+fn has_ghost_attribute(func_modifiers: &FunctionModifiers) -> bool {
+    func_modifiers.attributes.secondary.iter().find(|SecondaryAttribute { kind, location: _ }| {
+        matches!(kind, SecondaryAttributeKind::Tag(tag) if tag == "ghost")
+    }).is_some()
 }
