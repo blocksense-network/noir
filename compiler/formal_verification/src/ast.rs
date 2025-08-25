@@ -15,6 +15,7 @@ pub enum ExprF<R> {
     FnCall { name: Identifier, args: Vec<R> },
     Index { expr: R, index: R },
     TupleAccess { expr: R, index: u32 },
+    StructureAccess { expr: R, field: Identifier },
     Cast { expr: R, target: NoirType },
     Literal { value: Literal },
     Tuple { exprs: Vec<R> },
@@ -147,6 +148,9 @@ pub fn fmap<A, B>(expr: ExprF<A>, cata_fn: &impl Fn(A) -> B) -> ExprF<B> {
         }
         ExprF::Index { expr, index } => ExprF::Index { expr: cata_fn(expr), index: cata_fn(index) },
         ExprF::TupleAccess { expr, index } => ExprF::TupleAccess { expr: cata_fn(expr), index },
+        ExprF::StructureAccess { expr, field } => {
+            ExprF::StructureAccess { expr: cata_fn(expr), field }
+        }
         ExprF::Cast { expr, target } => ExprF::Cast { expr: cata_fn(expr), target },
         ExprF::Literal { value } => ExprF::Literal { value },
         ExprF::Tuple { exprs } => {
@@ -179,6 +183,9 @@ fn try_fmap<A, B, E>(expr: ExprF<A>, cata_fn: &impl Fn(A) -> Result<B, E>) -> Re
             ExprF::Index { expr: cata_fn(expr)?, index: cata_fn(index)? }
         }
         ExprF::TupleAccess { expr, index } => ExprF::TupleAccess { expr: cata_fn(expr)?, index },
+        ExprF::StructureAccess { expr, field } => {
+            ExprF::StructureAccess { expr: cata_fn(expr)?, field }
+        }
         ExprF::Cast { expr, target } => ExprF::Cast { expr: cata_fn(expr)?, target },
         ExprF::Literal { value } => ExprF::Literal { value },
         ExprF::Tuple { exprs } => {

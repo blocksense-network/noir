@@ -24,7 +24,7 @@ use errors::{
 
 use crate::{
     Attribute,
-    ast::{BinaryOp, ExprF, Literal, OffsetExpr, Quantifier, UnaryOp, Variable},
+    ast::{BinaryOp, ExprF, Identifier, Literal, OffsetExpr, Quantifier, UnaryOp, Variable},
     span_expr,
 };
 
@@ -462,6 +462,7 @@ pub(crate) enum Postfix {
     ArrayIndex(OffsetExpr),
     TupleMember(BigInt),
     Cast(CastTargetType),
+    FieldAccess(Identifier),
 }
 
 pub(crate) enum CastTargetType {
@@ -498,6 +499,11 @@ pub(crate) fn parse_postfix_expr<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr
                         ExprF::TupleAccess { expr: expr_base, index: index_u32 },
                     )
                 }
+                Postfix::FieldAccess(field) => build_expr(
+                    prev_offset,
+                    after_offset,
+                    ExprF::StructureAccess { expr: expr_base, field },
+                ),
                 Postfix::Cast(target_type) => build_expr(
                     prev_offset,
                     after_offset,
@@ -523,6 +529,7 @@ pub(crate) fn parse_any_suffix<'a>(input: Input<'a>) -> PResult<'a, Postfix> {
     alt((
         context("index", map(parse_index_suffix, Postfix::ArrayIndex)),
         context("member", map(parse_member_suffix, Postfix::TupleMember)),
+        context("struct_field", map(parse_field_access_suffix, Postfix::FieldAccess)),
         context("cast", map(parse_cast_suffix, Postfix::Cast)),
     ))
     .parse(input)
@@ -541,8 +548,19 @@ pub(crate) fn parse_index_suffix<'a>(input: Input<'a>) -> PResult<'a, OffsetExpr
 }
 
 pub(crate) fn parse_member_suffix<'a>(input: Input<'a>) -> PResult<'a, BigInt> {
-    preceded(pair(multispace, expect("'.' for tuple access".to_string(), tag("."))), cut(parse_int))
+    preceded(pair(multispace, expect("'.' for tuple access".to_string(), tag("."))), parse_int)
         .parse(input)
+}
+
+pub(crate) fn parse_field_access_suffix<'a>(input: Input<'a>) -> PResult<'a, String> {
+    map(
+        preceded(
+            pair(multispace, expect("'.' for field access".to_string(), tag("."))),
+            cut(parse_identifier),
+        ),
+        |s: &str| s.to_string(),
+    )
+    .parse(input)
 }
 
 pub(crate) fn parse_cast_suffix<'a>(input: Input<'a>) -> PResult<'a, CastTargetType> {
@@ -925,6 +943,18 @@ pub mod tests {
                         ]),
                         Visibility::Public,
                     ),
+                    (
+                        LocalId(6),
+                        false,
+                        "object".to_string(),
+                        // Structures are of type Tuple in the Mon. Ast
+                        NoirType::Tuple(vec![
+                            NoirType::Integer(Signedness::Unsigned, IntegerBitSize::Sixteen),
+                            NoirType::Field,
+                            NoirType::Bool,
+                        ]),
+                        Visibility::Public,
+                    ),
                 ],
                 body: Expression::Block(vec![]),
                 return_type: NoirType::Integer(
@@ -960,7 +990,7 @@ pub mod tests {
                 .into_iter()
                 .collect(),
             )),
-            min_local_id: Rc::new(RefCell::new(6)),
+            min_local_id: Rc::new(RefCell::new(7)),
         }
     }
 
@@ -1177,6 +1207,36 @@ pub mod tests {
 
         let Attribute::Ensures(expr) = attribute else { panic!() };
         dbg!(strip_ann(expr));
+    }
+
+    #[test]
+    fn test_structure_access() {
+        let annotation = "ensures(object.some_field)";
+        let state = empty_state();
+        let attribute = parse_attribute(
+            annotation,
+            Location {
+                span: Span::inclusive(0, annotation.len() as u32),
+                file: Default::default(),
+            },
+            state.function,
+            state.global_constants,
+            state.functions,
+        )
+        .unwrap();
+
+        let Attribute::Ensures(expr) = attribute else { panic!("Expected an 'ensures' attribute") };
+
+        let ExprF::StructureAccess { expr: inner, field } = &*expr.expr else {
+            panic!("Expected a StructureAccess expression");
+        };
+
+        let ExprF::Variable(Variable { name, .. }) = &*inner.expr else {
+            panic!("Expected inner expression to be a variable");
+        };
+        assert_eq!(name, "object");
+
+        assert_eq!(field, "some_field");
     }
 
     #[test]

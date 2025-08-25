@@ -219,7 +219,8 @@ impl SpannedPartiallyTypedExpr {
                 | ExprF::Index { .. }
                 | ExprF::Cast { .. }
                 | ExprF::Tuple { .. }
-                | ExprF::Array { .. } => unreachable!(
+                | ExprF::Array { .. }
+                | ExprF::StructureAccess { .. } => unreachable!(
                     "ICE: Unexpected expression {:?} found with IntegerLiteral type",
                     self.expr
                 ),
@@ -292,6 +293,10 @@ pub fn type_infer(
     state: &State,
     expr: SpannedExpr,
 ) -> Result<SpannedTypedExpr, TypeInferenceError> {
+    // TODO(totel): Transform all StructureAccess expressions into TupleAccess
+
+    // TODO(totel): Assert that there are no Expressions of type StructureAccess in the AST
+
     // NOTE: predicate, always bool,
     //       assume subterms are `u32` (like `Noir` does)
     let default_literal_type = NoirType::Integer(Signedness::Unsigned, IntegerBitSize::ThirtyTwo);
@@ -982,6 +987,10 @@ pub fn type_infer(
                         Box::new(concrete_element_type),
                     ))
                 }
+                ExprF::StructureAccess { .. } => {
+                    // All StructureAccess have been converted into TupleAccess expressions
+                    unreachable!()
+                }
             };
 
             Ok(SpannedPartiallyTypedExpr { ann: (location, exprf_type), expr: Box::new(exprf) })
@@ -1020,6 +1029,11 @@ pub fn type_infer(
 
         // Non-recursive variants don't carry information
         ExprF::Literal { .. } => true,
+
+        // All StructureAccess have been converted into TupleAccess expressions
+        ExprF::StructureAccess { .. } => {
+            unreachable!()
+        }
     }));
 
     Ok(fully_typed_expr)
@@ -1146,6 +1160,8 @@ mod tests {
 
                     // Non-recursive variants don't carry information
                     ExprF::Literal { value: Literal::Bool(_) } | ExprF::Variable(_) => true,
+
+                    ExprF::StructureAccess { .. } => unreachable!(),
                 }
             }),
             "All integer literals have the correct inferred type"
@@ -1187,6 +1203,8 @@ mod tests {
 
                     // Non-recursive variants don't carry information
                     ExprF::Literal { value: Literal::Bool(_) } | ExprF::Variable(_) => true,
+
+                    ExprF::StructureAccess { .. } => unreachable!(),
                 }
             }),
             "All integer literals have the correct inferred type"
@@ -1216,6 +1234,8 @@ mod tests {
 
                     // Non-recursive variants don't carry information
                     ExprF::Literal { .. } => true,
+
+                    ExprF::StructureAccess { .. } => unreachable!(),
                 }
             }),
             "All bound variables have the correct inferred type"

@@ -412,6 +412,10 @@ pub(crate) fn ann_expr_to_vir_expr(ann_expr: SpannedTypedExpr, state: &State) ->
                     exprx,
                 )
             }
+            ExprF::StructureAccess { .. } => {
+                // All expressions of type StructureAccess have been converted to TupleAccess
+                unreachable!()
+            }
         }
     })
 }
