@@ -19,6 +19,7 @@ pub(crate) enum MonomorphizationErrorBundle {
     FvError(FvMonomorphizationError),
     TypeError(TypeCheckError),
     ParserErrors(Vec<ParserErrorWithLocation>),
+    ResolverError(ResolverError),
 }
 
 pub(crate) enum CompilationErrorBundle {
@@ -26,6 +27,7 @@ pub(crate) enum CompilationErrorBundle {
     FvError(FvMonomorphizationError),
     TypeError(TypeCheckError),
     ParserErrors(Vec<ParserErrorWithLocation>),
+    ResolverError(ResolverError),
 }
 
 #[derive(Error, Debug, Clone)]
