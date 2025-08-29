@@ -1,5 +1,6 @@
 use fm::FileId;
 use formal_verification::ast::{AnnExpr, SpannedTypedExpr};
+use formal_verification::convert_structs::convert_struct_access_to_tuple_access;
 use formal_verification::type_conversion::convert_mast_to_noir_type;
 use formal_verification::typing::{OptionalType, TypeInferenceError, type_infer};
 use formal_verification::{State, parse::parse_attribute};
@@ -16,6 +17,7 @@ use noirc_evaluator::{
 use noirc_frontend::Kind;
 use noirc_frontend::hir_def::expr::HirCallExpression;
 use noirc_frontend::hir_def::expr::{HirExpression, HirLiteral};
+use noirc_frontend::hir_def::stmt::HirPattern;
 use noirc_frontend::monomorphization::ast::LocalId;
 use noirc_frontend::node_interner::{ExprId, FunctionModifiers};
 use noirc_frontend::token::SecondaryAttribute;
@@ -80,6 +82,9 @@ fn modified_compile_main(
             CompilationErrorBundle::ParserErrors(parser_errors) => {
                 parser_errors.into_iter().map(CustomDiagnostic::from).collect()
             }
+            CompilationErrorBundle::ResolverError(resolver_error) => {
+                vec![CustomDiagnostic::from(&resolver_error)]
+            }
         })?;
 
     let compilation_warnings = vecmap(compiled_program.warnings.clone(), CustomDiagnostic::from);
@@ -121,6 +126,9 @@ fn modified_compile_no_check(
         }
         MonomorphizationErrorBundle::ParserErrors(parser_errors) => {
             CompilationErrorBundle::ParserErrors(parser_errors)
+        }
+        MonomorphizationErrorBundle::ResolverError(resolver_error) => {
+            CompilationErrorBundle::ResolverError(resolver_error)
         }
     })?;
 
@@ -224,6 +232,9 @@ fn modified_monomorphize(
     let mut to_be_added_ghost_attribute: HashSet<FuncId> = HashSet::new();
 
     for (new_func_id, old_id) in functions_to_process {
+        let parameters_hir_types: HashMap<String, noirc_frontend::Type> =
+            collect_parameter_hir_types(&monomorphizer, &old_id);
+
         let attribute_data: Vec<_> = monomorphizer
             .interner
             .function_attributes(&old_id)
@@ -269,6 +280,7 @@ fn modified_monomorphize(
                         new_func_id,
                         &globals,
                         min_available_id.clone(),
+                        &parameters_hir_types,
                         expr,
                         &mut new_ids_to_old_ids,
                         &mut to_be_added_ghost_attribute,
@@ -281,6 +293,7 @@ fn modified_monomorphize(
                         new_func_id,
                         &globals,
                         min_available_id.clone(),
+                        &parameters_hir_types,
                         expr,
                         &mut new_ids_to_old_ids,
                         &mut to_be_added_ghost_attribute,
@@ -348,6 +361,7 @@ fn type_infer_attribute_expr(
         ),
     >,
     min_available_id: Rc<RefCell<u32>>,
+    parameters_hir_types: &HashMap<String, noirc_frontend::Type>,
     expr: AnnExpr<Location>,
     new_ids_to_old_ids: &mut HashMap<FuncId, node_interner::FuncId>,
     to_be_added_ghost_attribute: &mut HashSet<FuncId>,
@@ -366,6 +380,16 @@ fn type_infer_attribute_expr(
             functions: &monomorphizer.finished_functions,
             min_local_id: min_available_id.clone(),
         };
+
+        let expr = convert_struct_access_to_tuple_access(expr.clone(), parameters_hir_types)
+            .map_err(|e| match e {
+                formal_verification::convert_structs::ResolverOrTypeError::ResolverError(
+                    resolver_error,
+                ) => MonomorphizationErrorBundle::ResolverError(resolver_error),
+                formal_verification::convert_structs::ResolverOrTypeError::TypeError(
+                    type_check_error,
+                ) => MonomorphizationErrorBundle::TypeError(type_check_error),
+            })?;
 
         match type_infer(&state, expr.clone()) {
             Ok(typed_expr) => {
@@ -530,4 +554,43 @@ fn has_ghost_attribute(func_modifiers: &FunctionModifiers) -> bool {
     func_modifiers.attributes.secondary.iter().any(|SecondaryAttribute { kind, location: _ }| {
         matches!(kind, SecondaryAttributeKind::Tag(tag) if tag == "ghost")
     })
+}
+
+fn collect_parameter_hir_types(
+    monomorphizer: &Monomorphizer,
+    old_id: &node_interner::FuncId,
+) -> HashMap<String, noirc_frontend::Type> {
+    let interner = &monomorphizer.interner;
+    let func_meta = interner.function_meta(old_id);
+
+    let mut struct_arguments: HashMap<String, noirc_frontend::Type> = func_meta
+        .parameters
+        .0
+        .iter()
+        .map(|(hir_pattern, typ, _)| {
+            // Extract identifier from the pattern
+            let ident = match hir_pattern {
+                HirPattern::Identifier(ident) => ident,
+                HirPattern::Mutable(inner, _) => match inner.as_ref() {
+                    HirPattern::Identifier(ident) => ident,
+                    // NOTE: We assume that only the Hir patterns "Identifier" and "Mutable"
+                    // appear for function parameters
+                    other => unreachable!(
+                        "Expected HirPattern::Identifier inside HirPattern::Mutable, got: {:?}",
+                        other
+                    ),
+                },
+                other => unreachable!(
+                    "Expected HirPattern::Identifier or HirPattern::Mutable, got: {:?}",
+                    other
+                ),
+            };
+
+            (interner.definition(ident.id).name.clone(), typ.clone())
+        })
+        .collect();
+
+    struct_arguments.insert("result".to_string(), func_meta.return_type().clone());
+
+    struct_arguments
 }
