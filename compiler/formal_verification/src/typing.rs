@@ -293,8 +293,6 @@ pub fn type_infer(
     state: &State,
     expr: SpannedExpr,
 ) -> Result<SpannedTypedExpr, TypeInferenceError> {
-    // TODO(totel): Transform all StructureAccess expressions into TupleAccess
-
     // TODO(totel): Assert that there are no Expressions of type StructureAccess in the AST
 
     // NOTE: predicate, always bool,
