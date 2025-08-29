@@ -200,6 +200,41 @@ fn try_fmap<A, B, E>(expr: ExprF<A>, cata_fn: &impl Fn(A) -> Result<B, E>) -> Re
     })
 }
 
+fn try_fmap_mut<A, B, E>(expr: ExprF<A>, cata_fn: &mut impl FnMut(A) -> Result<B, E>) -> Result<ExprF<B>, E> {
+    Ok(match expr {
+        ExprF::BinaryOp { op, expr_left, expr_right } => {
+            ExprF::BinaryOp { op, expr_left: cata_fn(expr_left)?, expr_right: cata_fn(expr_right)? }
+        }
+        ExprF::UnaryOp { op, expr } => ExprF::UnaryOp { op, expr: cata_fn(expr)? },
+        ExprF::Parenthesised { expr } => ExprF::Parenthesised { expr: cata_fn(expr)? },
+        ExprF::Quantified { quantifier, variables, expr } => {
+            ExprF::Quantified { quantifier, variables, expr: cata_fn(expr)? }
+        }
+        ExprF::FnCall { name, args } => {
+            let processed_args = args.into_iter().map(cata_fn).collect::<Result<Vec<_>, _>>()?;
+            ExprF::FnCall { name, args: processed_args }
+        }
+        ExprF::Index { expr, index } => {
+            ExprF::Index {  index: cata_fn(index)? , expr: cata_fn(expr)? }
+        }
+        ExprF::TupleAccess { expr, index } => ExprF::TupleAccess { expr: cata_fn(expr)?, index },
+        ExprF::StructureAccess { expr, field } => {
+            ExprF::StructureAccess { expr: cata_fn(expr)?, field }
+        }
+        ExprF::Cast { expr, target } => ExprF::Cast { expr: cata_fn(expr)?, target },
+        ExprF::Literal { value } => ExprF::Literal { value },
+        ExprF::Tuple { exprs } => {
+            ExprF::Tuple { exprs: exprs.into_iter().map(cata_fn).collect::<Result<Vec<_>, _>>()? }
+        }
+        ExprF::Array { exprs } => {
+            ExprF::Array { exprs: exprs.into_iter().map(cata_fn).collect::<Result<Vec<_>, _>>()? }
+        }
+        ExprF::Variable(Variable { path, name, id }) => {
+            ExprF::Variable(Variable { path, name, id })
+        }
+    })
+}
+
 pub fn cata<A, B>(expr: AnnExpr<A>, algebra: &impl Fn(A, ExprF<B>) -> B) -> B {
     let children_results = fmap(*expr.expr, &|child| cata(child, algebra));
 
@@ -211,6 +246,15 @@ pub fn try_cata<A, B, E>(
     algebra: &impl Fn(A, ExprF<B>) -> Result<B, E>,
 ) -> Result<B, E> {
     let children_results = try_fmap(*expr.expr, &|child| try_cata(child, algebra))?;
+
+    algebra(expr.ann, children_results)
+}
+
+pub fn try_cata_mut<A, B, E>(
+    expr: AnnExpr<A>,
+    algebra: &mut impl FnMut(A, ExprF<B>) -> Result<B, E>,
+) -> Result<B, E> {
+    let children_results = try_fmap_mut(*expr.expr, &mut |child| try_cata_mut(child, algebra))?;
 
     algebra(expr.ann, children_results)
 }
