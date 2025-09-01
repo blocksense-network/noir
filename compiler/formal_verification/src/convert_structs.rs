@@ -14,7 +14,7 @@ pub fn convert_struct_access_to_tuple_access(
     let mut last_important_type: Option<noirc_frontend::Type> = None;
 
     let res: SpannedExpr =
-        try_cata_mut(expr.clone(), &mut |loc, exprf| -> Result<_, ResolverOrTypeError> {
+        try_cata_mut(expr, &mut |loc, exprf| -> Result<_, ResolverOrTypeError> {
             match exprf {
                 ExprF::Index { .. } => {
                     if let Some(last_type) = &last_important_type {
@@ -102,7 +102,14 @@ pub fn convert_struct_access_to_tuple_access(
                 | ExprF::UnaryOp { op: crate::ast::UnaryOp::Dereference, .. } => {
                     Ok(SpannedExpr { ann: loc, expr: Box::new(exprf) })
                 }
-                _ => {
+                ExprF::BinaryOp { .. }
+                | ExprF::Quantified { .. }
+                | ExprF::FnCall { .. }
+                | ExprF::Cast { .. }
+                | ExprF::Literal { .. }
+                | ExprF::Tuple { .. }
+                | ExprF::Array { .. }
+                | ExprF::UnaryOp { .. } => {
                     last_important_type = None;
                     Ok(SpannedExpr { ann: loc, expr: Box::new(exprf) })
                 }
