@@ -1,6 +1,6 @@
 fn main() {}
 
-#[requires(x)]
+#['requires(x)]
 fn foo(x: bool) -> Field {
   5
 }

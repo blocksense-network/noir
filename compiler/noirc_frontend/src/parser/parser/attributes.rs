@@ -7,6 +7,7 @@ use crate::lexer::fv_attributes::{
 };
 use crate::parser::ParserErrorReason;
 use crate::parser::labels::ParsingRuleLabel;
+use crate::parser::parser::TokenStream;
 use crate::token::{
     Attribute, FunctionAttribute, FunctionAttributeKind, FuzzingScope, MetaAttribute,
     MetaAttributeName, SecondaryAttribute, SecondaryAttributeKind, TestScope, Token,
@@ -114,6 +115,8 @@ impl Parser<'_> {
 
         let mut brackets_count = 1; // 1 because of the starting `#[`
 
+        self.set_lexer_skip_whitespaces_flag(false);
+
         while !self.at_eof() {
             if self.at(Token::LeftBracket) {
                 brackets_count += 1;
@@ -126,6 +129,11 @@ impl Parser<'_> {
             }
 
             contents.push_str(&self.token.to_string());
+            self.bump();
+        }
+
+        self.set_lexer_skip_whitespaces_flag(true);
+        while self.at_whitespace() {
             self.bump();
         }
 

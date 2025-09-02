@@ -1,4 +1,4 @@
-#[ensures((result[0] == 64))]
+#['ensures((result[0] == 64))]
 fn main() -> pub [u32; 2] {
     out
 }

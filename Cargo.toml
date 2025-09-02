@@ -1,6 +1,8 @@
 [workspace]
 
 members = [
+    # FV crates
+    "compiler/fv_bridge",
     # Compiler crates
     "compiler/noirc_arena",
     "compiler/noirc_evaluator",
@@ -8,6 +10,7 @@ members = [
     "compiler/noirc_errors",
     "compiler/noirc_driver",
     "compiler/noirc_printable_type",
+    "compiler/formal_verification",
     "compiler/fm",
     "compiler/wasm",
     # Crates related to tooling built on top of the Noir compiler
@@ -154,6 +157,8 @@ codespan-reporting = "0.11.1"
 
 # Formal verification
 vir = {git = "https://github.com/Aristotelis2002/verus-lib", branch = "synced_main"}
+formal_verification = { path = "compiler/formal_verification"}
+fv_bridge = { path = "compiler/fv_bridge" }
 
 # Benchmarking
 criterion = "^0.5.0"

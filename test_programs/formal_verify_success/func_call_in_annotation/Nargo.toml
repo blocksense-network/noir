@@ -1,0 +1,6 @@
+[package]
+name = "func_call_in_annotation"
+type = "bin"
+authors = [""]
+
+[dependencies]

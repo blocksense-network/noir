@@ -71,7 +71,7 @@ fn get_integer_type_bitwidth(integer_type: &Type) -> IntegerTypeBitwidth {
 /// Similar to `get_integer_type_bitwidth` but we have a different logic
 /// for the types Field and Signed integer.
 /// Will `panic` if the type is not an integer.
-pub(crate) fn get_bit_not_bitwidth(integer_type: &Type) -> Option<IntegerTypeBitwidth> {
+pub fn get_bit_not_bitwidth(integer_type: &Type) -> Option<IntegerTypeBitwidth> {
     match integer_type {
         Type::Field | Type::Integer(Signedness::Signed, _) => None,
         Type::Integer(Signedness::Unsigned, _) => Some(get_integer_type_bitwidth(integer_type)),
