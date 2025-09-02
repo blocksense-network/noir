@@ -1,0 +1,6 @@
+[package]
+name = "shadow_global_const"
+type = "bin"
+authors = [""]
+
+[dependencies]
