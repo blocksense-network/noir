@@ -1,0 +1,7 @@
+[package]
+name = "non_full_path_global_var"
+type = "bin"
+authors = [""]
+
+[dependencies]
+fv_std = { path = "../../../fv_std" }

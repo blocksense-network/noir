@@ -332,10 +332,10 @@ pub fn type_infer(
                         OptionalType::IntegerLiteral
                     }
                 },
-                ExprF::Variable(Variable { path: _, name, id }) => {
-                    // TODO(totel): Ignoring paths since they're already stripped from the provided state parameter
-                    // This has to be resolved by adding paths to the State which is passed to `type_infer`.
-                    // We then must compare the paths.
+                ExprF::Variable(Variable { path, name, id }) => {
+                    // NOTE: All paths should be empty because we have inlined all global variables with paths.
+                    // This occurs in the `inline_globals` pass located in `compiler/formal_verification/src/inline_globals.rs`
+                    assert!(path.is_empty());
 
                     // NOTE: parsing should not yield `id`s
                     debug_assert_eq!(*id, None);
