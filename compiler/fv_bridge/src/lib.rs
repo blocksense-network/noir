@@ -1,6 +1,7 @@
 use fm::FileId;
 use formal_verification::ast::{AnnExpr, SpannedTypedExpr};
 use formal_verification::convert_structs::convert_struct_access_to_tuple_access;
+use formal_verification::inline_globals::inline_global_consts;
 use formal_verification::type_conversion::convert_mast_to_noir_type;
 use formal_verification::typing::{OptionalType, TypeInferenceError, type_infer};
 use formal_verification::{State, parse::parse_attribute};
@@ -15,11 +16,13 @@ use noirc_evaluator::{
     vir::{create_verus_vir_with_ready_annotations, vir_gen::BuildingKrateError},
 };
 use noirc_frontend::Kind;
+use noirc_frontend::graph::CrateGraph;
+use noirc_frontend::hir::def_map::{DefMaps, ModuleId, fully_qualified_module_path};
 use noirc_frontend::hir_def::expr::HirCallExpression;
 use noirc_frontend::hir_def::expr::{HirExpression, HirLiteral};
 use noirc_frontend::hir_def::stmt::HirPattern;
 use noirc_frontend::monomorphization::ast::LocalId;
-use noirc_frontend::node_interner::{ExprId, FunctionModifiers};
+use noirc_frontend::node_interner::{ExprId, FunctionModifiers, GlobalValue};
 use noirc_frontend::token::SecondaryAttribute;
 use noirc_frontend::{
     debug::DebugInstrumenter,
@@ -111,6 +114,8 @@ fn modified_compile_no_check(
         &mut context.def_interner,
         &DebugInstrumenter::default(),
         force_unconstrained,
+        &context.crate_graph,
+        &context.def_maps,
     )
     .map_err(|e| match e {
         MonomorphizationErrorBundle::MonomorphizationError(monomorphization_error) => {
@@ -163,6 +168,8 @@ fn modified_monomorphize(
     interner: &mut NodeInterner,
     debug_instrumenter: &DebugInstrumenter,
     force_unconstrained: bool,
+    crate_graph: &CrateGraph,
+    def_maps: &DefMaps,
 ) -> Result<(Program, Vec<(FuncId, Vec<Attribute>)>), MonomorphizationErrorBundle> {
     let debug_type_tracker = DebugTypeTracker::build_from_debug_instrumenter(debug_instrumenter);
     // NOTE: Monomorphizer is a `pub(crate)` struct which we changed to pub
@@ -231,9 +238,26 @@ fn modified_monomorphize(
     // manually add ghost attributes to them.
     let mut to_be_added_ghost_attribute: HashSet<FuncId> = HashSet::new();
 
+    // Initialize the globals map and a tracker for the last seen crate ID outside the loop.
+    let mut globals_with_paths: HashMap<String, GlobalValue> = HashMap::new();
+    let mut last_crate_id: Option<CrateId> = None;
+
     for (new_func_id, old_id) in functions_to_process {
         let parameters_hir_types: HashMap<String, noirc_frontend::Type> =
             collect_parameter_hir_types(&monomorphizer, &old_id);
+
+        // Determine the crate ID of the function currently being processed.
+        let current_func_crate_id = monomorphizer.interner.function_meta(&old_id).source_crate;
+
+        // Conditionally update the globals map based on the current crate context.
+        update_globals_if_needed(
+            &mut last_crate_id,
+            &mut globals_with_paths,
+            current_func_crate_id,
+            &monomorphizer,
+            def_maps,
+            crate_graph,
+        );
 
         let attribute_data: Vec<_> = monomorphizer
             .interner
@@ -281,6 +305,7 @@ fn modified_monomorphize(
                         &globals,
                         min_available_id.clone(),
                         &parameters_hir_types,
+                        &globals_with_paths,
                         expr,
                         &mut new_ids_to_old_ids,
                         &mut to_be_added_ghost_attribute,
@@ -294,6 +319,7 @@ fn modified_monomorphize(
                         &globals,
                         min_available_id.clone(),
                         &parameters_hir_types,
+                        &globals_with_paths,
                         expr,
                         &mut new_ids_to_old_ids,
                         &mut to_be_added_ghost_attribute,
@@ -362,6 +388,7 @@ fn type_infer_attribute_expr(
     >,
     min_available_id: Rc<RefCell<u32>>,
     parameters_hir_types: &HashMap<String, noirc_frontend::Type>,
+    pathed_globals_with_values: &HashMap<String, GlobalValue>,
     expr: AnnExpr<Location>,
     new_ids_to_old_ids: &mut HashMap<FuncId, node_interner::FuncId>,
     to_be_added_ghost_attribute: &mut HashSet<FuncId>,
@@ -390,6 +417,32 @@ fn type_infer_attribute_expr(
                     type_check_error,
                 ) => MonomorphizationErrorBundle::TypeError(type_check_error),
             })?;
+
+        let param_names: Vec<&str> = state
+            .function
+            .parameters
+            .iter()
+            .map(|(_, _, param_name, _, _)| param_name.as_str())
+            .collect();
+        // NOTE: If a global variable is added to the scope via `use foo::x` it wont be added to
+        // the `finished_globals` map unless it's being used somewhere in a function's body.
+        // Therefore the user has to use the full path for global variables even though they
+        // are added to the scope.
+
+        // NOTE: Because the `finished_globals` map doesn't contain
+        // all globals but only the ones which are used inside of function's
+        // body and the fact that we can not easily add values to that map,
+        // we are doing the following:
+        // We are gathering all globals from the HIR form of the AST.
+        // We visit the FV annotation AST and if we encounter a node which
+        // is a global variable, we inline the const value of that global variable.
+
+        let expr = inline_global_consts(
+            expr,
+            pathed_globals_with_values,
+            &param_names,
+        )
+        .map_err(MonomorphizationErrorBundle::ResolverError)?;
 
         match type_infer(&state, expr.clone()) {
             Ok(typed_expr) => {
@@ -593,4 +646,49 @@ fn collect_parameter_hir_types(
     struct_arguments.insert("result".to_string(), func_meta.return_type().clone());
 
     struct_arguments
+}
+
+/// Updates the `globals_with_paths` map if the current function belongs to a new crate.
+///
+/// The fully qualified paths of globals are relative to the crate being processed.
+/// This function checks if the `current_func_crate_id` is different from the last one seen.
+/// If it is, it re-calculates the paths for all globals and updates the map.
+/// Otherwise, the existing map is considered valid and is not modified.
+fn update_globals_if_needed(
+    last_crate_id: &mut Option<CrateId>,
+    globals_with_paths: &mut HashMap<String, GlobalValue>,
+    current_func_crate_id: CrateId,
+    monomorphizer: &Monomorphizer,
+    def_maps: &DefMaps,
+    crate_graph: &CrateGraph,
+) {
+    if last_crate_id.map_or(true, |id| id != current_func_crate_id) {
+        *globals_with_paths = monomorphizer
+            .interner
+            .get_all_globals()
+            .iter()
+            .map(|global_info| {
+                let module_id =
+                    ModuleId { krate: global_info.crate_id, local_id: global_info.local_id };
+
+                let mut module_path = fully_qualified_module_path(
+                    def_maps,
+                    crate_graph,
+                    &current_func_crate_id,
+                    module_id,
+                );
+                // HACK: The function `fully_qualified_module_path` fails to consistently add `::`
+                // at the end of each path. Therefore we manually add double colons if they are missing.
+                if !module_path.ends_with("::") {
+                    module_path.push_str("::");
+                }
+
+                let full_path = format!("{}{}", module_path, global_info.ident.as_str());
+
+                (full_path, global_info.value.clone())
+            })
+            .collect();
+
+        *last_crate_id = Some(current_func_crate_id);
+    }
 }
