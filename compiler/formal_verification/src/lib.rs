@@ -11,6 +11,7 @@ use crate::{
 // NOTE: all types inside are not prefixed, to be used as `ast::OffsetExpr`
 pub mod ast;
 pub mod convert_structs;
+pub mod inline_globals;
 pub mod parse;
 pub mod type_conversion;
 pub mod typing;
