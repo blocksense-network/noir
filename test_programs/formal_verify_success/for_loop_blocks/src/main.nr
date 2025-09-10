@@ -1,4 +1,4 @@
-#[ensures(result == 10)]
+#['ensures(result == 10)]
 fn main() -> pub u32 {
   let x = {
     let a = 3;

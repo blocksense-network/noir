@@ -1,6 +1,6 @@
 fn main() {}
 
-#[ensures(result)]
+#['ensures(result)]
 fn foo() -> bool {
   true
 }

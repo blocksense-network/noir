@@ -1,0 +1,167 @@
+use noirc_errors::{CustomDiagnostic, Location, Span};
+use nom::{
+    Err as NomErr, IResult, Parser,
+    error::{ContextError, ErrorKind, ParseError},
+};
+use std::fmt::Debug;
+
+use super::Input;
+
+#[derive(Debug, Clone)]
+pub struct ParserError {
+    /// Offset from the end of the annotation
+    pub offset: u32,
+    pub kind: ParserErrorKind,
+}
+
+#[derive(Debug, Clone)]
+pub struct ParserErrorWithLocation {
+    pub location: Location,
+    pub kind: ParserErrorKind,
+}
+
+// The different kinds of specific errors.
+#[derive(Debug, Clone)]
+pub enum ParserErrorKind {
+    Expected {
+        // e.g., "Expected ')'"
+        expected: String,
+        // e.g., "found 'foo'"
+        found: String,
+    },
+    // e.g., "forall"
+    InvalidQuantifier(String),
+    // e.g., "reassures(...)"
+    UnknownAttribute(String),
+    // e.g., "123_abc"
+    InvalidIntegerLiteral,
+    // e.g., "user.5" where the member access must be an integer literal
+    InvalidTupleIndex,
+    // When an identifier doesn't follow the rules (e.g., starts with a number)
+    InvalidIdentifier(String),
+    // A generic message for when other errors don't fit
+    Message(String),
+}
+
+// The error type that nom's functions will return
+#[derive(Debug, Clone)]
+pub struct Error {
+    pub parser_errors: Vec<ParserError>,
+    pub contexts: Vec<String>,
+}
+
+pub fn input_to_offset(i: Input) -> u32 {
+    i.len() as u32
+}
+
+/// Builds and returns our custom Error struct directly.
+pub fn build_error(input: Input, kind: ParserErrorKind) -> Error {
+    Error {
+        parser_errors: vec![ParserError { offset: input_to_offset(input), kind }],
+        contexts: vec![],
+    }
+}
+
+/// From an input slice, get the next token for use in an error message.
+pub fn get_found_token(input: Input) -> String {
+    match input.split_whitespace().next() {
+        Some("") | None => "end of input".to_string(),
+        Some(token) => token.to_string(),
+    }
+}
+
+/// A specialized version of `map_nom_err` for the common "Expected" error.
+pub fn expect<'a, P, O>(
+    expected_msg: impl AsRef<str>,
+    parser: P,
+) -> impl FnMut(Input<'a>) -> IResult<Input<'a>, O, Error>
+where
+    P: Parser<Input<'a>, Output = O, Error = Error>,
+{
+    map_nom_err(parser, move |fail_input| ParserErrorKind::Expected {
+        expected: expected_msg.as_ref().to_string(),
+        found: fail_input.to_string(),
+    })
+}
+
+/// A combinator that wraps a parser and maps any `NomErr::Error` to a custom error kind.
+///
+/// It takes a closure `F` that generates the error kind, allowing dynamic error
+/// messages based on the input at the failure point.
+pub fn map_nom_err<'a, P, O, F>(
+    mut parser: P,
+    error_fn: F,
+) -> impl FnMut(Input<'a>) -> IResult<Input<'a>, O, Error>
+where
+    P: Parser<Input<'a>, Output = O, Error = Error>,
+    F: Fn(Input<'a>) -> ParserErrorKind,
+{
+    move |input: Input<'a>| {
+        parser.parse(input).map_err(|e: NomErr<Error>| {
+            if let NomErr::Error(_) = e {
+                // Generate the error dynamically using the input at the point of failure.
+                NomErr::Error(build_error(input, error_fn(input)))
+            } else {
+                e
+            }
+        })
+    }
+}
+
+impl<'a> ParseError<Input<'a>> for Error {
+    fn from_error_kind(input: Input<'a>, kind: ErrorKind) -> Self {
+        // TODO: it'd be best in the future if we actually manage to suppress the builtin `nom`
+        //       errors at all levels, even under the `expect and `map_nom_err` calls
+        // unreachable!(
+        //     "We should wrap all errors and never have to convert from the built-in `nom` ones, still got a {:?} while parsing {:?} tho",
+        //     kind, input
+        // );
+
+        // NOTE: these errors should not matter, because of our usage of `expect` and `map_nom_err`
+        //       throughout the parser, ensuring that a primitive parser's error never sees the
+        //       light of day
+        let err = ParserError {
+            offset: input_to_offset(input),
+            kind: ParserErrorKind::Message(format!("nom primitive failed: {:?}", kind)),
+        };
+        Error { parser_errors: vec![err], contexts: vec![] }
+    }
+
+    fn append(_input: Input<'a>, _kind: ErrorKind, other: Self) -> Self {
+        // TODO: it'd be best to assert that this never happens either, check the `TODO` comment in
+        //       the `from_error_kind` function above
+        // unreachable!(
+        //     "We should wrap all errors and never have to convert from the built-in `nom` ones, still got a {:?} on top of {:?} while parsing {:?} tho",
+        //     kind, other, input
+        // );
+
+        // NOTE: This usually adds context of which primitive parsers were called before
+        //       encountering the `other` error
+        other
+    }
+}
+
+impl<'a> ContextError<Input<'a>> for Error {
+    fn add_context(_input: Input<'a>, ctx: &'static str, mut other: Self) -> Self {
+        other.contexts.push(ctx.to_string());
+        other
+    }
+}
+
+impl From<ParserErrorWithLocation> for CustomDiagnostic {
+    fn from(value: ParserErrorWithLocation) -> Self {
+        let primary_message = match value.kind {
+            ParserErrorKind::Expected { expected, found } => {
+                format!("Expected {} but found {}", expected, found)
+            }
+            ParserErrorKind::InvalidQuantifier(q) => format!("Invalid quantifier {}", q),
+            ParserErrorKind::UnknownAttribute(attr) => format!("Unknown attribute {}", attr),
+            ParserErrorKind::InvalidIntegerLiteral => "Invalid integer literal".to_string(),
+            ParserErrorKind::InvalidTupleIndex => "Invalid tuple index".to_string(),
+            ParserErrorKind::InvalidIdentifier(identifier) => format!("Invalid identifier {}", identifier),
+            ParserErrorKind::Message(msg) => msg,
+        };
+
+        CustomDiagnostic::simple_error(primary_message, String::new(), value.location)
+    }
+}
