@@ -17,7 +17,9 @@ use noirc_evaluator::{
 };
 use noirc_frontend::Kind;
 use noirc_frontend::graph::CrateGraph;
-use noirc_frontend::hir::def_map::{DefMaps, ModuleId, fully_qualified_module_path};
+use noirc_frontend::hir::def_map::{
+    DefMaps, LocalModuleId, ModuleDefId, ModuleId, fully_qualified_module_path,
+};
 use noirc_frontend::hir_def::expr::HirCallExpression;
 use noirc_frontend::hir_def::expr::{HirExpression, HirLiteral};
 use noirc_frontend::hir_def::stmt::HirPattern;
@@ -248,12 +250,14 @@ fn modified_monomorphize(
 
         // Determine the crate ID of the function currently being processed.
         let current_func_crate_id = monomorphizer.interner.function_meta(&old_id).source_crate;
+        let current_func_module_id = monomorphizer.interner.function_meta(&old_id).source_module;
 
         // Conditionally update the globals map based on the current crate context.
         update_globals_if_needed(
             &mut last_crate_id,
             &mut globals_with_paths,
             current_func_crate_id,
+            current_func_module_id,
             &monomorphizer,
             def_maps,
             crate_graph,
@@ -437,12 +441,8 @@ fn type_infer_attribute_expr(
         // We visit the FV annotation AST and if we encounter a node which
         // is a global variable, we inline the const value of that global variable.
 
-        let expr = inline_global_consts(
-            expr,
-            pathed_globals_with_values,
-            &param_names,
-        )
-        .map_err(MonomorphizationErrorBundle::ResolverError)?;
+        let expr = inline_global_consts(expr, pathed_globals_with_values, &param_names)
+            .map_err(MonomorphizationErrorBundle::ResolverError)?;
 
         match type_infer(&state, expr.clone()) {
             Ok(typed_expr) => {
@@ -658,11 +658,23 @@ fn update_globals_if_needed(
     last_crate_id: &mut Option<CrateId>,
     globals_with_paths: &mut HashMap<String, GlobalValue>,
     current_func_crate_id: CrateId,
+    current_func_module_id: LocalModuleId,
     monomorphizer: &Monomorphizer,
     def_maps: &DefMaps,
     crate_graph: &CrateGraph,
 ) {
     if last_crate_id.map_or(true, |id| id != current_func_crate_id) {
+        let fully_imported_globals: HashMap<_, _> = def_maps[&current_func_crate_id]
+            [current_func_module_id]
+            .scope()
+            .values()
+            .into_iter()
+            .filter_map(|(identifier, map)| match map.get(&None) {
+                Some((ModuleDefId::GlobalId(id), ..)) => Some((id, identifier)),
+                _ => None,
+            })
+            .collect();
+
         *globals_with_paths = monomorphizer
             .interner
             .get_all_globals()
@@ -683,7 +695,12 @@ fn update_globals_if_needed(
                     module_path.push_str("::");
                 }
 
-                let full_path = format!("{}{}", module_path, global_info.ident.as_str());
+                let full_path =
+                    if let Some(identifier) = fully_imported_globals.get(&global_info.id) {
+                        identifier.identifier().to_string()
+                    } else {
+                        format!("{}{}", module_path, global_info.ident.as_str())
+                    };
 
                 (full_path, global_info.value.clone())
             })
