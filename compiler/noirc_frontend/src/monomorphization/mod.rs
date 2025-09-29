@@ -95,7 +95,7 @@ pub struct Monomorphizer<'interner> {
     finished_functions: BTreeMap<FuncId, Function>,
 
     /// Used to reference existing definitions in the HIR
-    pub interner: &'interner mut NodeInterner,
+    interner: &'interner mut NodeInterner,
 
     lambda_envs_stack: Vec<LambdaContext>,
 
@@ -220,16 +220,12 @@ impl<'interner> Monomorphizer<'interner> {
         Ok(())
     }
 
-    pub fn peek_queue(&self) -> Option<&(
-        node_interner::FuncId,
-        FuncId,
-        TypeBindings,
-        Option<TraitItemId>,
-        bool,
-        Location,
-    )> {
+    pub fn peek_queue(
+        &self,
+    ) -> Option<&(node_interner::FuncId, FuncId, TypeBindings, Option<TraitItemId>, bool, Location)>
+    {
         self.queue.front()
-    } 
+    }
 
     pub fn finished_globals(&self) -> &HashMap<GlobalId, (String, ast::Type, ast::Expression)> {
         &self.finished_globals
@@ -245,6 +241,10 @@ impl<'interner> Monomorphizer<'interner> {
 
     pub fn return_location(&self) -> Option<Location> {
         self.return_location.clone()
+    }
+
+    pub fn interner(&self) -> &NodeInterner {
+        &self.interner
     }
 
     pub fn into_program(self, function_sig: FunctionSignature) -> Program {
@@ -2603,6 +2603,80 @@ impl<'interner> Monomorphizer<'interner> {
             }
             tuple => Ok(ast::Expression::ExtractTupleField(Box::new(tuple), index)),
         }
+    }
+
+    // NOTE: This helper exists for external tools that need to monomorphize
+    // a specific function by id using the public frontend APIs. It wires up
+    // a pseudo call on the interner, queues the job, and runs the queue so the
+    // new instantiation ends up in `finished_functions`.
+    // This function returns the new function id which was generated.
+    pub fn monomorphize_function_by_func_id(
+        &mut self,
+        func_id: node_interner::FuncId,
+        param_types: &[Type],
+    ) -> Result<FuncId, MonomorphizationError> {
+        let function_meta = self.interner.function_meta(&func_id).clone();
+        let param_count = function_meta.parameters.len();
+
+        assert_eq!(
+            param_types.len(),
+            param_count,
+            "monomorphize_function_by_name called with the wrong number of parameter types",
+        );
+
+        let func_expr_id = self.interner.function(&func_id).as_expr();
+
+        let pseudo_args: Vec<ExprId> = (0..param_count)
+            .map(|_| {
+                // Use a placeholder boolean literal for each argument slot. The value itself
+                // isn’t read, we just need concrete ExprIds so the interner will accept the call
+                self.interner.push_expr_full(
+                    HirExpression::Literal(HirLiteral::Bool(true)),
+                    Location::dummy(),
+                    Type::Bool,
+                )
+            })
+            .collect();
+
+        let pseudo_call_expr = HirExpression::Call(HirCallExpression {
+            func: func_expr_id,
+            arguments: pseudo_args,
+            location: Location::dummy(),
+            is_macro_call: false,
+        });
+
+        let pseudo_call_expr_id =
+            self.interner.push_expr_full(pseudo_call_expr, Location::dummy(), Type::Unit);
+
+        let (_, mut type_bindings) = Type::Unit.instantiate(&self.interner);
+
+        for (index, (_pattern, param_type, _)) in function_meta.parameters.0.iter().enumerate() {
+            let binding_type = param_types[index].clone();
+
+            match param_type.follow_bindings() {
+                Type::NamedGeneric(named_generic) => {
+                    type_bindings.insert(
+                        named_generic.type_var.id(),
+                        (named_generic.type_var.clone(), Kind::Normal, binding_type),
+                    );
+                }
+                Type::TypeVariable(type_var) => {
+                    type_bindings
+                        .insert(type_var.id(), (type_var.clone(), Kind::Normal, binding_type));
+                }
+                _ => {}
+            }
+        }
+
+        self.interner.store_instantiation_bindings(pseudo_call_expr_id, type_bindings);
+
+        let function_type = self.interner.id_type(func_expr_id);
+        let queued_id =
+            self.queue_function(func_id, pseudo_call_expr_id, function_type, Vec::new(), None);
+
+        self.process_queue()?;
+
+        Ok(queued_id)
     }
 }
 
