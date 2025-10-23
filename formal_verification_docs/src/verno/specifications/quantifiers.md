@@ -1,7 +1,7 @@
 # Quantifiers
 ## Logical implication
 
-To improve readability, Noir FV supports the *implication* operator `==>`. The expression `a ==> b` (reads as “a implies b”) is logically equivalent to `!a | b`.
+To improve readability, Verno supports the *implication* operator `==>`. The expression `a ==> b` (reads as “a implies b”) is logically equivalent to `!a | b`.
 
 For example, the expression:
 
@@ -27,10 +27,10 @@ fn is_power_of_2(x: i32) -> bool {
     }
 }
 
-#[requires(is_power_of_2(arr[0]))]
-#[requires(is_power_of_2(arr[1]))]
-#[requires(is_power_of_2(arr[2]))]
-#[ensures(is_power_of_2(result))]
+#['requires(is_power_of_2(arr[0]))]
+#['requires(is_power_of_2(arr[1]))]
+#['requires(is_power_of_2(arr[2]))]
+#['ensures(is_power_of_2(result))]
 fn main(arr: [i32; 3]) -> pub i32 {
     arr[1]
 }
@@ -38,7 +38,7 @@ fn main(arr: [i32; 3]) -> pub i32 {
 
 However, this approach doesn't scale well for larger arrays.
 
-Fortunately, Noir FV and SMT solvers support the [universal(`forall`) and existential(`exists`) quantifiers](https://en.wikipedia.org/wiki/Quantifier_(logic)), which we can think of as infinite conjunctions or disjunctions:
+Fortunately, Verno and SMT solvers support the [universal(`forall`) and existential(`exists`) quantifiers](https://en.wikipedia.org/wiki/Quantifier_(logic)), which we can think of as infinite conjunctions or disjunctions:
 
 ```
 forall(|i| f(i)) = ... f(-2) & f(-1) & f(0) & f(1) & f(2) & ...
@@ -49,11 +49,11 @@ By default the bound variables (`i` in `forall|i|`) are of type `int`, represent
 With quantifiers, it's much more convenient to write a specification about all elements of an array:
 
 ```rust,ignore
-#[requires(
+#['requires(
     forall(|i|
      (0 <= i) & (i < 3) ==> is_power_of_2(arr[i])
     ))]
-#[ensures(is_power_of_2(result))]
+#['ensures(is_power_of_2(result))]
 fn main(arr: [i32; 3]) -> pub i32 {
     arr[1]
 }
@@ -66,10 +66,10 @@ fn main(arr: [i32; 3]) -> pub i32 {
 The following example demonstrates how `exists` successfully finds a witness
 
 ```rust,ignore
-#[requires(is_power_of_2(arr[0]))] // Potential witness
-#[requires(!is_power_of_2(arr[1]))]
-#[requires(is_power_of_2(arr[2]))] // Potential witness
-#[ensures(exists(|i| (0 <= i) & (i < 3) ==> is_power_of_2(result[i])))] // i is going to be either 0 or 2
+#['requires(is_power_of_2(arr[0]))] // Potential witness
+#['requires(!is_power_of_2(arr[1]))]
+#['requires(is_power_of_2(arr[2]))] // Potential witness
+#['ensures(exists(|i| (0 <= i) & (i < 3) ==> is_power_of_2(result[i])))] // i is going to be either 0 or 2
 fn main(arr: [i32; 3]) -> pub [i32; 3] {
     arr
 }

@@ -1,6 +1,6 @@
 # Additional Features
 
-Noir FV supports formal verification for **structures**, **tuples**, and **generic functions**, enabling proofs for more complex data types and abstractions.
+Verno supports formal verification for **structures**, **tuples**, and **generic functions**, enabling proofs for more complex data types and abstractions.
 These features are seamless—no additional syntax, complex attributes, or overhead is required.
 
 ## Verifying Structs
@@ -16,9 +16,9 @@ struct Student {
 }
 
 // Returns true if the student qualifies for the scholarship 
-#[requires(student.grade <= MAX_GRADE)] // Max possible grade
-#[ensures(student.grade >= MIN_GRADE ==> result == true)]
-#[ensures(student.grade < MIN_GRADE ==> result == false)]
+#['requires(student.grade <= MAX_GRADE)] // Max possible grade
+#['ensures(student.grade >= MIN_GRADE ==> result == true)]
+#['ensures(student.grade < MIN_GRADE ==> result == false)]
 fn main(student: Student) -> pub bool{
     student.grade >= MIN_GRADE
 }
@@ -40,7 +40,7 @@ struct NamedAccount {
 }
 
 impl BankAccount for NamedAccount {
-  #[ensures(result == self.amount as u64)]
+  #['ensures(result == self.amount as u64)]
   fn get_amount(self) -> u64 {
     self.amount as u64
   }
@@ -52,18 +52,18 @@ struct AnonymousAccount {
 }
 
 impl BankAccount for AnonymousAccount {
-  #[ensures(result == self.amount as u64)]
+  #['ensures(result == self.amount as u64)]
   fn get_amount(self) -> u64 {
     self.amount as u64
   }
 }
 
-#[ensures(result == (first_account.amount as u64 + second_account.amount as u64) )]
+#['ensures(result == (first_account.amount as u64 + second_account.amount as u64) )]
 fn main(first_account: NamedAccount, second_account: AnonymousAccount) -> pub u64 {
   sum_accounts(first_account, second_account)
 }
 
-#[ensures(result == first.get_amount() + second.get_amount())]
+#['ensures(result == first.get_amount() + second.get_amount())]
 fn sum_accounts<T, U>(first: T, second: U) -> pub u64 
 where T: BankAccount,
       U: BankAccount,

@@ -4,7 +4,7 @@ At Blocksense, we’ve enhanced the Noir programming language and compiler with 
 
   1. [Noir time-travel debugging](./noir_tracer) in the [CodeTracer](https://github.com/metacraft-labs/codetracer) environment;
    
-  2. [formal verification](./noir_formal_verification) of Noir circuits, based on the Z3 SMT solver and the IR language of the [Verus project](https://github.com/verus-lang/verus); and
+  2. [Formal verification](./verno) of Noir circuits, based on the Z3 SMT solver and the IR language of the [Verus project](https://github.com/verus-lang/verus); and
    
   3. [Noir compilation support](./noir_plonky2_backend) for the PLONKY2 proof system.
     
